@@ -19,6 +19,7 @@ import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
+import { selfCliArgv } from './self-cli.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -200,20 +201,6 @@ export function getInstallSource(skill: SkippedSkill): string {
     }
   }
   return formatSourceInput(url, skill.ref);
-}
-
-/**
- * ADG patch: args for re-invoking the vendored CLI on `cli.ts`. `process.execArgv`
- * is forwarded so the child inherits Node flags (e.g. --experimental-strip-types)
- * needed to run TypeScript directly. `execArgv` is a parameter so the forwarding
- * can be tested with a non-empty flag set.
- */
-export function selfCliArgv(
-  cliEntry: string,
-  args: string[],
-  execArgv: string[] = process.execArgv
-): string[] {
-  return [...execArgv, cliEntry, ...args];
 }
 
 export function printSkippedSkills(skipped: SkippedSkill[]): void {

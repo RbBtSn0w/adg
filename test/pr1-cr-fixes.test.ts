@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 
 import { skillsChildArgv } from "../bin/adg.ts";
-import { selfCliArgv } from "../vendor/skills/src/update.ts";
+import { selfCliArgv } from "../vendor/skills/src/self-cli.ts";
 import { fileMemberName } from "../src/components.ts";
 import { isSymlinkTo } from "../src/commands/remove.ts";
 
