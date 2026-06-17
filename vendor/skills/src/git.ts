@@ -1,4 +1,7 @@
-import simpleGit from 'simple-git';
+// ADG patch: named import. The default import is not callable under the root
+// tsconfig (NodeNext + verbatimModuleSyntax, no esModuleInterop); simple-git
+// exposes `simpleGit` as a named export. See vendor/skills/PROVENANCE.md.
+import { simpleGit } from 'simple-git';
 import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -101,14 +104,6 @@ function isAuthFailure(message: string): boolean {
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
   return simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-      // When git-lfs IS installed, tell it not to download LFS content
-      // during checkout. See #952 for context and empirical impact.
-      GIT_LFS_SKIP_SMUDGE: '1',
-      ...extraEnv,
-    },
     // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
     // git sees `filter=lfs` in .gitattributes, tries to run
     // `git-lfs filter-process`, and aborts the checkout with:
@@ -137,6 +132,18 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     unsafe: {
       allowUnsafeFilter: true,
     },
+    // ADG patch: env must be applied via `.env()`, not as a constructor option.
+    // simple-git's factory only reads baseDir/maxConcurrentProcesses/trimmed from
+    // the options object and silently drops `env`, so the GIT_TERMINAL_PROMPT /
+    // GIT_LFS_SKIP_SMUDGE / GIT_SSH_COMMAND overrides below never reached the
+    // spawned git before this. See vendor/skills/PROVENANCE.md.
+  }).env({
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    // When git-lfs IS installed, tell it not to download LFS content during
+    // checkout. See #952 for context and empirical impact.
+    GIT_LFS_SKIP_SMUDGE: '1',
+    ...extraEnv,
   });
 }
 

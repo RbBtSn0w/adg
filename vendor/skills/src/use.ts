@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, stat, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
 import { agents } from './agents.ts';
@@ -112,19 +112,17 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
         i++;
       }
     } else if (arg === '--agent' || arg === '-a') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      const startCount = options.agent.length;
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      if (options.agent.length === startCount) {
+      // Take exactly one value (like --skill). Consuming greedily here would
+      // swallow the source in `skills use --agent claude-code <source>`. Repeated
+      // --agent flags collect into the array and are rejected as >1 downstream.
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
         errors.push(`${arg} requires an agent name`);
+      } else {
+        options.agent = options.agent || [];
+        options.agent.push(value);
+        i++;
       }
-      i--;
     } else if (arg.startsWith('-')) {
       errors.push(`Unknown option: ${arg}`);
     } else {
@@ -297,7 +295,7 @@ export async function runUse(
     }
 
     const materialized = await materializeUseSkill(selectedSkill);
-    await cleanupClone(cloneTempDir);
+    await removeTempDir(cloneTempDir);
     cloneTempDir = null;
 
     const prompt = buildUsePrompt({
@@ -307,16 +305,29 @@ export async function runUse(
     });
 
     if (useAgent) {
-      const exitCode = await launchAgentInteractively(useAgent, prompt);
+      // The agent reads supportDir while it runs, so clean up only once it exits.
+      let exitCode: number;
+      try {
+        exitCode = await launchAgentInteractively(useAgent, prompt);
+      } finally {
+        await removeTempDir(materialized.tempRoot);
+      }
       if (exitCode !== 0) {
         process.exit(exitCode);
       }
       return;
     }
 
+    // When piping the prompt out, a downstream agent reads supportDir *after*
+    // this process exits, so the temp dir must survive. Without supporting files
+    // nothing references it and it can be removed right away.
+    if (!materialized.hasSupportingFiles) {
+      await removeTempDir(materialized.tempRoot);
+    }
+
     process.stdout.write(prompt);
   } catch (error) {
-    await cleanupClone(cloneTempDir);
+    await removeTempDir(cloneTempDir);
     if (error instanceof GitCloneError) {
       fail(error.message);
     }
@@ -496,9 +507,10 @@ function validateUseAgentOption(agentValues: string[] | undefined): string[] {
   if (!agentValues || agentValues.length === 0) return [];
 
   const errors: string[] = [];
-  const validAgents = Object.keys(agents);
+  // Validate against the agents `use` can actually launch, not the full agent
+  // registry, so the parse-time message matches runtime support.
   const invalidAgents = agentValues.filter(
-    (agent) => agent !== '*' && !validAgents.includes(agent)
+    (agent) => agent !== '*' && !SUPPORTED_USE_AGENTS.includes(agent as AgentType)
   );
 
   if (agentValues.includes('*')) {
@@ -509,7 +521,8 @@ function validateUseAgentOption(agentValues: string[] | undefined): string[] {
   }
   if (invalidAgents.length > 0) {
     errors.push(
-      `Invalid agents: ${invalidAgents.join(', ')}\nValid agents: ${validAgents.join(', ')}`
+      `Unsupported agents for skills use --agent: ${invalidAgents.join(', ')}\n` +
+        `Supported agents: ${SUPPORTED_USE_AGENTS.join(', ')}`
     );
   }
 
@@ -557,7 +570,13 @@ async function writeSafeFile(
   }
 }
 
-async function copySkillDirectory(src: string, dest: string): Promise<void> {
+async function copySkillDirectory(src: string, dest: string, sourceRoot?: string): Promise<void> {
+  // The realpath of the top-level skill source. Carried through recursion so
+  // every symlink can be checked against it: a symlink resolving outside this
+  // root is refused, otherwise a malicious skill could smuggle host files
+  // (e.g. ~/.ssh/id_rsa) into the materialized skill the agent is told to read.
+  const root = sourceRoot ?? (await realpath(src));
+
   await mkdir(dest, { recursive: true });
   const entries = await readdir(src, { withFileTypes: true });
 
@@ -569,25 +588,39 @@ async function copySkillDirectory(src: string, dest: string): Promise<void> {
         const destPath = join(dest, entry.name);
         if (!isPathSafe(dest, destPath)) return;
 
-        if (entry.isDirectory()) {
-          await copySkillDirectory(srcPath, destPath);
+        if (entry.isSymbolicLink()) {
+          let realTarget: string;
+          try {
+            realTarget = await realpath(srcPath);
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+              console.error(`Skipping broken symlink: ${srcPath}`);
+              return;
+            }
+            throw err;
+          }
+
+          if (!isPathSafe(root, realTarget)) {
+            console.error(`Skipping symlink that points outside the skill: ${srcPath}`);
+            return;
+          }
+
+          // Re-walk a symlinked directory so its own entries are checked too,
+          // instead of blindly dereferencing the whole subtree.
+          if ((await stat(realTarget)).isDirectory()) {
+            await copySkillDirectory(realTarget, destPath, root);
+          } else {
+            await cp(realTarget, destPath, { dereference: true });
+          }
           return;
         }
 
-        try {
-          await cp(srcPath, destPath, { dereference: true, recursive: true });
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            'code' in err &&
-            (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-            entry.isSymbolicLink()
-          ) {
-            console.error(`Skipping broken symlink: ${srcPath}`);
-            return;
-          }
-          throw err;
+        if (entry.isDirectory()) {
+          await copySkillDirectory(srcPath, destPath, root);
+          return;
         }
+
+        await cp(srcPath, destPath, { dereference: true, recursive: true });
       })
   );
 }
@@ -628,7 +661,7 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
-async function cleanupClone(tempDir: string | null): Promise<void> {
+async function removeTempDir(tempDir: string | null): Promise<void> {
   if (tempDir) {
     await cleanupTempDir(tempDir).catch(() => {});
   }
