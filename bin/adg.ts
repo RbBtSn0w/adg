@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../src/adapters/index.ts";
@@ -732,7 +733,24 @@ async function main(argv: string[]): Promise<void> {
 }
 
 // Only run the CLI when executed directly, so the module can be imported by tests.
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// `import.meta.url` is already realpath-resolved by Node, but `process.argv[1]`
+// is the path as invoked — when the bin is reached through a symlink (e.g.
+// `npm link`'s global shim), that path is the unresolved symlink, so a raw
+// string compare misses and `main()` never runs. Resolve argv[1] to its
+// realpath before comparing so symlinked invocations still start the CLI.
+function isInvokedDirectly(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  let resolved: string;
+  try {
+    resolved = realpathSync(entry);
+  } catch {
+    resolved = resolve(entry);
+  }
+  return fileURLToPath(import.meta.url) === resolved;
+}
+
+if (isInvokedDirectly()) {
   main(process.argv.slice(2)).catch((err) => {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
