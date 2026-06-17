@@ -1,6 +1,18 @@
-import { determineAgent, type AgentResult } from '@vercel/detect-agent';
+import { determineAgent } from '@vercel/detect-agent';
 import { setDetectedAgent } from './telemetry.ts';
 import type { AgentType } from './types.ts';
+
+// ADG patch: the pinned @vercel/detect-agent@0.1.0 exposes only
+// `determineAgent(): Promise<string | false>` and does NOT export `AgentResult`.
+// The upstream fork was written against a newer API that returns a rich object,
+// so importing the type broke typecheck and `cachedResult.isAgent` was always
+// undefined at runtime (agent auto-detection silently never fired). We define
+// the shape locally and adapt the `string | false` result in `detectAgent()`.
+// See vendor/skills/PROVENANCE.md.
+export interface AgentResult {
+  isAgent: boolean;
+  agent: { name: string };
+}
 
 let cachedResult: AgentResult | null = null;
 
@@ -29,7 +41,9 @@ const agentNameToType: Record<string, AgentType> = {
  */
 export async function detectAgent(): Promise<AgentResult> {
   if (cachedResult) return cachedResult;
-  cachedResult = await determineAgent();
+  // determineAgent() returns the agent name (e.g. 'cursor', 'claude') or false.
+  const name = await determineAgent();
+  cachedResult = name ? { isAgent: true, agent: { name } } : { isAgent: false, agent: { name: '' } };
   if (cachedResult.isAgent) {
     setDetectedAgent(cachedResult.agent.name);
   }
