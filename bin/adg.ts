@@ -689,13 +689,25 @@ async function runMarketplace(args: string[]): Promise<void> {
  * vercel-labs/skills — see vendor/skills/PROVENANCE.md). We run its source
  * entry directly under Node's TypeScript support and forward all args/stdio.
  */
+/**
+ * Args for re-invoking Node on a `.ts` entry. `process.execArgv` is forwarded so
+ * the child inherits the parent's Node flags (e.g. --experimental-strip-types,
+ * required to run TypeScript directly on Node 22.6–23.5). `execArgv` is a
+ * parameter so the forwarding can be tested with a non-empty flag set.
+ */
+export function skillsChildArgv(
+  entry: string,
+  args: string[],
+  execArgv: string[] = process.execArgv
+): string[] {
+  return [...execArgv, entry, ...args];
+}
+
 function runSkills(verb: string | undefined, rest: string[]): void {
   const here = dirname(fileURLToPath(import.meta.url));
   const entry = join(here, "..", "vendor", "skills", "src", "cli.ts");
   const args = [verb, ...rest].filter((x): x is string => x !== undefined);
-  // Forward process.execArgv so the child inherits Node flags (e.g.
-  // --experimental-strip-types, required to run .ts directly on Node 22.6–23.5).
-  const r = spawnSync(process.execPath, [...process.execArgv, entry, ...args], { stdio: "inherit" });
+  const r = spawnSync(process.execPath, skillsChildArgv(entry, args), { stdio: "inherit" });
   process.exit(r.status ?? 1);
 }
 
@@ -719,7 +731,10 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-main(process.argv.slice(2)).catch((err) => {
-  console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// Only run the CLI when executed directly, so the module can be imported by tests.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main(process.argv.slice(2)).catch((err) => {
+    console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

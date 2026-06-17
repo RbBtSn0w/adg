@@ -20,6 +20,15 @@ function collectFiles(dir: string): string[] {
   return out.sort();
 }
 
+/**
+ * A single file's member name: its basename without extension. `base` is
+ * injectable so the OS-separator handling can be exercised deterministically in
+ * tests (path.win32.basename vs path.posix.basename) regardless of host platform.
+ */
+export function fileMemberName(absPath: string, base: typeof basename = basename): string {
+  return base(absPath).replace(/\.[^.]+$/, "");
+}
+
 /** Members of a declared path: a directory yields its files, a file yields its own name. */
 function membersOf(dir: string, rel: string | undefined): string[] {
   if (!rel) return [];
@@ -27,7 +36,7 @@ function membersOf(dir: string, rel: string | undefined): string[] {
   if (!existsSync(abs)) return [];
   const files = collectFiles(abs);
   if (files.length > 0) return files;
-  return [basename(abs).replace(/\.[^.]+$/, "")]; // a single file (basename is OS-separator aware)
+  return [fileMemberName(abs)]; // a single file
 }
 
 /** Server names declared in an MCP config file (mcpServers/servers map). */

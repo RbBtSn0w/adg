@@ -202,6 +202,20 @@ export function getInstallSource(skill: SkippedSkill): string {
   return formatSourceInput(url, skill.ref);
 }
 
+/**
+ * ADG patch: args for re-invoking the vendored CLI on `cli.ts`. `process.execArgv`
+ * is forwarded so the child inherits Node flags (e.g. --experimental-strip-types)
+ * needed to run TypeScript directly. `execArgv` is a parameter so the forwarding
+ * can be tested with a non-empty flag set.
+ */
+export function selfCliArgv(
+  cliEntry: string,
+  args: string[],
+  execArgv: string[] = process.execArgv
+): string[] {
+  return [...execArgv, cliEntry, ...args];
+}
+
 export function printSkippedSkills(skipped: SkippedSkill[]): void {
   if (skipped.length === 0) return;
   console.log();
@@ -510,11 +524,9 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    // ADG patch: forward process.execArgv so the re-invoked cli.ts inherits Node
-    // flags (e.g. --experimental-strip-types) needed to run TypeScript directly.
     const result = spawnSync(
       process.execPath,
-      [...process.execArgv, cliEntry, 'add', installUrl, '-g', '-y'],
+      selfCliArgv(cliEntry, ['add', installUrl, '-g', '-y']),
       {
         stdio: ['inherit', 'pipe', 'pipe'],
         encoding: 'utf-8',
@@ -649,11 +661,9 @@ export async function updateProjectSkills(
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
-      // ADG patch: forward process.execArgv so the re-invoked cli.ts inherits
-      // Node flags (e.g. --experimental-strip-types) needed to run TS directly.
       const result = spawnSync(
         process.execPath,
-        [...process.execArgv, cliEntry, 'add', installUrl, '--skill', skill.name, '-y'],
+        selfCliArgv(cliEntry, ['add', installUrl, '--skill', skill.name, '-y']),
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
