@@ -127,7 +127,9 @@ function pruneEmptyParent(parent: string, pluginsDir: string): void {
 function isSymlinkTo(linkPath: string, target: string): boolean {
   try {
     if (!lstatSync(linkPath).isSymbolicLink()) return false;
-    return resolve(readlinkSync(linkPath)) === target;
+    // readlinkSync may return a path relative to the link's own directory; resolve
+    // it there (resolve ignores the base when the target is already absolute).
+    return resolve(dirname(linkPath), readlinkSync(linkPath)) === resolve(target);
   } catch {
     return false;
   }

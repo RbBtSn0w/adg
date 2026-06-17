@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { resolveSkills } from "./skills.ts";
 import { COMPONENT_TYPES, type AdgManifest, type ComponentType, type PluginSelection } from "./types.ts";
 
@@ -27,7 +27,7 @@ function membersOf(dir: string, rel: string | undefined): string[] {
   if (!existsSync(abs)) return [];
   const files = collectFiles(abs);
   if (files.length > 0) return files;
-  return [abs.split("/").pop()!.replace(/\.[^.]+$/, "")]; // a single file
+  return [basename(abs).replace(/\.[^.]+$/, "")]; // a single file (basename is OS-separator aware)
 }
 
 /** Server names declared in an MCP config file (mcpServers/servers map). */

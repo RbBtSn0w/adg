@@ -693,7 +693,9 @@ function runSkills(verb: string | undefined, rest: string[]): void {
   const here = dirname(fileURLToPath(import.meta.url));
   const entry = join(here, "..", "vendor", "skills", "src", "cli.ts");
   const args = [verb, ...rest].filter((x): x is string => x !== undefined);
-  const r = spawnSync(process.execPath, [entry, ...args], { stdio: "inherit" });
+  // Forward process.execArgv so the child inherits Node flags (e.g.
+  // --experimental-strip-types, required to run .ts directly on Node 22.6–23.5).
+  const r = spawnSync(process.execPath, [...process.execArgv, entry, ...args], { stdio: "inherit" });
   process.exit(r.status ?? 1);
 }
 

@@ -510,11 +510,17 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
-    });
+    // ADG patch: forward process.execArgv so the re-invoked cli.ts inherits Node
+    // flags (e.g. --experimental-strip-types) needed to run TypeScript directly.
+    const result = spawnSync(
+      process.execPath,
+      [...process.execArgv, cliEntry, 'add', installUrl, '-g', '-y'],
+      {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
+      }
+    );
 
     if (result.status === 0) {
       successCount++;
@@ -643,9 +649,11 @@ export async function updateProjectSkills(
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
+      // ADG patch: forward process.execArgv so the re-invoked cli.ts inherits
+      // Node flags (e.g. --experimental-strip-types) needed to run TS directly.
       const result = spawnSync(
         process.execPath,
-        [cliEntry, 'add', installUrl, '--skill', skill.name, '-y'],
+        [...process.execArgv, cliEntry, 'add', installUrl, '--skill', skill.name, '-y'],
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
