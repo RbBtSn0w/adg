@@ -1,0 +1,114 @@
+# Changelog
+
+All notable changes to the `adg` toolkit are recorded here.
+
+## Unreleased
+
+## 0.1.0 — 2026-06-17
+
+### Added — `adg plugins init --type plugin|marketplace|all`
+The authoring scenario is now the `.agents/` artifact *kind*, not a runtime.
+`--type plugin` (default) scaffolds `.agents/.plugin.json`; `marketplace`
+scaffolds a `.agents/.marketplace.json` catalog; `all` scaffolds a catalog root
+plus one starter member plugin in a subdirectory. (This is a different axis from
+`adapt --target claude|codex|all`, which selects a runtime to project for.)
+
+### Changed — vendor projections are no longer an authoring artifact
+`.claude-plugin/` and `.codex-plugin/` are runtime projections produced at
+**install** time (by `adg plugins add`, into the consumer tree) — authors commit
+only `.agents/`. You run `adg plugins adapt` and commit projections solely to
+publish to a runtime's native registry. Docs (`authoring.md`, `agents-spec.md`)
+updated accordingly; `validate` projection-sync only applies when projections are
+present.
+
+### Removed — the `adapters` manifest field
+Output paths for the runtime projections (`.claude-plugin/`, `.codex-plugin/`)
+are ADG-internal conventions mandated by each runtime, not producer-configurable.
+The `adapters` field is removed from the DSL (schema, types, `init`/`reverse`/
+`import` scaffolding) and from `adapt` (always the default path). A stray
+`adapters` from an old manifest is tolerated (ignored), so existing plugins keep
+installing.
+
+### Changed — consumer manifest-resolution priority
+When a directory exposes more than one manifest, resolution order is now
+`.agents/.plugin.json` (then legacy `.adg-plugin`) → Claude (`.claude-plugin`) →
+Codex (`.codex-plugin`). Previously Codex was checked before Claude.
+
+### Changed — simpler authored `marketplace.json` DSL
+A `plugins[].source` may now be a plain string (local path shorthand, e.g.
+`"./asc"`) in addition to the object form, and gains remote tagged-union forms
+(`github` / `git`) in the schema. Catalogs gain top-level `description` / `owner`
+(replacing `interface.displayName`); `policy` is documented as export-only. The
+generated runtime export is unchanged (Codex still gets the object + policy
+shape).
+
+### Changed — plugin source manifest moves to `.agents/.plugin.json`
+The canonical source manifest is now `.agents/.plugin.json` (was
+`.adg-plugin/plugin.json`) — a neutral, vendor-agnostic home that mirrors the
+`.claude-plugin/` shape. The repo source catalog convention is
+`.agents/.marketplace.json`. Runtime projections (`.claude-plugin/`,
+`.codex-plugin/`) and the Codex/Claude-facing `marketplace.json` export are
+unchanged. The legacy `.adg-plugin/plugin.json` is still read (deprecated) so
+existing plugins keep resolving. See [docs/agents-spec.md](docs/agents-spec.md).
+
+### Changed — packaging is now a manifest-driven allowlist
+Installing/cloning a plugin ships only its declared payload (component
+directories named in the manifest + `README`/`LICENSE`/`CHANGELOG`/`NOTICE` +
+generated projections) instead of copying everything minus
+`.git`/`node_modules`. Dev cruft like `src/`, `test/`, `docs/` no longer leaks
+into installs. The same allowlist drives both the copy and the content hash, so
+in-place and copied installs hash identically (`src/package.ts`).
+
+### Fixed — `adg skills` against private repos (and, in fact, all updates)
+A private skill source (`adg skills update`) reported `✗ Failed to fetch tree`
+then falsely claimed "up to date". Investigating uncovered three stacked bugs in
+the vendored skills fork, all now patched (see `vendor/skills/PROVENANCE.md`):
+
+1. **Private repos never authenticated.** `fetchRepoTree` only retried with a
+   token after a rate-limit 403; a private repo returns 404 to anonymous callers,
+   so the token was never used. Now retries authenticated on 401/403/404.
+2. **Updates could never run.** The updater re-invoked a built `bin/cli.mjs` that
+   a source-only vendoring doesn't ship ("CLI entrypoint not found"). Now invokes
+   the TS source entry via Node type-stripping.
+3. **Every clone failed.** simple-git ≥3.36 blocks `filter.*.smudge/clean`
+   configs unless opted in. Added `unsafe: { allowUnsafeFilter: true }` (the
+   filters are set empty — disabling LFS — so this is safe).
+
+Also: failed update sources are now surfaced (with a `GITHUB_TOKEN` / `gh auth
+login` hint) instead of being hidden behind a false "all up to date", and the
+`gh`-token warning text no longer hardcodes "rate limit reached".
+
+### Fixed — collection repos no longer "fully update" every run
+A repo containing many skills re-flagged **all** of them as needing an update on
+every `adg skills update`, regardless of what changed. Root cause: install and
+update used two different hash schemes. A github source records the git **tree
+SHA** when the Trees API succeeds, but the git-clone fallback recorded a sha256
+**content hash** — and update-check always compares against the tree SHA, so any
+clone-fallback install (e.g. a private repo before the auth fix above) mismatched
+forever. Now the clone fallback derives the git tree SHA too (one scheme), and a
+self-heal normalizes pre-existing legacy hashes on the next update — no lock wipe.
+
+## 0.1.0-alpha.1 — 2026-06-12
+
+First alpha. The architecture and scope are frozen in [docs/agents-spec.md](docs/agents-spec.md).
+
+### Added
+- **Two-domain CLI**: `adg plugins <verb>` and `adg skills <verb>` under one
+  umbrella binary, each mapped to one subtree of the universal `.agents/` home.
+- **Plugins domain** (zero runtime deps): `init`, `adapt`, `validate`, `add`,
+  `import`, `import-skills`, `link`, `update`, `list`. One canonical
+  `.adg-plugin/plugin.json` source projects to `.codex-plugin` / `.claude-plugin`
+  via an adapter registry; provenance + `sha256` integrity live in
+  `.plugin-lock.json`, with `marketplace.json` as a thin runtime export.
+- **Skills domain**: vendored fork of `vercel-labs/skills` delegated to via the
+  `adg skills` namespace (see `vendor/skills/PROVENANCE.md`).
+- **Architecture spec** at `docs/agents-spec.md` (goals, directory layout, artifact
+  ownership, core data structures, multi-agent anti-scatter guarantees).
+- Guard tests pinning the `.agents/` core invariant against future re-vendoring.
+
+### Changed
+- Maintain a single `.agents/` home across both domains. Patched the vendored
+  skills fork so the **global skill lock** and the **universal global skills
+  dir** resolve under `$XDG_STATE_HOME/.agents` (or `~/.agents`) instead of
+  upstream's split `$XDG_CONFIG_HOME/agents/...` and `$XDG_STATE_HOME/skills/...`
+  paths. Both patches are recorded in `vendor/skills/PROVENANCE.md`.
