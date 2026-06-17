@@ -27,16 +27,39 @@ test("getAgentType: unknown names map to null", () => {
   assert.equal(getAgentType("totally-unknown-agent"), null);
 });
 
-// determineAgent() reads CLAUDE_CODE; clear the other signals so the detected
-// name is deterministic. The module caches the first result, so this asserts the
-// single detection scenario.
-test("detectAgent: adapts a detected agent (CLAUDE_CODE) into the AgentResult shape", async () => {
-  delete process.env.CURSOR_TRACE_ID;
-  delete process.env.REPL_ID;
+// Every env signal @vercel/detect-agent inspects. Cleared so detection is
+// deterministic even when this suite itself runs inside an agent (e.g. AI_AGENT
+// is set under Claude Code and would otherwise win).
+const AGENT_ENV_SIGNALS = [
+  "AI_AGENT",
+  "ANTIGRAVITY_AGENT",
+  "AUGMENT_AGENT",
+  "CLAUDECODE",
+  "CLAUDE_CODE",
+  "CLAUDE_CODE_IS_COWORK",
+  "CODEX_CI",
+  "CODEX_SANDBOX",
+  "CODEX_THREAD_ID",
+  "COPILOT_ALLOW_ALL",
+  "COPILOT_GITHUB_TOKEN",
+  "COPILOT_MODEL",
+  "CURSOR_AGENT",
+  "CURSOR_EXTENSION_HOST_ROLE",
+  "CURSOR_TRACE_ID",
+  "GEMINI_CLI",
+  "OPENCODE_CLIENT",
+  "REPL_ID",
+];
+
+// detectAgent() delegates to determineAgent() and caches the first result, so this
+// asserts a single detection scenario: with every other signal cleared and
+// CLAUDE_CODE set, the result must surface isAgent=true and map to claude-code.
+test("detectAgent: surfaces a detected agent and wires the projections", async () => {
+  for (const key of AGENT_ENV_SIGNALS) delete process.env[key];
   process.env.CLAUDE_CODE = "1";
 
   const result = await detectAgent();
-  assert.equal(result.isAgent, true);
+  assert.ok(result.isAgent); // narrows the AgentResult discriminated union
   assert.equal(result.agent.name, "claude");
   assert.equal(await isRunningInAgent(), true);
   assert.equal(await getAgentName(), "claude");

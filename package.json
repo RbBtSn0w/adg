@@ -30,7 +30,7 @@
   "comment:dependencies": "Runtime deps below are required only by the vendored skills CLI (vendor/skills). ADG's own plugins code has zero runtime deps.",
   "dependencies": {
     "@clack/prompts": "^0.7.0",
-    "@vercel/detect-agent": "^0.1.0",
+    "@vercel/detect-agent": "^1.2.3",
     "picocolors": "^1.0.0",
     "simple-git": "^3.0.0",
     "xdg-basedir": "^5.1.0",
