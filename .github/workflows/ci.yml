@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, beta ]
+  pull_request:
+    branches: [ main, beta ]
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 23]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  release:
+    name: Release
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      packages: write
+      id-token: write # 某些 npm 发布验证需要
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+      - name: Upgrade npm for trusted publishing
+        # npm's OIDC trusted-publishing flow requires npm >= 11.5.1. Node LTS
+        # still bundles npm 10.x, which silently skips OIDC and then fails for
+        # lack of an NPM_TOKEN. Pin a known-good npm so publish uses OIDC.
+        run: npm install -g npm@latest
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        # Must run before publish: npm validates the `bin` target exists when it
+        # normalizes package.json at the START of `npm publish` — earlier than
+        # the `prepack` hook — so on a fresh checkout `dist/bin/adg.js` has to be
+        # present already, or npm strips the `bin` entry from the published package.
+        run: npm run build
+      - name: Semantic Release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release@25
+      - name: Dual Publish to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/publish-github-packages.sh

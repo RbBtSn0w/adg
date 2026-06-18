@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "adg.plugin/v1",
+  "name": "github-cr",
+  "version": "0.2.0",
+  "description": "GitHub code review workflows: address review threads and final-gate proof.",
+  "author": { "name": "Agent Directory Group" },
+  "license": "MIT",
+  "category": "Developer Tools",
+  "interface": { "displayName": "GitHub Code Review" },
+  "skills": "./skills/",
+  "strict": false,
+  "homepage": "https://github.com/RbBtSn0w/adg/tree/main/plugins/github-cr"
+}

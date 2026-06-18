@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://RbBtSn0w.dev/schemas/plugin-lock.schema.json",
+  "title": "ADG Plugin Lock File",
+  "description": "Records installed plugins and their exact provenance/state for reproducible environments (.plugin-lock.json).",
+  "type": "object",
+  "required": ["version", "plugins"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "description": "Lock file format version.", "const": 2 },
+    "plugins": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/lockEntry" }
+    },
+    "lastSelected": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "lockEntry": {
+      "type": "object",
+      "required": ["origin", "version", "folderHash", "installedAt", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "$ref": "#/$defs/source" },
+        "version": { "type": "string" },
+        "folderHash": {
+          "type": "string",
+          "description": "Self-describing content digest, e.g. sha256-<hex>.",
+          "pattern": "^[a-z0-9]+-[0-9a-f]+$"
+        },
+        "installedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "selection": {
+          "type": "object",
+          "description": "Partial-install selection: which components/skills the generated manifests expose. Absent = expose everything.",
+          "required": ["components"],
+          "additionalProperties": false,
+          "properties": {
+            "components": {
+              "type": "array",
+              "items": { "enum": ["skills", "agents", "commands", "mcp", "hooks", "apps"] }
+            },
+            "skills": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "path"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "local" }, "path": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "repo"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "github" },
+            "repo": { "type": "string", "pattern": "^[\\w.-]+/[\\w.-]+$" },
+            "ref": { "type": "string" },
+            "path": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "url"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "git" },
+            "url": { "type": "string" },
+            "ref": { "type": "string" },
+            "path": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

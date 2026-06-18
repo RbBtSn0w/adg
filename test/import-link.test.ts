@@ -1,0 +1,160 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { fromNativeManifest } from "../src/adapters/reverse.ts";
+import { importSkills } from "../src/commands/import.ts";
+import { addPlugins, installPlugin } from "../src/commands/install.ts";
+import { linkPlugins } from "../src/commands/link.ts";
+import { writeClaudeCatalog, type Agent, type AgentContext, type AgentSyncResult } from "../src/agents/index.ts";
+import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+
+/** A fake agent that records activation calls (keeps tests off the real CLIs). */
+function fakeAgent(id: string, calls: AgentContext[]): Agent {
+  const noop = (): AgentSyncResult => ({ agent: id, affected: [], skipped: false });
+  return {
+    id,
+    displayName: id === "claude" ? "Claude Code" : "Codex",
+    adaptTarget: id as "claude" | "codex",
+    detect: () => true,
+    available: () => true,
+    activate: (ctx) => {
+      calls.push(ctx);
+      return { agent: id, affected: ctx.plugins, skipped: false };
+    },
+    deactivate: noop,
+    refresh: noop,
+  };
+}
+
+function tmp(): string {
+  return mkdtempSync(join(tmpdir(), "adg-imp-"));
+}
+
+function writeNative(dir: string, variant: "codex" | "claude", manifest: object, skills: string[]): void {
+  const sub = variant === "codex" ? ".codex-plugin" : ".claude-plugin";
+  mkdirSync(join(dir, sub), { recursive: true });
+  writeFileSync(join(dir, sub, "plugin.json"), JSON.stringify(manifest));
+  for (const s of skills) {
+    mkdirSync(join(dir, "skills", s), { recursive: true });
+    writeFileSync(join(dir, "skills", s, "SKILL.md"), `---\nname: ${s}\ndescription: ${s}.\n---\n`);
+  }
+}
+
+// ---- reverse adapter ----
+
+test("fromNativeManifest maps codex manifest to ADG", () => {
+  const adg = fromNativeManifest(
+    { name: "asc", version: "1.2.3", description: "ASC.", skills: ["one", "two"], author: "ADG" },
+    "openai",
+  );
+  assert.equal(adg.schemaVersion, ADG_SCHEMA_VERSION);
+  assert.equal(adg.name, "asc");
+  assert.equal(adg.version, "1.2.3");
+  assert.deepEqual(adg.skills, ["one", "two"]);
+  assert.deepEqual(adg.author, { name: "ADG" });
+  // adapters is no longer part of the DSL; reverse-adapt must not emit it.
+  assert.ok(!("adapters" in adg));
+});
+
+test("fromNativeManifest defaults missing version and skills", () => {
+  const adg = fromNativeManifest({ name: "x" }, "anthropic");
+  assert.equal(adg.version, "0.0.0");
+  assert.equal(adg.skills, "./skills/");
+});
+
+// ---- import ----
+
+test("add --all converts codex + claude native plugins and installs them", async () => {
+  const work = tmp();
+  const src = join(work, "repo");
+  writeNative(join(src, "plugins", "codexp"), "codex", { name: "codexp", version: "1.0.0", description: "CP", skills: ["a"] }, ["a"]);
+  writeNative(join(src, "plugins", "claudep"), "claude", { name: "claudep", version: "2.0.0", description: "CD" }, ["b"]);
+
+  const store = join(work, "store");
+  const res = await addPlugins({ spec: src, pluginsDir: store, all: true, now: "2026-06-11T00:00:00Z" });
+
+  assert.deepEqual(res.converted.sort(), ["claudep", "codexp"]);
+  assert.equal(res.installed.length, 2);
+  assert.ok(existsSync(join(store, "codexp", ".agents", ".plugin.json")));
+  assert.ok(existsSync(join(store, "claudep", ".agents", ".plugin.json")));
+
+  const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
+  assert.equal(lock.plugins.codexp.version, "1.0.0");
+  assert.equal(lock.plugins.claudep.version, "2.0.0");
+  rmSync(work, { recursive: true });
+});
+
+test("importSkills wraps a prefixed subset of flat skills into one plugin", () => {
+  const work = tmp();
+  const skillsDir = join(work, "skills");
+  for (const name of ["asc-build", "asc-release", "github-cr"]) {
+    mkdirSync(join(skillsDir, name), { recursive: true });
+    writeFileSync(join(skillsDir, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${name}.\n---\n`);
+  }
+  const store = join(work, "store");
+  const res = importSkills({ skillsDir, as: "asc", prefix: "asc-", pluginsDir: store, now: "2026-06-11T00:00:00Z" });
+
+  assert.equal(res.name, "asc");
+  assert.ok(existsSync(join(store, "asc", "skills", "asc-build", "SKILL.md")));
+  assert.ok(existsSync(join(store, "asc", "skills", "asc-release", "SKILL.md")));
+  assert.ok(!existsSync(join(store, "asc", "skills", "github-cr")), "prefix filter excludes github-cr");
+  rmSync(work, { recursive: true });
+});
+
+// ---- link ----
+
+function seedInstalled(store: string): void {
+  const src = tmp();
+  mkdirSync(join(src, ".adg-plugin"), { recursive: true });
+  writeFileSync(
+    join(src, ".adg-plugin", "plugin.json"),
+    JSON.stringify({ schemaVersion: ADG_SCHEMA_VERSION, name: "demo", version: "0.1.0", description: "Demo.", skills: "./skills/" }),
+  );
+  mkdirSync(join(src, "skills", "hello"), { recursive: true });
+  writeFileSync(join(src, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: hi.\n---\n");
+  installPlugin({ source: src, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
+  rmSync(src, { recursive: true });
+}
+
+test("link --target codex regenerates the manifest and activates via the agent", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seedInstalled(store);
+  const calls: AgentContext[] = [];
+  const res = linkPlugins({ pluginsDir: store, target: "codex", agent: fakeAgent("codex", calls) });
+  assert.equal(res.actions[0]!.name, "demo");
+  assert.ok(existsSync(join(store, "demo", ".codex-plugin", "plugin.json")));
+  assert.equal(res.actions[0]!.linkedTo, "Codex");
+  assert.deepEqual(calls.map((c) => c.plugins), [["demo"]]);
+  rmSync(work, { recursive: true });
+});
+
+test("link --target claude regenerates the manifest and activates via the agent", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seedInstalled(store);
+  const calls: AgentContext[] = [];
+  const res = linkPlugins({ pluginsDir: store, target: "claude", global: true, agent: fakeAgent("claude", calls) });
+
+  assert.ok(existsSync(join(store, "demo", ".claude-plugin", "plugin.json")), "claude manifest regenerated");
+  assert.equal(res.actions[0]!.linkedTo, "Claude Code", "reports the agent it was enabled in");
+  assert.equal(res.cliSkipped, false);
+  assert.deepEqual(calls, [{ pluginsDir: store, plugins: ["demo"], scope: "user" }]);
+  rmSync(work, { recursive: true });
+});
+
+test("writeClaudeCatalog lists installed plugins with relative sources", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seedInstalled(store);
+  const { file } = writeClaudeCatalog(store, "adg");
+  const catalog = JSON.parse(readFileSync(file, "utf8"));
+  assert.equal(catalog.name, "adg");
+  assert.equal(catalog.plugins.length, 1);
+  assert.equal(catalog.plugins[0].name, "demo");
+  assert.equal(catalog.plugins[0].source, "./demo");
+  rmSync(work, { recursive: true });
+});

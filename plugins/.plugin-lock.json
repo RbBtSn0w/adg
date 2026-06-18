@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "plugins": {
+    "github-cr": {
+      "origin": {
+        "type": "local",
+        "path": "./github-cr"
+      },
+      "version": "0.2.0",
+      "folderHash": "sha256-1bd8f212d72f1094750213779d0edd486e96a560d5ee1a141c56079a1b5520c4",
+      "installedAt": "2026-06-11T07:57:04.467Z",
+      "updatedAt": "2026-06-17T15:13:55.370Z"
+    },
+    "asc": {
+      "origin": {
+        "type": "local",
+        "path": "./asc"
+      },
+      "version": "0.1.0",
+      "folderHash": "sha256-5ebc1258a71797c608e4709a83636e01f7c5d81a53cb1e586e735a30fd4a0386",
+      "dependencies": {
+        "github-cr": "^0.2.0"
+      },
+      "installedAt": "2026-06-11T07:57:04.471Z",
+      "updatedAt": "2026-06-17T15:13:55.370Z"
+    }
+  },
+  "lastSelected": [
+    "asc"
+  ]
+}

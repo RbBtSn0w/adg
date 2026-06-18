@@ -1,0 +1,15 @@
+{
+  "name": "github-cr",
+  "version": "0.2.0",
+  "description": "GitHub code review workflows: address review threads and final-gate proof.",
+  "author": {
+    "name": "Agent Directory Group"
+  },
+  "homepage": "https://github.com/RbBtSn0w/adg/tree/main/plugins/github-cr",
+  "license": "MIT",
+  "category": "Developer Tools",
+  "strict": false,
+  "skills": [
+    "./skills/address-review"
+  ]
+}
