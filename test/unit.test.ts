@@ -141,14 +141,25 @@ test("installPlugin records a selection and reuses it on re-install", () => {
   rmSync(work, { recursive: true });
 });
 
-test("codex adapter requires name/version/description/skills array", () => {
+test("codex adapter (strict) keeps the skills root (dir-form pass-through)", () => {
   const dir = tmp();
   mkdirSync(join(dir, "skills", "one"), { recursive: true });
   writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
   const { manifest, defaultPath } = toCodexManifest(dir, baseManifest);
   assert.equal(manifest.name, "demo");
-  assert.deepEqual(manifest.skills, ["one"]);
+  // Codex consumes the directory form natively; match Claude rather than
+  // enumerating every skill id (which would drift as skills are added).
+  assert.equal(manifest.skills, "./skills/");
   assert.ok(defaultPath.includes(".codex-plugin"));
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter (non-strict) emits an explicit skill-id array", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  const { manifest } = toCodexManifest(dir, { ...baseManifest, strict: false });
+  assert.deepEqual(manifest.skills, ["one"]);
   rmSync(dir, { recursive: true });
 });
 

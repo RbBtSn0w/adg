@@ -7,20 +7,29 @@ import type { AdapterResult } from "./index.ts";
 /**
  * Generate a Codex (.codex-plugin/plugin.json) manifest from an ADG manifest.
  *
- * Codex's minimal manifest requires name, version, description and skills. The
- * skills field is emitted as an explicit array of skill identifiers. An optional
- * `selection` narrows the exposed skills (Codex only consumes skills).
+ * Codex's minimal manifest requires name, version, description and skills.
+ * Mirroring the Claude adapter: in the default strict case the declared skills
+ * root (e.g. `"./skills/"`) is passed through — Codex consumes the directory
+ * form natively, so it discovers new skills without the manifest enumerating
+ * them. A partial install (`selection`) or `strict: false` falls back to an
+ * explicit array of skill identifiers. Codex only consumes skills.
  */
 export function toCodexManifest(
   pluginDir: string,
   manifest: AdgManifest,
   selection?: PluginSelection,
 ): AdapterResult {
-  const skills = !selection
-    ? resolveSkills(pluginDir, manifest)
-    : isExposed(selection, "skills")
+  let skills: unknown;
+  if (selection) {
+    skills = isExposed(selection, "skills")
       ? selection.skills ?? resolveSkills(pluginDir, manifest)
       : [];
+  } else {
+    const strict = manifest.strict !== false;
+    skills = strict && manifest.skills !== undefined
+      ? manifest.skills
+      : resolveSkills(pluginDir, manifest);
+  }
 
   const out: Record<string, unknown> = {
     name: manifest.name,
