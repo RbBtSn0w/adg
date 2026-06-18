@@ -1,3 +1,10 @@
+## [0.1.1](https://github.com/RbBtSn0w/adg/compare/0.1.0...0.1.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* **adapters:** codex projection passes skills root through in strict mode ([#3](https://github.com/RbBtSn0w/adg/issues/3)) ([f8de95d](https://github.com/RbBtSn0w/adg/commit/f8de95dff26d3e7032538b64919d7031ce6e8cef))
+
 # [0.1.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.1.0-beta.2...0.1.0-beta.3) (2026-06-18)
 
 
