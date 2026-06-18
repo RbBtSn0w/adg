@@ -1,3 +1,10 @@
+# [0.1.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.1.0-beta.2...0.1.0-beta.3) (2026-06-18)
+
+
+### Bug Fixes
+
+* address PR [#2](https://github.com/RbBtSn0w/adg/issues/2) review feedback ([f614817](https://github.com/RbBtSn0w/adg/commit/f6148173e32a331f6c7dd859b50dd85cd453253d))
+
 # [0.1.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.1.0-beta.1...0.1.0-beta.2) (2026-06-18)
 
 
