@@ -22,6 +22,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run build
       - run: npm test
 
   release:
@@ -44,6 +45,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
+      - name: Upgrade npm for trusted publishing
+        # npm's OIDC trusted-publishing flow requires npm >= 11.5.1. Node LTS
+        # still bundles npm 10.x, which silently skips OIDC and then fails for
+        # lack of an NPM_TOKEN. Pin a known-good npm so publish uses OIDC.
+        run: npm install -g npm@latest
       - name: Install dependencies
         run: npm ci
       - name: Semantic Release
@@ -52,17 +58,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release@25
       - name: Dual Publish to GitHub Packages
-        # Re-publish the version semantic-release just released to GitHub Packages.
-        # Derive the dist-tag from the version so a prerelease (e.g. 0.1.0-beta.1)
-        # goes to the `beta` tag instead of overwriting `latest`. If nothing was
-        # released this run, the version already exists and we tolerate it.
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          if [[ "$VERSION" == *-* ]]; then
-            TAG="${VERSION#*-}"; TAG="${TAG%%.*}"   # 0.1.0-beta.1 -> beta
-          else
-            TAG="latest"
-          fi
-          echo "@rbbtsn0w:registry=https://npm.pkg.github.com" > .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
-          npm publish --registry https://npm.pkg.github.com --tag "$TAG" || echo "GitHub Packages: nothing to publish or version already exists."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/publish-github-packages.sh

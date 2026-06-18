@@ -705,8 +705,15 @@ export function skillsChildArgv(
 }
 
 function runSkills(verb: string | undefined, rest: string[]): void {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const entry = join(here, "..", "vendor", "skills", "src", "cli.ts");
+  const self = fileURLToPath(import.meta.url);
+  const here = dirname(self);
+  // Resolve the vendored CLI with the same extension we ourselves run as: `.ts`
+  // when running source directly under Node's type stripping (dev / npm link),
+  // `.js` when running the compiled `dist/` output (published install). Node
+  // refuses to strip types under node_modules, so the published bin and the
+  // vendored entry must both be the built `.js`.
+  const ext = self.endsWith(".ts") ? ".ts" : ".js";
+  const entry = join(here, "..", "vendor", "skills", "src", `cli${ext}`);
   const args = [verb, ...rest].filter((x): x is string => x !== undefined);
   const r = spawnSync(process.execPath, skillsChildArgv(entry, args), { stdio: "inherit" });
   process.exit(r.status ?? 1);

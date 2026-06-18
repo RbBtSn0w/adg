@@ -8,20 +8,21 @@
     "access": "public"
   },
   "bin": {
-    "adg": "./bin/adg.ts"
+    "adg": "./dist/bin/adg.js"
   },
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
     "adg": "node ./bin/adg.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json --noCheck",
     "test": "node --test 'test/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "prepare": "npm run typecheck"
+    "prepare": "npm run typecheck",
+    "prepack": "npm run build"
   },
   "files": [
-    "bin",
-    "src",
+    "dist",
     "schemas",
     "vendor",
     "docs"
