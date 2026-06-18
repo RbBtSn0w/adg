@@ -33,6 +33,40 @@ See [docs/authoring.md](docs/authoring.md) to author a plugin, and
 
 ---
 
+# Install and quick start
+
+Install the CLI once, then run `adg` from anywhere:
+
+```bash
+npm install -g @rbbtsn0w/adg          # stable channel
+npm install -g @rbbtsn0w/adg@beta     # pre-release channel
+# or run ad-hoc, no install:
+npx @rbbtsn0w/adg --help
+```
+
+Typical end-user flow — pull a marketplace into your global store, then load it
+into the runtimes you use:
+
+```bash
+# 1) collect plugins into the global store (~/.agents/plugins)
+adg plugins add anthropics/knowledge-work-plugins --ref main --global
+#    large monorepo? fetch only what you need:
+adg plugins add anthropics/knowledge-work-plugins --ref main --sparse engineering --global
+
+# 2) load into the runtimes you use
+adg plugins link --target codex  --global     # Codex discovers ~/.agents/plugins natively
+adg plugins link --target claude --global     # Claude loads via ~/.claude/skills symlinks
+
+# 3) keep it current
+adg plugins update --global
+adg plugins list --global
+```
+
+`adg` is the only command you invoke — no Node build step beyond the global
+install. To hack on the CLI itself, see [Developing from source](#developing-from-source).
+
+---
+
 # Concepts (common)
 
 These apply the same whether you run a released build or the source tree.
@@ -99,7 +133,7 @@ The command surface is identical in both modes — **only the launcher differs**
 
 | Mode | Launcher | Setup |
 |------|----------|-------|
-| Released build | `adg …` | install the package (see [Using a released build](#using-a-released-build)) |
+| Released build | `adg …` | install the package (see [Install and quick start](#install-and-quick-start)) |
 | From source (debug) | `node bin/adg.ts …` | clone + `npm install` (see [Developing from source](#developing-from-source)) |
 
 The examples below use the released `adg` launcher. **When running from source,
@@ -230,40 +264,6 @@ private discovery path:
   `<name>@skills-dir`. Symlinks never overwrite a real directory — only a stale
   symlink is replaced. This writes under Claude's own `~/.claude/`; the
   never-touched `~/.agents/skills/` and `~/.agents/AGENTS.md` are unaffected.
-
----
-
-# Using a released build
-
-> Pre-release: not yet published to npm. This is the intended end-user flow.
-
-Install the CLI once, then use the `adg` command from anywhere:
-
-```bash
-npm install -g adg        # or: npx adg <command>
-adg --help
-```
-
-Typical end-user workflow — bring a marketplace into your global environment and
-load it into your runtimes:
-
-```bash
-# 1) collect plugins into the global store (~/.agents/plugins)
-adg plugins add anthropics/knowledge-work-plugins --ref main --global
-#    large monorepo? fetch only what you need:
-adg plugins add anthropics/knowledge-work-plugins --ref main --sparse engineering --global
-
-# 2) load into the runtimes you use
-adg plugins link --target codex  --global     # Codex discovers ~/.agents/plugins natively
-adg plugins link --target claude --global     # Claude loads via ~/.claude/skills symlinks
-
-# 3) keep it current
-adg plugins update --global
-adg plugins list --global
-```
-
-No Node toolchain step is required beyond the global install; `adg` is the only
-command you invoke.
 
 ---
 
