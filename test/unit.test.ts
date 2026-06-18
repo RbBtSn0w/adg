@@ -163,6 +163,21 @@ test("codex adapter (non-strict) emits an explicit skill-id array", () => {
   rmSync(dir, { recursive: true });
 });
 
+test("codex adapter resolves an explicit skills path array to bare ids", () => {
+  const dir = tmp();
+  for (const s of ["one", "two"]) {
+    mkdirSync(join(dir, "skills", s), { recursive: true });
+    writeFileSync(join(dir, "skills", s, "SKILL.md"), "x");
+  }
+  // Even strict: a declared path array is Codex's bare-id form, not a pass-through.
+  const { manifest } = toCodexManifest(dir, {
+    ...baseManifest,
+    skills: ["./skills/one", "./skills/two"],
+  });
+  assert.deepEqual(manifest.skills, ["one", "two"]);
+  rmSync(dir, { recursive: true });
+});
+
 test("resolveSkills auto-scans only dirs with SKILL.md", () => {
   const dir = tmp();
   mkdirSync(join(dir, "skills", "good"), { recursive: true });
