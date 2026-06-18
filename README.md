@@ -67,6 +67,62 @@ install. To hack on the CLI itself, see [Developing from source](#developing-fro
 
 ---
 
+# Works with existing ecosystems
+
+ADG is **not** a new plugin format you have to migrate to. Any repo that already
+ships `.claude-plugin/` or `.codex-plugin/` manifests is ingested as-is: on the
+way in, `add` discovers each native manifest and **reverse-adapts** it into a
+canonical `.agents/.plugin.json` (the inverse of `adapt`), then ADG manages and
+re-projects it like any first-party plugin. No fork, no edits upstream.
+
+The two examples below are real, popular repositories — neither is ADG-native.
+
+### Example 1 — `anthropics/knowledge-work-plugins` (a category monorepo)
+
+A marketplace monorepo where each top-level category (`engineering/`,
+`marketing/`, `legal/`, …) is its own plugin with a `.claude-plugin/plugin.json`
+and a `skills/` tree. Pull the whole thing, or sparse-checkout just the
+categories you want:
+
+```bash
+# whole marketplace into the global store
+adg plugins add anthropics/knowledge-work-plugins --ref main --global
+
+# or fetch only one category from the large monorepo
+adg plugins add anthropics/knowledge-work-plugins --ref main --sparse engineering --global
+
+# each category's .claude-plugin manifest is reverse-adapted on import,
+# then projected back onto the runtimes you use
+adg plugins link --target claude --global   # → ~/.claude/skills/<plugin>:<skill>
+adg plugins link --target codex  --global   # native, zero-copy
+adg plugins list --global
+```
+
+### Example 2 — `obra/superpowers` (a single multi-runtime plugin)
+
+A single skills plugin that already ships `.claude-plugin/`, `.codex-plugin/` and
+a `skills/` library. Because the native manifests are already present, ADG simply
+adopts it — discovery picks up the existing manifest, records provenance and a
+content hash in the lock, and from then on it updates like any ADG plugin:
+
+```bash
+adg plugins add obra/superpowers --ref main --global
+
+# now under management — same lifecycle as a first-party plugin
+adg plugins list --global
+adg plugins update --global
+adg plugins link --target claude --global
+```
+
+> Both repos are pulled by `owner/repo` shorthand over a shallow clone (sparse
+> checkout when `--sparse` is given). Provenance — `{type:"github",repo,ref,path}`
+> — plus a `sha256` integrity hash land in `.plugin-lock.json`, so the install is
+> reproducible regardless of which ecosystem the plugin originally came from. See
+> [Importing existing inventory (via `add`)](#importing-existing-inventory-via-add)
+> for the discovery and reverse-adaptation details.
+
+---
+
 # Concepts (common)
 
 These apply the same whether you run a released build or the source tree.
