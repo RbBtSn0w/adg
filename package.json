@@ -4,11 +4,19 @@
   "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RbBtSn0w/adg.git"
+  },
+  "homepage": "https://github.com/RbBtSn0w/adg#readme",
+  "bugs": {
+    "url": "https://github.com/RbBtSn0w/adg/issues"
+  },
   "publishConfig": {
     "access": "public"
   },
   "bin": {
-    "adg": "./dist/bin/adg.js"
+    "adg": "dist/bin/adg.js"
   },
   "engines": {
     "node": ">=22.18.0"

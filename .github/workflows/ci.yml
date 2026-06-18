@@ -52,6 +52,12 @@ jobs:
         run: npm install -g npm@latest
       - name: Install dependencies
         run: npm ci
+      - name: Build
+        # Must run before publish: npm validates the `bin` target exists when it
+        # normalizes package.json at the START of `npm publish` — earlier than
+        # the `prepack` hook — so on a fresh checkout `dist/bin/adg.js` has to be
+        # present already, or npm strips the `bin` entry from the published package.
+        run: npm run build
       - name: Semantic Release
         id: semantic
         env:
