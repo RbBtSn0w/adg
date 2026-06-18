@@ -1,5 +1,5 @@
 {
-  "name": "adg",
+  "name": "@rbbtsn0w/adg",
   "version": "0.1.0-alpha.1",
   "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
   "type": "module",
@@ -12,7 +12,7 @@
     "adg": "./bin/adg.ts"
   },
   "engines": {
-    "node": ">=22.6.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "adg": "node ./bin/adg.ts",
