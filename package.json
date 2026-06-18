@@ -5,8 +5,7 @@
   "type": "module",
   "license": "MIT",
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "access": "public"
   },
   "bin": {
     "adg": "./bin/adg.ts"
