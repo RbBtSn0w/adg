@@ -1,7 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ADG_MANIFEST_PATH, collectIssues } from "../manifest.ts";
-import { readFileSync } from "node:fs";
 
 export interface ValidateResult {
   ok: boolean;

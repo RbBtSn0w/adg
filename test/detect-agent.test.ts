@@ -9,10 +9,11 @@ import {
 } from "../vendor/skills/src/detect-agent.ts";
 
 /**
- * Guards the @vercel/detect-agent@0.1.0 adapter. determineAgent() returns a
- * string|false; detectAgent() must surface { isAgent, agent.name }. Before the
- * fix, isAgent was always undefined, so agent auto-detection silently never
- * fired. Importing this module also keeps detect-agent.ts in the typecheck graph.
+ * Guards the @vercel/detect-agent 1.x adapter. determineAgent() returns an
+ * `AgentResult` discriminated union; detectAgent() must surface
+ * { isAgent, agent.name }. Before the fix, isAgent was always undefined, so
+ * agent auto-detection silently never fired. Importing this module also keeps
+ * detect-agent.ts in the typecheck graph.
  */
 
 // getAgentType is pure — independent of detection state and the module cache.
@@ -55,13 +56,27 @@ const AGENT_ENV_SIGNALS = [
 // asserts a single detection scenario: with every other signal cleared and
 // CLAUDE_CODE set, the result must surface isAgent=true and map to claude-code.
 test("detectAgent: surfaces a detected agent and wires the projections", async () => {
-  for (const key of AGENT_ENV_SIGNALS) delete process.env[key];
-  process.env.CLAUDE_CODE = "1";
+  // node --test runs all files in one process, so snapshot and restore every
+  // env key we touch to avoid leaking mutations into other suites.
+  const saved = new Map<string, string | undefined>();
+  for (const key of [...AGENT_ENV_SIGNALS, "CLAUDE_CODE"]) {
+    saved.set(key, process.env[key]);
+  }
 
-  const result = await detectAgent();
-  assert.ok(result.isAgent); // narrows the AgentResult discriminated union
-  assert.equal(result.agent.name, "claude");
-  assert.equal(await isRunningInAgent(), true);
-  assert.equal(await getAgentName(), "claude");
-  assert.equal(getAgentType(result.agent.name), "claude-code");
+  try {
+    for (const key of AGENT_ENV_SIGNALS) delete process.env[key];
+    process.env.CLAUDE_CODE = "1";
+
+    const result = await detectAgent();
+    assert.ok(result.isAgent); // narrows the AgentResult discriminated union
+    assert.equal(result.agent.name, "claude");
+    assert.equal(await isRunningInAgent(), true);
+    assert.equal(await getAgentName(), "claude");
+    assert.equal(getAgentType(result.agent.name), "claude-code");
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });

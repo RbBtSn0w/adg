@@ -1,9 +1,8 @@
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { claudeSkillsDir, lockPath, marketplacePath, pluginDir } from "../paths.ts";
 import { readLock, removeEntry, writeLock } from "../lock.ts";
 import { readMarketplace, removeMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
-import { basename } from "node:path";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 
 export interface RemoveOptions {

@@ -11,10 +11,16 @@ export type Semver = [number, number, number];
 export function parseVersion(v: string): Semver {
   const core = v.trim().replace(/^[v=]/, "").split(/[-+]/)[0] ?? "";
   const parts = core.split(".");
-  if (parts.length !== 3 || parts.some((p) => !/^\d+$/.test(p))) {
+  // Accept partial ranges (`1`, `1.2`) by defaulting missing minor/patch to 0,
+  // matching how semver ranges are commonly written in manifests.
+  if (parts.length < 1 || parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) {
     throw new Error(`invalid semantic version: "${v}"`);
   }
-  return [Number(parts[0]), Number(parts[1]), Number(parts[2])];
+  return [
+    Number(parts[0]),
+    parts[1] !== undefined ? Number(parts[1]) : 0,
+    parts[2] !== undefined ? Number(parts[2]) : 0,
+  ];
 }
 
 export function compare(a: Semver, b: Semver): number {

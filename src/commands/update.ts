@@ -17,8 +17,10 @@ export interface UpdateResult {
 export interface UpdateOptions {
   /**
    * After refreshing the store, re-sync the agents so they pick up the updated
-   * content rather than serving a stale cached copy. Off by default so the
-   * library function stays side-effect-free.
+   * content rather than serving a stale cached copy. Off by default. Note this
+   * only gates the agent re-sync step: `updateLock` always rewrites the lock
+   * file and regenerates runtime manifests for changed plugins regardless of
+   * this flag, so the function is not side-effect-free.
    */
   resync?: boolean;
   /** Install scope for re-sync; "user" (global) or "project". */
@@ -40,7 +42,8 @@ export interface UpdateLockResult {
  * changed are reported as `changed`. A missing plugin directory is reported as
  * an issue rather than silently dropped.
  *
- * With `resync`, changed plugins are re-adapted (honoring their selection) and
+ * Changed plugins always have their runtime manifests regenerated (honoring
+ * their selection). With `resync`, the regenerated content is additionally
  * re-installed into the agents so Claude/Codex reflect the new content.
  */
 export function updateLock(

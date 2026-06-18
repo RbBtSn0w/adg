@@ -725,6 +725,14 @@ export class WellKnownProvider implements HostProvider {
       const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
       const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
 
+      // ADG patch: reject zip bombs before decompressing. The central directory
+      // declares the uncompressed size, so check it against the running budget
+      // up front — inflateRawSync would otherwise allocate the full (potentially
+      // multi-GB) output and OOM the process before addArchiveFile's check runs.
+      if (runningTotal.bytes + uncompressedSize > MAX_ARCHIVE_UNPACKED_BYTES) {
+        throw new Error('Archive exceeds maximum unpacked size');
+      }
+
       let content: Buffer;
       if (method === 0) {
         content = compressed;

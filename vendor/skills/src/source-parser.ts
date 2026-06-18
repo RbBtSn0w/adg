@@ -82,7 +82,18 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
  */
 export async function isRepoPrivate(owner: string, repo: string): Promise<boolean | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+    // ADG patch: GitHub's API rejects requests without a User-Agent (403), and
+    // authenticating raises rate limits and reaches private repos. Read the
+    // token from env directly to keep this best-effort check silent (no gh spawn).
+    const headers: Record<string, string> = {
+      'User-Agent': 'skills-cli',
+      Accept: 'application/vnd.github.v3+json',
+    };
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
 
     // If repo doesn't exist or we don't have access, assume private to be safe
     if (!res.ok) {

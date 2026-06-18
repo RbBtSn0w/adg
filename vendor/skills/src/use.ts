@@ -157,26 +157,33 @@ export function buildUsePrompt(input: {
 
 export async function materializeUseSkill(skill: UseSkill): Promise<MaterializedUseSkill> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'skills-use-'));
-  const skillDir = join(tempRoot, sanitizeName(skill.directoryName || skill.name));
+  // ADG patch: clean up tempRoot if any setup step fails. runUse only tracks
+  // cloneTempDir, so without this a failed materialize would leak the temp dir.
+  try {
+    const skillDir = join(tempRoot, sanitizeName(skill.directoryName || skill.name));
 
-  if (!isPathSafe(tempRoot, skillDir)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    if (!isPathSafe(tempRoot, skillDir)) {
+      throw new Error('Invalid skill name: potential path traversal detected');
+    }
+
+    await mkdir(skillDir, { recursive: true });
+
+    if (skill.kind === 'blob') {
+      await writeSnapshotFiles(skillDir, skill.files);
+    } else if (skill.kind === 'well-known') {
+      await writeMapFiles(skillDir, skill.files);
+    } else {
+      await copySkillDirectory(skill.path, skillDir);
+    }
+
+    const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
+    const hasSupportingFiles = await containsSupportingFiles(skillDir, skillDir);
+
+    return { tempRoot, skillDir, skillMd, hasSupportingFiles };
+  } catch (error) {
+    await cleanupTempDir(tempRoot).catch(() => {});
+    throw error;
   }
-
-  await mkdir(skillDir, { recursive: true });
-
-  if (skill.kind === 'blob') {
-    await writeSnapshotFiles(skillDir, skill.files);
-  } else if (skill.kind === 'well-known') {
-    await writeMapFiles(skillDir, skill.files);
-  } else {
-    await copySkillDirectory(skill.path, skillDir);
-  }
-
-  const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
-  const hasSupportingFiles = await containsSupportingFiles(skillDir, skillDir);
-
-  return { tempRoot, skillDir, skillMd, hasSupportingFiles };
 }
 
 export async function runUse(
