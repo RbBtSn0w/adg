@@ -1,3 +1,10 @@
+# [0.1.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.1.0-beta.1...0.1.0-beta.2) (2026-06-18)
+
+
+### Bug Fixes
+
+* cut 0.1.0-beta.2 ([7ed703a](https://github.com/RbBtSn0w/adg/commit/7ed703a88b6d52c14605d62b4e7952c00839e6b2))
+
 # Changelog
 
 All notable changes to the `adg` toolkit are recorded here.
