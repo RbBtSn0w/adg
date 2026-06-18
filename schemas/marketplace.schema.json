@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://RbBtSn0w.dev/schemas/marketplace.schema.json",
+  "title": "ADG Marketplace File",
+  "description": "A plugin catalog. Authored as .agents/.marketplace.json (source catalog) or generated as marketplace.json (runtime export for Codex). ADG's own provenance/integrity lives in .plugin-lock.json, not here.",
+  "type": "object",
+  "required": ["name", "plugins"],
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "owner": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "url": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "interface": {
+      "type": "object",
+      "description": "Deprecated. Prefer top-level `description`.",
+      "properties": { "displayName": { "type": "string" } },
+      "additionalProperties": true
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source"],
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string" },
+          "source": {
+            "description": "Where to find the plugin. A string is local-path shorthand (resolved relative to the directory that contains the catalog's `.agents/`). The object forms are explicit local or remote sources.",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["source", "path"],
+                "additionalProperties": false,
+                "properties": {
+                  "source": { "const": "local" },
+                  "path": { "type": "string" }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["source", "repo"],
+                "additionalProperties": false,
+                "properties": {
+                  "source": { "const": "github" },
+                  "repo": { "type": "string", "description": "owner/repo." },
+                  "ref": { "type": "string" },
+                  "path": { "type": "string", "description": "Sub-path within the repo." }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["source", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "source": { "const": "git" },
+                  "url": { "type": "string" },
+                  "ref": { "type": "string" },
+                  "path": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "policy": {
+            "type": "object",
+            "description": "Export-only. Written by ADG into the generated marketplace.json for Codex; omit it in an authored catalog.",
+            "additionalProperties": false,
+            "properties": {
+              "installation": { "type": "string", "enum": ["AVAILABLE", "BLOCKED"] },
+              "authentication": { "type": "string", "enum": ["ON_INSTALL", "NONE"] }
+            }
+          },
+          "category": { "type": "string" }
+        }
+      }
+    }
+  }
+}

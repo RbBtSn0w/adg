@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://RbBtSn0w.dev/schemas/adg-plugin.schema.json",
+  "title": "ADG Plugin Manifest",
+  "description": "Universal plugin manifest stored at .agents/.plugin.json. Source of truth for runtime-specific adapter manifests.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "version", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Manifest schema version.",
+      "const": "adg.plugin/v1"
+    },
+    "name": {
+      "type": "string",
+      "description": "Plugin identifier in kebab-case.",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-.]+)?(?:\\+[0-9A-Za-z-.]+)?$"
+    },
+    "description": { "type": "string", "minLength": 1 },
+    "author": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "email": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "license": { "type": "string" },
+    "category": { "type": "string" },
+    "interface": {
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "icon": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "skills": {
+      "description": "Skill root directory, or an explicit array of skill paths.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "agents": { "type": "string", "description": "Sub-agent directory." },
+    "commands": { "type": "string", "description": "Slash command directory." },
+    "apps": { "type": "string", "description": "Third-party app integration config." },
+    "hooks": { "type": "string", "description": "Lifecycle hooks directory." },
+    "mcp": { "type": "string", "description": "MCP config file path." },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "strict": {
+      "type": "boolean",
+      "description": "When true, only skills listed in the manifest are exposed; when false, the skills directory is auto-scanned.",
+      "default": true
+    },
+    "homepage": { "type": "string" },
+    "changelog": { "type": "string" }
+  }
+}

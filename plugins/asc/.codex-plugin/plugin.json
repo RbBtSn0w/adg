@@ -1,0 +1,14 @@
+{
+  "name": "asc",
+  "version": "0.1.0",
+  "description": "App Store Connect workflows and TestFlight upload.",
+  "skills": [
+    "metadata-sync",
+    "testflight-upload"
+  ],
+  "author": {
+    "name": "Agent Directory Group"
+  },
+  "homepage": "https://github.com/RbBtSn0w/adg/tree/main/plugins/asc",
+  "license": "MIT"
+}

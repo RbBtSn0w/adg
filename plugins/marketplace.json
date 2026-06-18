@@ -1,0 +1,29 @@
+{
+  "name": "plugins",
+  "plugins": [
+    {
+      "name": "github-cr",
+      "source": {
+        "source": "local",
+        "path": "./github-cr"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "asc",
+      "source": {
+        "source": "local",
+        "path": "./asc"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
