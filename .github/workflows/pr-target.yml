@@ -1,0 +1,34 @@
+name: PR Target Branch
+
+# Enforce the contribution flow: feature/fix PRs must target `beta`.
+# The only PR allowed to target `main` is the maintainer release PR from `beta`.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+    branches: [ main, beta ]
+
+permissions:
+  contents: read
+
+jobs:
+  check-base-branch:
+    name: Validate base branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR target
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          echo "PR: ${HEAD} -> ${BASE}"
+          if [ "${BASE}" = "beta" ]; then
+            echo "OK: targeting the integration branch (beta)."
+            exit 0
+          fi
+          if [ "${BASE}" = "main" ] && [ "${HEAD}" = "beta" ]; then
+            echo "OK: maintainer release PR (beta -> main)."
+            exit 0
+          fi
+          echo "::error::Pull requests must target the beta branch."
+          echo "main is reserved for stable releases. Re-open this PR with base = beta."
+          exit 1
