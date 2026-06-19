@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 #
-# Apply branch-protection rulesets for the two-branch model:
-#   - main: stable releases, maintainer-only, PR + reviews + status checks
-#   - beta: integration branch, PR + reviews + status checks (incl. PR target gate)
+# One-shot repository governance setup for the two-branch model:
+#   - main: stable releases, PR + reviews + conversation resolution + checks
+#   - beta: integration branch, PR + reviews + checks (incl. PR-target gate)
 #
-# Idempotent-ish: re-running creates duplicate rulesets, so it deletes any
-# existing ruleset with the same name first. Requires an authenticated `gh`
-# with admin on the repo.
+# It applies everything that can be driven through the GitHub API:
+#   1. Branch rulesets for main and beta (with bypass actors).
+#   2. "Allow GitHub Actions to create and approve pull requests"
+#      (needed by sync-main-to-beta.yml).
+#   3. Merge methods (merge-commit only) + auto-delete merged head branches.
 #
-# Restricting *who can merge* into main (owner / maintainers / release managers)
-# is expressed via the ruleset bypass list. Replace the BYPASS_* placeholders
-# with real actor/team IDs, or apply that part in the GitHub UI:
-#   Settings -> Rules -> Rulesets -> main -> Bypass list.
+# Requires an authenticated `gh` with admin on the repo.
+#
+# Everything is overridable via env vars (see the CONFIG block) so the script is
+# reusable across repos/forks. What it canNOT do (do these by hand):
+#   - Set the SYNC_TOKEN secret (a PAT/App token value only you hold) so CI runs
+#     on the sync-main-to-beta back-merge PR.
+#   - Install the release-bot GitHub App on this repo. The App id is added to the
+#     ruleset bypass list, but semantic-release must actually push via that App
+#     token (or github-actions[bot] must be added to the bypass list in the UI)
+#     for release commits/tags to land on the protected branches.
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# CONFIG (override via environment)
+# ---------------------------------------------------------------------------
 # Prefer a Homebrew gh, fall back to PATH; fail loud if neither is present.
 GH="${GH:-/opt/homebrew/bin/gh}"
 command -v "$GH" >/dev/null 2>&1 || GH="gh"
@@ -22,10 +33,37 @@ if ! command -v "$GH" >/dev/null 2>&1; then
   exit 1
 fi
 
+api() { "$GH" api -H "Accept: application/vnd.github+json" "$@"; }
+
 # Default to the current repo (override with REPO=owner/name).
 REPO="${REPO:-$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "RbBtSn0w/adg")}"
 
-api() { "$GH" api -H "Accept: application/vnd.github+json" "$@"; }
+# Required status-check contexts (job names as rendered by Actions).
+TEST_CHECKS='{"context":"Test (Node 22)"},{"context":"Test (Node 23)"}'
+PR_TARGET_CHECK='{"context":"Validate base branch"}'
+
+# Bypass: repository Admin role always bypasses; add the release-bot App so
+# release automation can push to protected branches. Defaults to this repo's
+# RELEASE_BOT_APP_ID Actions variable; set BYPASS_APP_ID= to disable.
+ADMIN_ROLE_ID="${ADMIN_ROLE_ID:-5}"
+BYPASS_APP_ID="${BYPASS_APP_ID-$(api "/repos/${REPO}/actions/variables/RELEASE_BOT_APP_ID" --jq .value 2>/dev/null || true)}"
+
+# Toggles for the non-ruleset repository settings.
+APPLY_REPO_SETTINGS="${APPLY_REPO_SETTINGS:-true}"
+ALLOW_SQUASH="${ALLOW_SQUASH:-false}"   # off: avoids squash collapsing commit types
+ALLOW_REBASE="${ALLOW_REBASE:-false}"
+DELETE_BRANCH_ON_MERGE="${DELETE_BRANCH_ON_MERGE:-true}"
+
+# ---------------------------------------------------------------------------
+# Rulesets
+# ---------------------------------------------------------------------------
+bypass_actors_json() {
+  local items="{\"actor_id\":${ADMIN_ROLE_ID},\"actor_type\":\"RepositoryRole\",\"bypass_mode\":\"always\"}"
+  if [ -n "${BYPASS_APP_ID}" ]; then
+    items="${items},{\"actor_id\":${BYPASS_APP_ID},\"actor_type\":\"Integration\",\"bypass_mode\":\"always\"}"
+  fi
+  printf '[%s]' "${items}"
+}
 
 delete_ruleset_named() {
   local name="$1" ids id
@@ -49,6 +87,7 @@ create_ruleset() {
   "name": "${name}",
   "target": "branch",
   "enforcement": "active",
+  "bypass_actors": $(bypass_actors_json),
   "conditions": {
     "ref_name": { "include": ["refs/heads/${ref}"], "exclude": [] }
   },
@@ -69,7 +108,7 @@ create_ruleset() {
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
-        "required_status_checks": ${checks_json}
+        "required_status_checks": [${checks_json}]
       }
     }
   ]
@@ -77,24 +116,55 @@ create_ruleset() {
 JSON
 }
 
-# Job names as rendered by Actions (see .github/workflows/*.yml).
-MAIN_CHECKS='[{"context":"Test (Node 22)"},{"context":"Test (Node 23)"}]'
-BETA_CHECKS='[{"context":"Test (Node 22)"},{"context":"Test (Node 23)"},{"context":"Validate base branch"}]'
+# ---------------------------------------------------------------------------
+# Non-ruleset repository settings
+# ---------------------------------------------------------------------------
+configure_repo_settings() {
+  echo "Enabling 'Allow GitHub Actions to create and approve pull requests'"
+  local cur_perm
+  cur_perm="$(api "/repos/${REPO}/actions/permissions/workflow" --jq .default_workflow_permissions 2>/dev/null || echo read)"
+  api -X PUT "/repos/${REPO}/actions/permissions/workflow" \
+    -f default_workflow_permissions="${cur_perm}" \
+    -F can_approve_pull_request_reviews=true >/dev/null
+
+  echo "Setting merge methods (merge-commit only) + auto-delete merged branches"
+  api -X PATCH "/repos/${REPO}" \
+    -F allow_merge_commit=true \
+    -F allow_squash_merge="${ALLOW_SQUASH}" \
+    -F allow_rebase_merge="${ALLOW_REBASE}" \
+    -F delete_branch_on_merge="${DELETE_BRANCH_ON_MERGE}" >/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+echo "Repo: ${REPO}"
+echo "Bypass actors: Admin role(${ADMIN_ROLE_ID})$([ -n "${BYPASS_APP_ID}" ] && echo " + App(${BYPASS_APP_ID})" || echo " (no release App — set BYPASS_APP_ID)")"
 
 # main requires conversation resolution (4th arg = true); beta does not.
-create_ruleset "main"  "main"  "${MAIN_CHECKS}"  "true"
-create_ruleset "beta"  "beta"  "${BETA_CHECKS}"  "false"
+create_ruleset "main"  "main"  "${TEST_CHECKS}"                      "true"
+create_ruleset "beta"  "beta"  "${TEST_CHECKS},${PR_TARGET_CHECK}"   "false"
 
-cat <<'NOTE'
+if [ "${APPLY_REPO_SETTINGS}" = "true" ]; then
+  configure_repo_settings
+else
+  echo "Skipping repo settings (APPLY_REPO_SETTINGS=${APPLY_REPO_SETTINGS})."
+fi
 
-Done. Remaining manual steps:
-1. Merge-permission restriction on main:
-     Settings -> Rules -> Rulesets -> "main" -> Bypass list
-     Add only: Repository admin / Maintainers / Release managers.
-   This keeps stable-release merges restricted to authorized people.
-2. Allow release automation to push to main AND beta:
-     Settings -> Rules -> Rulesets -> "main" & "beta" -> Bypass list
-     Add the release-bot App (or "github-actions[bot]") with "Always" bypass mode.
-   Without this, semantic-release cannot push its `chore(release)` commits and
-   tags to the protected branches and the release pipeline fails.
+cat <<NOTE
+
+Done. Applied: rulesets (main, beta) with bypass, Actions-create-PR permission,
+merge-commit-only + auto-delete branches.
+
+Remaining MANUAL steps (cannot be scripted):
+1. SYNC_TOKEN secret — so CI runs on the sync-main-to-beta back-merge PR and it
+   can satisfy beta's required checks (a GITHUB_TOKEN-created PR does not trigger
+   CI). Use a PAT (repo scope) or the release-bot App token:
+     $GH secret set SYNC_TOKEN --repo ${REPO}
+2. Release pushes to protected branches: ensure the release-bot App (id
+   ${BYPASS_APP_ID:-<unset>}) is installed on ${REPO} and semantic-release pushes
+   via its token — OR add "github-actions[bot]" to the main & beta ruleset bypass
+   lists in the UI. The Admin-role bypass alone does NOT cover the Actions bot.
+3. Optional: restrict main merges further by adding a release-managers Team to
+   the main ruleset bypass list (Settings -> Rules -> Rulesets -> main).
 NOTE

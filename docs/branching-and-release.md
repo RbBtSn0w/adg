@@ -59,33 +59,46 @@ alone the branches slowly drift. `sync-main-to-beta.yml` closes that gap by open
 This is the steady-state replacement for the one-time manual `beta = main`
 reset done when the model was first established.
 
-## Repository protection setup
+## Repository governance setup
 
-Apply once per repository. Requires admin and the `gh` CLI authenticated against
-`RbBtSn0w/adg`. A ready script is provided:
+Apply once per repository. Requires admin and an authenticated `gh`. One script
+applies everything that the GitHub API allows:
 
 ```bash
 ./scripts/setup-branch-protection.sh
 ```
 
-It creates two **rulesets**:
+It is reusable across repos/forks — `REPO` and all knobs are env-overridable (it
+defaults `REPO` to the current repo and reads the bypass App id from this repo's
+`RELEASE_BOT_APP_ID` variable). What it does:
 
-**`main` ruleset**
-- Require a pull request before merging (≥ 1 approving review).
-- Require conversation resolution before merging.
-- Require status checks to pass: `Test (Node 22)`, `Test (Node 23)`.
-- Block direct pushes / non-fast-forward / deletion.
-- Restrict who can merge to repository admins + a `release-managers` team
-  (edit the script to set your team/actor IDs).
+**1. Rulesets**
 
-**`beta` ruleset**
-- Require a pull request before merging (≥ 1 approving review).
-- Require status checks: `Test (Node 22)`, `Test (Node 23)`,
-  `Validate base branch`.
-- Block direct pushes / deletion.
+| | `main` | `beta` |
+| --- | --- | --- |
+| Require PR (≥1 review) | ✅ | ✅ |
+| Conversation resolution | ✅ | — |
+| Required checks | `Test (Node 22/23)` | `Test (Node 22/23)`, `Validate base branch` |
+| Block direct push / non-ff / deletion | ✅ | ✅ |
+| Bypass actors | Admin role + release-bot App | Admin role + release-bot App |
+
+**2. Actions permission** — enables *Allow GitHub Actions to create and approve
+pull requests* (required by `sync-main-to-beta.yml`).
+
+**3. Merge settings** — merge-commit only (squash/rebase off, to stop squash
+collapsing Conventional-Commit types) + auto-delete merged head branches.
 
 > Status-check names must match the job names rendered by Actions. If you rename
-> CI jobs, update the rulesets.
+> CI jobs, update `TEST_CHECKS` / `PR_TARGET_CHECK` in the script.
+
+### Manual steps the script can't do
+- **`SYNC_TOKEN` secret** — a PAT/App token so CI runs on the back-merge PR (see
+  *Keeping beta in sync with main*). Its value can't be scripted.
+- **Release pushes to protected branches** — the Admin-role bypass does *not*
+  cover `github-actions[bot]`. Either ensure the release-bot App is installed on
+  the repo and semantic-release pushes via its token, or add `github-actions[bot]`
+  to the `main`/`beta` bypass lists in the UI.
+- **`release-managers` team** — optionally add it to the `main` bypass list.
 
 ## Release flow (maintainers)
 
