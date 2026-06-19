@@ -6,6 +6,14 @@ set -euo pipefail
 package_name="@rbbtsn0w/adg"
 version="${1:-$(node -p "require('./package.json').version")}"
 
+sha256_stream() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  else
+    shasum -a 256 | awk '{print $1}'
+  fi
+}
+
 if [[ "$version" == *-* ]]; then
   echo "Skipping Homebrew tap publish for prerelease ${version}."
   exit 0
@@ -26,7 +34,7 @@ if [[ -z "$tarball_url" ]]; then
   exit 1
 fi
 
-sha256="$(curl -fsSL "$tarball_url" | sha256sum | awk '{print $1}')"
+sha256="$(curl -fsSL "$tarball_url" | sha256_stream)"
 formula_path="${HOMEBREW_TAP_DIR}/Formula/adg.rb"
 
 cat >"$formula_path" <<EOF
