@@ -1,3 +1,13 @@
+## [0.3.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.2.1...0.3.0-beta.1) (2026-06-19)
+
+### Added
+
+* enhance plugin agent listing and error messaging ([#8](https://github.com/RbBtSn0w/adg/issues/8)) ([bc392d1](https://github.com/RbBtSn0w/adg/commit/bc392d14f16993bc4ee8b4e3bf85ee2936063ddf))
+
+### Changed
+
+* **ci:** avoid literal skip-CI directive in prose ([dbfac2d](https://github.com/RbBtSn0w/adg/commit/dbfac2d7e87ffcec6153a4be07e9e43e6affb331)), closes [#6](https://github.com/RbBtSn0w/adg/issues/6)
+
 ## [0.2.1](https://github.com/RbBtSn0w/adg/compare/0.2.0...0.2.1) (2026-06-19)
 
 
