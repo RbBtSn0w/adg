@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import pc from "picocolors";
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
@@ -21,9 +23,9 @@ import { selectTargetsInteractive } from "../src/commands/select-agents.ts";
 import { selectPluginsInteractive } from "../src/commands/select-plugins.ts";
 import { selectScopeInteractive } from "../src/commands/select-scope.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../src/commands/select-components.ts";
-import { globalPluginsDir, projectPluginsDir } from "../src/paths.ts";
+import { globalPluginsDir, installedPluginDir, projectPluginsDir } from "../src/paths.ts";
 import { COMPONENT_TYPES, type ComponentType } from "../src/types.ts";
-import { getAgent, type AgentScope, type AgentSyncResult } from "../src/agents/index.ts";
+import { agentsForComponents, getAgent, type AgentScope, type AgentSyncResult } from "../src/agents/index.ts";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for flags.
@@ -364,6 +366,12 @@ function formatColumns(
   return lines.join("\n");
 }
 
+/** Abbreviate the home-directory prefix of an absolute path to `~`. */
+function abbrevHome(p: string): string {
+  const home = homedir();
+  return p === home ? "~" : p.startsWith(home + "/") ? "~" + p.slice(home.length) : p;
+}
+
 /** Print a plugin's components, each expanded to its member names (verbose view). */
 function printContents(contents: Record<string, string[]> | undefined, headerIndent: number): void {
   const entries = (Object.entries(contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
@@ -556,16 +564,39 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         console.log(`no plugins recorded in ${pluginsDir}`);
         return;
       }
-      for (const p of plugins) {
-        const partial = p.selection ? "  (partial)" : "";
-        console.log(`${p.name}@${p.version}  [${p.origin.type}] ${p.folderHash.slice(0, 19)}${partial}`);
-        const entries = (Object.entries(p.contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
-        if (entries.length === 0) continue;
-        if (values.verbose) {
-          printContents(p.contents, 2);
-        } else {
-          console.log(`  ${entries.map(([type, names]) => `${type}: ${names.length}`).join("  ")}`);
-        }
+      // Pre-compute each plugin's display row so the name/path columns can be
+      // aligned across rows (à la `adg skills list`). The `Agents:` column is
+      // derived from the exposed component types — which agents can adapt it.
+      const PATH_MAX = 44;
+      const rows = plugins.map((p) => {
+        const exposed = (Object.entries(p.contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
+        const types = exposed.map(([type]) => type) as ComponentType[];
+        const agents = agentsForComponents(types).map((a) => a.displayName);
+        return {
+          p,
+          label: `${p.name}@${p.version}`,
+          path: abbrevHome(installedPluginDir(pluginsDir, p.name, p.origin)),
+          agents: agents.length > 0 ? agents.join(", ") : "—",
+          counts: exposed.map(([type, names]) => `${type}: ${names.length}`),
+        };
+      });
+      const nameW = Math.max(...rows.map((r) => r.label.length));
+      const pathW = Math.min(PATH_MAX, Math.max(...rows.map((r) => r.path.length)));
+      const ellip = (s: string, w: number) => (s.length > w ? "…" + s.slice(s.length - w + 1) : s);
+
+      // Color mirrors `adg skills list`: cyan name, dim path / dim "Agents:"
+      // label with the agent names left bright, and the provenance/counts line
+      // fully dimmed as secondary metadata. Widths are measured on the uncolored
+      // strings (above), so wrapping the padded text keeps columns aligned.
+      // picocolors auto-disables on non-TTY / NO_COLOR, so pipes stay plain.
+      for (const r of rows) {
+        const partial = r.p.selection ? "  (partial)" : "";
+        const name = pc.cyan(r.label.padEnd(nameW));
+        const path = pc.dim(ellip(r.path, pathW).padEnd(pathW));
+        console.log(`${name}  ${path}  ${pc.dim("Agents:")} ${r.agents}`);
+        const provenance = `[${r.p.origin.type}] ${r.p.folderHash.slice(0, 19)}${partial}`;
+        console.log(pc.dim(`  ${[provenance, ...r.counts].join("   ")}`));
+        if (values.verbose) printContents(r.p.contents, 4);
       }
       return;
     }

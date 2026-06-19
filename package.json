@@ -23,7 +23,7 @@
   },
   "scripts": {
     "adg": "node ./bin/adg.ts",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json --noCheck",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json --noCheck && chmod +x dist/bin/adg.js",
     "test": "node --test 'test/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run typecheck",

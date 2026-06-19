@@ -8,5 +8,5 @@ registerAgent(claudeAgent);
 registerAgent(codexAgent);
 
 export * from "./types.ts";
-export { registerAgent, getAgent, allAgents, detectedAgents, resolveAgents } from "./registry.ts";
+export { registerAgent, getAgent, allAgents, detectedAgents, resolveAgents, agentsForComponents } from "./registry.ts";
 export { writeClaudeCatalog } from "./claude.ts";
