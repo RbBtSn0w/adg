@@ -4,22 +4,47 @@
 #   - main: stable releases, PR + reviews + conversation resolution + checks
 #   - beta: integration branch, PR + reviews + checks (incl. PR-target gate)
 #
-# It applies everything that can be driven through the GitHub API:
-#   1. Branch rulesets for main and beta (with bypass actors).
-#   2. "Allow GitHub Actions to create and approve pull requests"
-#      (needed by sync-main-to-beta.yml).
-#   3. Merge methods (merge-commit only) + auto-delete merged head branches.
+# Requires an authenticated `gh` with admin on the repo. Everything is
+# overridable via env vars (see the CONFIG block) so it is reusable across
+# repos/forks.
 #
-# Requires an authenticated `gh` with admin on the repo.
+# ===========================================================================
+# COVERED BY THIS SCRIPT  (automated via the GitHub API)
+# ===========================================================================
+#   [1] Branch rulesets for `main` and `beta`
+#       - require PR + 1 review; block direct push / non-ff / deletion
+#       - required status checks (Test matrix; + "Validate base branch" on beta)
+#       - main also requires conversation resolution
+#       - bypass actors: Admin role + release-bot App (RELEASE_BOT_APP_ID)
+#       -> create_ruleset() / bypass_actors_json()
+#   [2] "Allow GitHub Actions to create and approve pull requests"
+#       (required by sync-main-to-beta.yml to open the back-merge PR)
+#       -> configure_repo_settings()
+#   [3] Merge methods = merge-commit only (squash/rebase off, so squash cannot
+#       collapse Conventional-Commit types) + auto-delete merged head branches
+#       -> configure_repo_settings()
 #
-# Everything is overridable via env vars (see the CONFIG block) so the script is
-# reusable across repos/forks. What it canNOT do (do these by hand):
-#   - Set the SYNC_TOKEN secret (a PAT/App token value only you hold) so CI runs
-#     on the sync-main-to-beta back-merge PR.
-#   - Install the release-bot GitHub App on this repo. The App id is added to the
-#     ruleset bypass list, but semantic-release must actually push via that App
-#     token (or github-actions[bot] must be added to the bypass list in the UI)
-#     for release commits/tags to land on the protected branches.
+# ===========================================================================
+# NOT COVERED — DO MANUALLY  (cannot be scripted; guidance below + printed at end)
+# ===========================================================================
+#   [M1] SYNC_TOKEN secret — its value is a PAT/App token only you hold, so it
+#        cannot be hardcoded here. Needed so CI runs on the sync-main-to-beta
+#        back-merge PR (a GITHUB_TOKEN-created PR does not trigger pull_request
+#        CI, so without it beta's required checks never run on that PR).
+#          gh secret set SYNC_TOKEN --repo <owner/repo>
+#   [M2] github-actions[bot] bypass for release pushes — semantic-release pushes
+#        the `chore(release)` commit + tag with GITHUB_TOKEN (= github-actions[bot]).
+#        That bot is NOT covered by the Admin-role bypass and is not reliably
+#        addable via the API, so add it by hand to BOTH rulesets:
+#          Settings -> Rules -> Rulesets -> main / beta -> Bypass list ->
+#          Add bypass -> github-actions[bot] -> mode "Always".
+#        (Alternative: route semantic-release pushes through the release-bot App
+#        token, whose App id this script already puts in the bypass list.)
+#   [M3] Install/scope the release-bot GitHub App on this repo — only relevant if
+#        you take the App-token route in [M2]; the App must have contents:write.
+#   [M4] release-managers team bypass on main (optional) — add a Team to the main
+#        ruleset bypass list if you want more than repo admins to merge to main.
+# ===========================================================================
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -153,18 +178,17 @@ fi
 
 cat <<NOTE
 
-Done. Applied: rulesets (main, beta) with bypass, Actions-create-PR permission,
-merge-commit-only + auto-delete branches.
+Done. COVERED by this run: [1] rulesets (main, beta) with bypass, [2]
+Actions-create-PR permission, [3] merge-commit-only + auto-delete branches.
 
-Remaining MANUAL steps (cannot be scripted):
-1. SYNC_TOKEN secret — so CI runs on the sync-main-to-beta back-merge PR and it
-   can satisfy beta's required checks (a GITHUB_TOKEN-created PR does not trigger
-   CI). Use a PAT (repo scope) or the release-bot App token:
-     $GH secret set SYNC_TOKEN --repo ${REPO}
-2. Release pushes to protected branches: ensure the release-bot App (id
-   ${BYPASS_APP_ID:-<unset>}) is installed on ${REPO} and semantic-release pushes
-   via its token — OR add "github-actions[bot]" to the main & beta ruleset bypass
-   lists in the UI. The Admin-role bypass alone does NOT cover the Actions bot.
-3. Optional: restrict main merges further by adding a release-managers Team to
-   the main ruleset bypass list (Settings -> Rules -> Rulesets -> main).
+NOT COVERED — do these manually (see the header for full context):
+  [M1] SYNC_TOKEN secret — so CI runs on the sync-main-to-beta back-merge PR and
+       it can satisfy beta's required checks:
+         $GH secret set SYNC_TOKEN --repo ${REPO}
+  [M2] github-actions[bot] bypass — add it to the main & beta ruleset bypass
+       lists in the UI (Settings -> Rules -> Rulesets -> main/beta -> Bypass
+       list -> "Always"); the Admin-role bypass does NOT cover the Actions bot.
+       (Or route semantic-release via the release-bot App id ${BYPASS_APP_ID:-<unset>}.)
+  [M3] Install/scope that release-bot App on ${REPO} — only if taking the App route.
+  [M4] Optional: add a release-managers Team to the main ruleset bypass list.
 NOTE
