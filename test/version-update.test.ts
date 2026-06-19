@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getVersion } from "../bin/adg.ts";
 import {
@@ -17,13 +18,15 @@ function tmp(): string {
   return mkdtempSync(join(tmpdir(), "adg-ver-"));
 }
 
+const testDir = dirname(fileURLToPath(import.meta.url));
+
 // ---------------------------------------------------------------------------
 // getVersion()
 // ---------------------------------------------------------------------------
 
-test("getVersion returns a semver string matching package.json", () => {
-  const version = getVersion();
-  assert.match(version, /^\d+\.\d+\.\d+/, "expected a semver string");
+test("getVersion returns the package.json version", () => {
+  const pkg = JSON.parse(readFileSync(resolve(testDir, "..", "package.json"), "utf8")) as { version: string };
+  assert.equal(getVersion(), pkg.version);
 });
 
 // ---------------------------------------------------------------------------
@@ -125,6 +128,14 @@ test("checkForUpdate handles a malformed cached version without throwing", () =>
   const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
   writeUpdateCache({ latestVersion: "not-a-version", checkedAt: new Date().toISOString() }, env);
   assert.doesNotThrow(() => checkForUpdate("0.1.1", env));
+  rmSync(root, { recursive: true });
+});
+
+test("checkForUpdate treats an invalid checkedAt timestamp as stale", () => {
+  const root = tmp();
+  const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
+  writeUpdateCache({ latestVersion: "1.0.0", checkedAt: "not-a-date" }, env);
+  assert.equal(checkForUpdate("0.1.1", env), "1.0.0");
   rmSync(root, { recursive: true });
 });
 

@@ -112,7 +112,8 @@ export function checkForUpdate(
   const cache = readUpdateCache(env);
   const now = Date.now();
   const checkedAt = cache ? new Date(cache.checkedAt).getTime() : 0;
-  const isStale = !cache || now - checkedAt > CACHE_TTL_MS;
+  const checkedAtMs = Number.isFinite(checkedAt) ? checkedAt : 0;
+  const isStale = !cache || now - checkedAtMs > CACHE_TTL_MS;
 
   if (isStale) {
     scheduleUpdateCacheRefresh(currentVersion, env);
