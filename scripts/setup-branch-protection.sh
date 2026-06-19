@@ -27,11 +27,14 @@
 # ===========================================================================
 # NOT COVERED — DO MANUALLY  (cannot be scripted; guidance below + printed at end)
 # ===========================================================================
-#   [M1] SYNC_TOKEN secret — its value is a PAT/App token only you hold, so it
-#        cannot be hardcoded here. Needed so CI runs on the sync-main-to-beta
-#        back-merge PR (a GITHUB_TOKEN-created PR does not trigger pull_request
-#        CI, so without it beta's required checks never run on that PR).
-#          gh secret set SYNC_TOKEN --repo <owner/repo>
+#   [M1] Install/scope the release-bot GitHub App on this repo (the central
+#        manual prerequisite). sync-main-to-beta.yml reuses it (via
+#        actions/create-github-app-token) to mint a token whose PR triggers CI,
+#        so NO separate SYNC_TOKEN is needed. Grant the App:
+#          - pull-requests: write   (open the back-merge PR)
+#          - contents: write        (only if you also route release pushes via it)
+#        Its App id (RELEASE_BOT_APP_ID) is already added to the ruleset bypass.
+#        (SYNC_TOKEN remains an optional secret override if you prefer a PAT.)
 #   [M2] github-actions[bot] bypass for release pushes — semantic-release pushes
 #        the `chore(release)` commit + tag with GITHUB_TOKEN (= github-actions[bot]).
 #        That bot is NOT covered by the Admin-role bypass and is not reliably
@@ -39,10 +42,8 @@
 #          Settings -> Rules -> Rulesets -> main / beta -> Bypass list ->
 #          Add bypass -> github-actions[bot] -> mode "Always".
 #        (Alternative: route semantic-release pushes through the release-bot App
-#        token, whose App id this script already puts in the bypass list.)
-#   [M3] Install/scope the release-bot GitHub App on this repo — only relevant if
-#        you take the App-token route in [M2]; the App must have contents:write.
-#   [M4] release-managers team bypass on main (optional) — add a Team to the main
+#        token from [M1], whose App id is already in the bypass list.)
+#   [M3] release-managers team bypass on main (optional) — add a Team to the main
 #        ruleset bypass list if you want more than repo admins to merge to main.
 # ===========================================================================
 set -euo pipefail
@@ -182,13 +183,13 @@ Done. COVERED by this run: [1] rulesets (main, beta) with bypass, [2]
 Actions-create-PR permission, [3] merge-commit-only + auto-delete branches.
 
 NOT COVERED — do these manually (see the header for full context):
-  [M1] SYNC_TOKEN secret — so CI runs on the sync-main-to-beta back-merge PR and
-       it can satisfy beta's required checks:
-         $GH secret set SYNC_TOKEN --repo ${REPO}
+  [M1] Install/scope the release-bot App (id ${BYPASS_APP_ID:-<unset>}) on ${REPO}
+       with pull-requests:write (and contents:write if it also pushes releases).
+       sync-main-to-beta.yml reuses it to open the back-merge PR — no separate
+       SYNC_TOKEN needed (SYNC_TOKEN stays an optional PAT override).
   [M2] github-actions[bot] bypass — add it to the main & beta ruleset bypass
        lists in the UI (Settings -> Rules -> Rulesets -> main/beta -> Bypass
        list -> "Always"); the Admin-role bypass does NOT cover the Actions bot.
-       (Or route semantic-release via the release-bot App id ${BYPASS_APP_ID:-<unset>}.)
-  [M3] Install/scope that release-bot App on ${REPO} — only if taking the App route.
-  [M4] Optional: add a release-managers Team to the main ruleset bypass list.
+       (Or route semantic-release via the release-bot App from [M1].)
+  [M3] Optional: add a release-managers Team to the main ruleset bypass list.
 NOTE
