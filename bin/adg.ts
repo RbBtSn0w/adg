@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../src/adapters/index.ts";
 import { initScaffold, type InitType } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
@@ -719,12 +720,46 @@ function runSkills(verb: string | undefined, rest: string[]): void {
   process.exit(r.status ?? 1);
 }
 
+/**
+ * Read the package version from package.json.
+ *
+ * Works in both source mode (`bin/adg.ts` → package.json is 1 level up) and
+ * compiled mode (`dist/bin/adg.js` → package.json is 2 levels up).
+ */
+export function getVersion(): string {
+  const self = fileURLToPath(import.meta.url);
+  // Source: bin/adg.ts  → up 1 level reaches the repo root.
+  // Compiled: dist/bin/adg.js → up 2 levels reaches the repo root.
+  const up = self.endsWith(".ts") ? ".." : join("..", "..");
+  const pkg = JSON.parse(readFileSync(join(dirname(self), up, "package.json"), "utf8")) as { version: string };
+  return pkg.version;
+}
+
 async function main(argv: string[]): Promise<void> {
   const [domain, verb, ...rest] = argv;
+
+  // --version / -v at the root level: print version and exit.
+  // Note: `-v` is also the short flag for `--verbose` in subcommands, but only
+  // when it appears *after* a domain (e.g. `adg plugins list -v`). Checking
+  // argv[0] here means we only intercept `adg -v` / `adg --version`, never
+  // a subcommand's own flags.
+  if (domain === "--version" || domain === "-v") {
+    console.log(getVersion());
+    return;
+  }
 
   if (!domain || domain === "help" || domain === "--help" || domain === "-h") {
     console.log(TOP_USAGE);
     return;
+  }
+
+  // Check for an available update (reads local cache; schedules a background
+  // network refresh when the cache is stale — the refresh uses an unreffed
+  // socket so it cannot delay process exit).
+  const currentVersion = getVersion();
+  const latestVersion = checkForUpdate(currentVersion);
+  if (latestVersion) {
+    process.stderr.write(formatUpdateNotice(currentVersion, latestVersion));
   }
 
   switch (domain) {
