@@ -30,9 +30,34 @@ cadence for ADG. For the contributor-facing summary see
 | PR checklist incl. base = beta | `.github/PULL_REQUEST_TEMPLATE.md` |
 | Build/typecheck/test gate | `.github/workflows/ci.yml` |
 | Prerelease on `beta`, stable on `main` | `.releaserc.json` |
+| Back-merge `main` → `beta` after release | `.github/workflows/sync-main-to-beta.yml` |
 
 The remaining controls — branch protection and merge-permission restriction —
 are repository settings and must be applied via the GitHub UI or API (see below).
+
+## Keeping beta in sync with main
+
+The flow is one-directional (`beta → main`), so after every release `main`
+gains a `chore(release): … [skip ci]` commit that `beta` lacks — left alone the
+branches slowly drift. `sync-main-to-beta.yml` closes that gap by opening a
+**back-merge PR (`main → beta`)** automatically.
+
+- **Trigger**: the CI workflow *completing* on `main`. (A `push` trigger would
+  miss the release commit, whose `[skip ci]` suppresses push-triggered runs.)
+  Also runnable via **Run workflow** (`workflow_dispatch`).
+- **Behaviour**: idempotent — opens a PR only when `main` is ahead of `beta` and
+  no sync PR is already open. It never pushes to `beta` directly, so branch
+  protection still applies.
+- **Merging**: merge the sync PR with a **merge commit** (not squash). Version
+  lines in `package.json` / `CHANGELOG.md` may conflict — resolve in favour of
+  `main`; the next prerelease on `beta` continues from there.
+- **Token**: set repo secret `SYNC_TOKEN` (a PAT or the release-bot App token)
+  so CI runs on the sync PR and it can satisfy `beta`'s required checks. Without
+  it the PR still opens on `GITHUB_TOKEN`, but a maintainer must merge it (a
+  token-created PR does not start the `pull_request` CI).
+
+This is the steady-state replacement for the one-time manual `beta = main`
+reset done when the model was first established.
 
 ## Repository protection setup
 
