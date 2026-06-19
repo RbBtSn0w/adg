@@ -29,18 +29,33 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      # Reuse the release-bot App to mint a short-lived token. A PR opened with
+      # an App token DOES trigger pull_request CI (unlike GITHUB_TOKEN), so the
+      # sync PR can satisfy beta's required checks without a separate PAT.
+      # Requires the App installed on this repo with pull-requests: write.
+      - name: Mint release-bot token
+        id: bot
+        # continue-on-error: if the App id is set but the private key is missing/
+        # invalid or the App isn't installed, don't abort the job — leave the
+        # token empty so the next step falls back to SYNC_TOKEN / GITHUB_TOKEN.
+        if: ${{ vars.RELEASE_BOT_APP_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: main
       - name: Open or update back-merge PR
-        # Prefer SYNC_TOKEN (PAT or App token) so CI runs on the sync PR and it
-        # can satisfy beta's required checks. Falls back to GITHUB_TOKEN, in
-        # which case the PR opens but a maintainer must merge it (a token-created
-        # PR does not trigger the pull_request CI).
+        # Token preference: release-bot App > optional SYNC_TOKEN override >
+        # GITHUB_TOKEN. Only the first two make a PR that triggers CI; with the
+        # GITHUB_TOKEN fallback the PR opens but a maintainer must merge it (a
+        # GITHUB_TOKEN-created PR does not trigger the pull_request CI).
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           git fetch --quiet origin main beta
           ahead="$(git rev-list --count origin/beta..origin/main)"
