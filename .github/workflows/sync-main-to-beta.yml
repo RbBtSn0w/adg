@@ -1,0 +1,59 @@
+name: Sync main to beta
+
+# Keep the beta integration branch aligned with main after a release. When a
+# `beta -> main` release merges, semantic-release pushes a
+# `chore(release): x.y.z [skip ci]` commit back onto main; that `[skip ci]`
+# suppresses push-triggered workflows, so we trigger off the CI workflow
+# *completing* on main (by which point the release commit already exists) and
+# open a back-merge PR (main -> beta). Direct pushes to beta are avoided so the
+# branch protection (PR + review) still applies.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: sync-main-to-beta
+  cancel-in-progress: false
+
+jobs:
+  open-backmerge-pr:
+    name: Open back-merge PR
+    # Skip failed CI runs; manual dispatch always proceeds.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Open or update back-merge PR
+        # Prefer SYNC_TOKEN (PAT or App token) so CI runs on the sync PR and it
+        # can satisfy beta's required checks. Falls back to GITHUB_TOKEN, in
+        # which case the PR opens but a maintainer must merge it (a token-created
+        # PR does not trigger the pull_request CI).
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --quiet origin main beta
+          ahead="$(git rev-list --count origin/beta..origin/main)"
+          if [ "$ahead" -eq 0 ]; then
+            echo "beta is already up to date with main; nothing to sync."
+            exit 0
+          fi
+          echo "main is ${ahead} commit(s) ahead of beta."
+          existing="$(gh pr list --base beta --head main --state open --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            echo "Back-merge PR #${existing} already open; leaving it for review."
+            exit 0
+          fi
+          gh pr create --base beta --head main \
+            --title "chore: sync main into beta" \
+            --body $'Automated back-merge to keep `beta` aligned with `main` after a release.\n\nMerge with a **merge commit** (not squash) to preserve history. Version-line conflicts in `package.json` / `CHANGELOG.md` may need a manual resolution favouring `main`; semantic-release continues the next prerelease from there.'

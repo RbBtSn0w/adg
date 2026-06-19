@@ -361,6 +361,12 @@ Debugging tips:
 - GitHub clone/sparse logic is injectable (`gitRunner`) and covered offline by
   the test suite; live network clones are exercised by `import owner/repo`.
 
+## Contributing
+
+All feature/fix pull requests target the **`beta`** integration branch; `main`
+is reserved for stable releases. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/branching-and-release.md](docs/branching-and-release.md).
+
 ## License
 
 MIT
