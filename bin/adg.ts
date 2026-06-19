@@ -28,6 +28,22 @@ import { COMPONENT_TYPES, type ComponentType } from "../src/types.ts";
 import { agentsForComponents, getAgent, type AgentScope, type AgentSyncResult } from "../src/agents/index.ts";
 
 // ---------------------------------------------------------------------------
+// Semantic colors, mirroring `adg skills list` so output reads the same across
+// commands: cyan = primary identifiers (plugins, agents, sources), dim =
+// secondary metadata (paths, hashes, sub-details), green = success, yellow =
+// notes/warnings, red = errors, bold = section titles. picocolors auto-disables
+// on non-TTY / NO_COLOR, so piped output and tests stay plain.
+// ---------------------------------------------------------------------------
+const ui = {
+  title: (s: string) => pc.bold(s),
+  name: (s: string) => pc.cyan(s),
+  meta: (s: string) => pc.dim(s),
+  ok: (s: string) => pc.green(s),
+  warn: (s: string) => pc.yellow(s),
+  err: (s: string) => pc.red(s),
+} as const;
+
+// ---------------------------------------------------------------------------
 // Single source of truth for flags.
 //
 // Every flag is declared once here and drives BOTH the argument parser and the
@@ -278,7 +294,7 @@ function wantsHelp(args: string[]): boolean {
 }
 
 function fail(msg: string): never {
-  console.error(`error: ${msg}\n`);
+  console.error(`${ui.err("error:")} ${msg}\n`);
   console.error(TOP_USAGE);
   process.exit(1);
 }
@@ -303,8 +319,8 @@ function scopeOf(values: Record<string, unknown>): AgentScope {
 function reportAgents(agents: AgentSyncResult[] | undefined, verb: string): void {
   for (const r of agents ?? []) {
     const name = getAgent(r.agent)?.displayName ?? r.agent;
-    if (r.affected.length > 0) console.log(`${verb} in ${name}: ${r.affected.join(", ")}`);
-    else if (r.skipped) console.log(`note: \`${r.agent}\` CLI not found — run \`adg plugins link --target ${r.agent}\` after installing it.`);
+    if (r.affected.length > 0) console.log(`${ui.ok(verb)} in ${ui.name(name)}: ${r.affected.join(", ")}`);
+    else if (r.skipped) console.log(ui.warn(`note: \`${r.agent}\` CLI not found — run \`adg plugins link --target ${r.agent}\` after installing it.`));
   }
 }
 
@@ -333,7 +349,7 @@ function parseVerb(name: string, flags: readonly FlagName[], rest: string[]): { 
     const { values, positionals } = parseArgs({ args: rest, options: optionsFor(flags), allowPositionals: true });
     return { values: values as ParsedValues, positionals };
   } catch (err) {
-    console.error(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+    console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}\n`);
     console.error(renderVerbHelp(name));
     process.exit(1);
   }
@@ -377,7 +393,7 @@ function printContents(contents: Record<string, string[]> | undefined, headerInd
   const entries = (Object.entries(contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
   for (const [type, names] of entries) {
     const maxColWidth = Math.max(1, ...names.map((n) => n.length));
-    console.log(`${" ".repeat(headerIndent)}${type} (${names.length}):`);
+    console.log(`${" ".repeat(headerIndent)}${ui.name(type)} ${ui.meta(`(${names.length}):`)}`);
     console.log(formatColumns(names, { indent: headerIndent + 2, maxColWidth }));
   }
 }
@@ -392,7 +408,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
   const verb = PLUGIN_ALIASES[rawVerb] ?? rawVerb;
   const cmd = PLUGIN_COMMANDS[verb];
   if (!cmd) {
-    console.error(`error: unknown plugins subcommand: ${rawVerb}\n`);
+    console.error(`${ui.err("error:")} unknown plugins subcommand: ${rawVerb}\n`);
     console.error(renderPluginsHelp());
     process.exit(1);
   }
@@ -415,15 +431,15 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         fail(`invalid --type "${values.type}" (expected plugin|marketplace|all)`);
       }
       const res = initScaffold({ name, dir, type, description: values.description, author: values.author, skill: values.skill?.[0] });
-      console.log(`created ${type} at ${res.pluginDir}`);
-      for (const f of res.created) console.log(`  + ${f}`);
+      console.log(`${ui.ok(`created ${type}`)} at ${ui.name(res.pluginDir)}`);
+      for (const f of res.created) console.log(ui.meta(`  + ${f}`));
       return;
     }
     case "adapt": {
       const { values, positionals } = parseVerb(verb, cmd.flags, rest);
       const pluginDir = resolve(positionals[0] ?? process.cwd());
       for (const r of adaptPlugin(pluginDir, resolveTargets(values.target))) {
-        console.log(`adapted ${r.target} -> ${r.file}`);
+        console.log(`${ui.ok("adapted")} ${ui.name(r.target)} ${ui.meta(`-> ${r.file}`)}`);
       }
       return;
     }
@@ -432,10 +448,10 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       const pluginDir = resolve(positionals[0] ?? process.cwd());
       const res = validatePlugin(pluginDir);
       if (res.ok) {
-        console.log(`ok: ${pluginDir} is a valid ADG plugin`);
+        console.log(`${ui.ok("ok:")} ${ui.name(pluginDir)} is a valid ADG plugin`);
       } else {
-        console.error(`invalid: ${pluginDir}`);
-        for (const i of res.issues) console.error(`  - ${i}`);
+        console.error(`${ui.err("invalid:")} ${ui.name(pluginDir)}`);
+        for (const i of res.issues) console.error(ui.warn(`  - ${i}`));
         process.exit(1);
       }
       return;
@@ -484,12 +500,12 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         activate: true,
         scope: global ? "user" : "project",
       });
-      for (const name of converted) console.log(`converted native manifest -> .agents/.plugin.json: ${name}`);
-      if (order.length > 1) console.log(`install order: ${order.join(" -> ")}`);
+      for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
+      if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
       for (const res of installed) {
-        console.log(`added ${res.name} -> ${res.installedTo}`);
-        console.log(`  folderHash: ${res.folderHash}`);
-        for (const f of res.adapted) console.log(`  adapted: ${f}`);
+        console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
+        console.log(ui.meta(`  folderHash: ${res.folderHash}`));
+        for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
       reportAgents(agents, "enabled");
       return;
@@ -506,7 +522,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         pluginsDir: resolveScopeDir(values),
         description: values.description,
       });
-      console.log(`imported skills into ${res.name} -> ${res.installedTo}`);
+      console.log(`${ui.ok("imported skills into")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
       return;
     }
     case "link": {
@@ -515,11 +531,11 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       if (target !== "claude" && target !== "codex") fail("plugins link requires --target claude|codex");
       const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global) });
       for (const a of res.actions) {
-        console.log(`linked ${a.name} [${res.target}]${a.linkedTo ? ` -> ${a.linkedTo}` : ""}`);
-        for (const f of a.adapted) console.log(`  adapted: ${f}`);
+        console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
+        for (const f of a.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
       if (res.cliSkipped) {
-        console.log(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`);
+        console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
       }
       return;
     }
@@ -529,8 +545,8 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         resync: true,
         scope: scopeOf(values),
       });
-      for (const r of results) console.log(`${r.changed ? "updated" : "unchanged"} ${r.name}@${r.version}`);
-      for (const m of missing) console.error(`  ! missing directory for locked plugin: ${m}`);
+      for (const r of results) console.log(`${r.changed ? ui.ok("updated") : ui.meta("unchanged")} ${ui.name(`${r.name}@${r.version}`)}`);
+      for (const m of missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
       reportAgents(agents, "re-synced");
       return;
     }
@@ -545,14 +561,14 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         deactivate: true,
         scope: scopeOf(values),
       });
-      if (res.removedDir) console.log(`removed ${res.name} -> ${res.removedDir}`);
-      else console.log(`removed ${res.name} (no directory on disk)`);
-      for (const link of res.unlinked) console.log(`  unlinked: ${link}`);
+      if (res.removedDir) console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta(`-> ${res.removedDir}`)}`);
+      else console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta("(no directory on disk)")}`);
+      for (const link of res.unlinked) console.log(ui.meta(`  unlinked: ${link}`));
       for (const r of res.agents ?? []) {
-        if (r.affected.length > 0) console.log(`  disabled in ${getAgent(r.agent)?.displayName ?? r.agent}`);
+        if (r.affected.length > 0) console.log(ui.meta(`  disabled in ${getAgent(r.agent)?.displayName ?? r.agent}`));
       }
       if (!res.removedFromLock && !res.removedDir) {
-        console.log(`  ${res.name} was not recorded in the lock`);
+        console.log(ui.warn(`  ${res.name} was not recorded in the lock`));
       }
       return;
     }
@@ -561,7 +577,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       const pluginsDir = resolveScopeDir(values);
       const plugins = listPlugins(pluginsDir);
       if (plugins.length === 0) {
-        console.log(`no plugins recorded in ${pluginsDir}`);
+        console.log(ui.meta(`no plugins recorded in ${pluginsDir}`));
         return;
       }
       // Pre-compute each plugin's display row so the name/path columns can be
@@ -591,11 +607,11 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       // picocolors auto-disables on non-TTY / NO_COLOR, so pipes stay plain.
       for (const r of rows) {
         const partial = r.p.selection ? "  (partial)" : "";
-        const name = pc.cyan(r.label.padEnd(nameW));
-        const path = pc.dim(ellip(r.path, pathW).padEnd(pathW));
-        console.log(`${name}  ${path}  ${pc.dim("Agents:")} ${r.agents}`);
+        const name = ui.name(r.label.padEnd(nameW));
+        const path = ui.meta(ellip(r.path, pathW).padEnd(pathW));
+        console.log(`${name}  ${path}  ${ui.meta("Agents:")} ${r.agents}`);
         const provenance = `[${r.p.origin.type}] ${r.p.folderHash.slice(0, 19)}${partial}`;
-        console.log(pc.dim(`  ${[provenance, ...r.counts].join("   ")}`));
+        console.log(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
         if (values.verbose) printContents(r.p.contents, 4);
       }
       return;
@@ -603,9 +619,9 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
     case "migrate": {
       const { values } = parseVerb(verb, cmd.flags, rest);
       const res = migrateLayout(resolveScopeDir(values));
-      for (const m of res.moved) console.log(`moved ${m.name}: ${m.from} -> ${m.to}`);
-      for (const m of res.missing) console.error(`  ! missing directory for locked plugin: ${m}`);
-      if (res.moved.length === 0) console.log(`nothing to migrate (${res.unchanged.length} already in place)`);
+      for (const m of res.moved) console.log(`${ui.ok("moved")} ${ui.name(m.name)}: ${ui.meta(`${m.from} -> ${m.to}`)}`);
+      for (const m of res.missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
+      if (res.moved.length === 0) console.log(ui.meta(`nothing to migrate (${res.unchanged.length} already in place)`));
       return;
     }
     case "marketplace":
@@ -650,7 +666,7 @@ async function runMarketplace(args: string[]): Promise<void> {
       const dir = resolveScopeDir(values);
       const groups = marketplaceList({ pluginsDir: dir });
       if (groups.length === 0) {
-        console.log("No plugins installed.");
+        console.log(ui.meta("No plugins installed."));
         return;
       }
       // Verbose: drill each plugin down to its components (reuses `plugins list -v`).
@@ -658,12 +674,12 @@ async function runMarketplace(args: string[]): Promise<void> {
       for (const g of groups) {
         const ref = g.ref ? `@${g.ref}` : "";
         const n = g.installed.length;
-        const tag = g.remote ? "" : "  (local — re-run add to update)";
-        console.log(`${g.source}${ref}  (${n} plugin${n !== 1 ? "s" : ""})${tag}`);
+        const tag = g.remote ? "" : ui.warn("  (local — re-run add to update)");
+        console.log(`${ui.name(`${g.source}${ref}`)}  ${ui.meta(`(${n} plugin${n !== 1 ? "s" : ""})`)}${tag}`);
         if (byName) {
           for (const name of g.installed) {
             const p = byName.get(name);
-            console.log(`  ${name}${p?.selection ? "  (partial)" : ""}`);
+            console.log(`  ${ui.name(name)}${p?.selection ? ui.meta("  (partial)") : ""}`);
             printContents(p?.contents, 4);
           }
         } else {
@@ -685,10 +701,10 @@ async function runMarketplace(args: string[]): Promise<void> {
       });
       for (const r of results) {
         const conv = r.converted.length ? ` (${r.converted.length} converted from native)` : "";
-        console.log(`upgraded ${r.source}: ${r.updated.length} plugin(s)${conv}`);
-        for (const p of r.updated) console.log(`  ${p.name} -> ${p.installedTo}`);
+        console.log(`${ui.ok("upgraded")} ${ui.name(r.source)}: ${r.updated.length} plugin(s)${ui.meta(conv)}`);
+        for (const p of r.updated) console.log(`  ${ui.name(p.name)} ${ui.meta(`-> ${p.installedTo}`)}`);
         if (r.available.length > 0) {
-          console.log(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`);
+          console.log(ui.meta(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`));
         }
       }
       return;
@@ -706,11 +722,11 @@ async function runMarketplace(args: string[]): Promise<void> {
         force: values.force,
         deactivate: true,
       });
-      console.log(`removed ${res.removed.length} plugin(s) from ${res.source}: ${res.removed.join(", ")}`);
+      console.log(`${ui.ok("removed")} ${res.removed.length} plugin(s) from ${ui.name(res.source)}: ${res.removed.join(", ")}`);
       return;
     }
     default: {
-      console.error(`error: unknown marketplace subcommand: ${sub}\n`);
+      console.error(`${ui.err("error:")} unknown marketplace subcommand: ${sub}\n`);
       console.error(MARKETPLACE_USAGE);
       process.exit(1);
     }
@@ -825,7 +841,7 @@ function isInvokedDirectly(): boolean {
 
 if (isInvokedDirectly()) {
   main(process.argv.slice(2)).catch((err) => {
-    console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   });
 }
