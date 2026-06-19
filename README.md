@@ -40,6 +40,8 @@ Install the CLI once, then run `adg` from anywhere:
 ```bash
 npm install -g @rbbtsn0w/adg          # stable channel
 npm install -g @rbbtsn0w/adg@beta     # pre-release channel
+brew tap RbBtSn0w/tap
+brew install adg
 # or run ad-hoc, no install:
 npx @rbbtsn0w/adg --help
 ```
