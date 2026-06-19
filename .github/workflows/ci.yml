@@ -67,3 +67,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/publish-github-packages.sh
+      - name: Create release bot token
+        uses: actions/create-github-app-token@v2
+        id: release-bot
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: RbBtSn0w
+          repositories: homebrew-tap
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: RbBtSn0w/homebrew-tap
+          token: ${{ steps.release-bot.outputs.token }}
+          path: homebrew-tap
+      - name: Update homebrew formula
+        env:
+          HOMEBREW_TAP_DIR: ${{ github.workspace }}/homebrew-tap
+        run: ./scripts/publish-homebrew-tap.sh
+      - name: Commit homebrew formula update
+        working-directory: homebrew-tap
+        run: |
+          if git diff --quiet -- Formula/adg.rb; then
+            echo "No Homebrew formula changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/adg.rb
+          git commit -m "chore: update adg to $(node -p "require('../package.json').version")"
+          git push origin HEAD
