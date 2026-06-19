@@ -35,7 +35,11 @@ jobs:
       # Requires the App installed on this repo with pull-requests: write.
       - name: Mint release-bot token
         id: bot
+        # continue-on-error: if the App id is set but the private key is missing/
+        # invalid or the App isn't installed, don't abort the job — leave the
+        # token empty so the next step falls back to SYNC_TOKEN / GITHUB_TOKEN.
         if: ${{ vars.RELEASE_BOT_APP_ID != '' }}
+        continue-on-error: true
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
