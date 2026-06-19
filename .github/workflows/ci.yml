@@ -58,6 +58,9 @@ jobs:
         # the `prepack` hook — so on a fresh checkout `dist/bin/adg.js` has to be
         # present already, or npm strips the `bin` entry from the published package.
         run: npm run build
+      - name: Record version before release
+        id: preversion
+        run: echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
       - name: Semantic Release
         id: semantic
         env:
@@ -67,7 +70,39 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/publish-github-packages.sh
+      # Optional, best-effort: append GitHub's "New Contributors" section to the
+      # release notes. Only runs when semantic-release actually cut a release
+      # (package.json version changed). Never fails the release.
+      - name: Append new contributors to release notes
+        if: ${{ github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          new="$(node -p 'require("./package.json").version')"
+          prev="${{ steps.preversion.outputs.version }}"
+          if [ "$new" = "$prev" ]; then
+            echo "No new release this run (version unchanged: $new); skipping."
+            exit 0
+          fi
+          # tagFormat in .releaserc.json is the bare version (no "v" prefix).
+          notes="$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="$new" -f previous_tag_name="$prev" --jq .body 2>/dev/null || true)"
+          section="$(printf '%s\n' "$notes" \
+            | awk '/^## New Contributors/{p=1} p && /^\*\*Full Changelog\*\*/{exit} p')"
+          if [ -z "$section" ]; then
+            echo "No new contributors for ${new}; nothing to append."
+            exit 0
+          fi
+          body="$(gh release view "$new" --json body --jq .body 2>/dev/null || true)"
+          printf '%s\n\n%s\n' "$body" "$section" | gh release edit "$new" --notes-file -
+          echo "Appended New Contributors section to release ${new}."
+      # Homebrew tap publish only runs for stable releases on main, and only when
+      # the release-bot GitHub App is configured. This keeps beta integration
+      # pushes green and prevents an unconfigured optional mirror from failing
+      # the (already successful) npm / GitHub release.
       - name: Create release bot token
+        if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
         uses: actions/create-github-app-token@v2
         id: release-bot
         with:
@@ -76,6 +111,7 @@ jobs:
           owner: RbBtSn0w
           repositories: homebrew-tap
       - name: Checkout homebrew tap
+        if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
         uses: actions/checkout@v4
         with:
           repository: RbBtSn0w/homebrew-tap
@@ -83,19 +119,24 @@ jobs:
           ref: main
           path: homebrew-tap
       - name: Update homebrew formula
+        if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
         env:
           HOMEBREW_TAP_DIR: ${{ github.workspace }}/homebrew-tap
         run: ./scripts/publish-homebrew-tap.sh
       - name: Commit homebrew formula update
+        if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
         working-directory: homebrew-tap
         run: |
           version="$(node -p 'require("../package.json").version')"
-          if git diff --quiet -- Formula/adg.rb; then
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then check the index — git diff (no --cached) does not
+          # see a brand-new untracked Formula/adg.rb, so the first publish must
+          # not be gated on it.
+          git add Formula/adg.rb
+          if git diff --cached --quiet -- Formula/adg.rb; then
             echo "No Homebrew formula changes to commit."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/adg.rb
           git commit -m "chore: update adg to ${version}"
           git push origin HEAD:main
