@@ -108,6 +108,7 @@ export function scheduleUpdateCacheRefresh(
 export function checkForUpdate(
   currentVersion: string,
   env: NodeJS.ProcessEnv = process.env,
+  refresh: (currentVersion: string, env: NodeJS.ProcessEnv) => void = scheduleUpdateCacheRefresh,
 ): string | undefined {
   const cache = readUpdateCache(env);
   const now = Date.now();
@@ -116,7 +117,7 @@ export function checkForUpdate(
   const isStale = !cache || now - checkedAtMs > CACHE_TTL_MS;
 
   if (isStale) {
-    scheduleUpdateCacheRefresh(currentVersion, env);
+    refresh(currentVersion, env);
   }
 
   if (!cache) return undefined;

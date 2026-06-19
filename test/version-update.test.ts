@@ -135,7 +135,12 @@ test("checkForUpdate treats an invalid checkedAt timestamp as stale", () => {
   const root = tmp();
   const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
   writeUpdateCache({ latestVersion: "1.0.0", checkedAt: "not-a-date" }, env);
-  assert.equal(checkForUpdate("0.1.1", env), "1.0.0");
+  const refreshCalls: Array<{ currentVersion: string; env: NodeJS.ProcessEnv }> = [];
+  const refresh = (currentVersion: string, refreshEnv: NodeJS.ProcessEnv) => {
+    refreshCalls.push({ currentVersion, env: refreshEnv });
+  };
+  assert.equal(checkForUpdate("0.1.1", env, refresh), "1.0.0");
+  assert.deepEqual(refreshCalls, [{ currentVersion: "0.1.1", env }]);
   rmSync(root, { recursive: true });
 });
 
