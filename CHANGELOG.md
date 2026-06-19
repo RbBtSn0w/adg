@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/RbBtSn0w/adg/compare/0.2.0...0.2.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* **brew:** Add Homebrew tap publishing for stable releases ([#5](https://github.com/RbBtSn0w/adg/issues/5)) ([0546dc9](https://github.com/RbBtSn0w/adg/commit/0546dc9172b8d93f1d7c34587df28383c21b52da))
+
 # [0.2.0](https://github.com/RbBtSn0w/adg/compare/0.1.1...0.2.0) (2026-06-19)
 
 

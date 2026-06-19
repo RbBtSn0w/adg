@@ -1,6 +1,6 @@
 {
   "name": "@rbbtsn0w/adg",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
   "type": "module",
   "license": "MIT",
