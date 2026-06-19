@@ -1,3 +1,10 @@
+# [0.2.0](https://github.com/RbBtSn0w/adg/compare/0.1.1...0.2.0) (2026-06-19)
+
+
+### Features
+
+* **version:** Add root version flag and cached update notice to the ADG CLI ([#4](https://github.com/RbBtSn0w/adg/issues/4)) ([bbce576](https://github.com/RbBtSn0w/adg/commit/bbce576b21de9822adff07c67d90b853b0cf4265))
+
 ## [0.1.1](https://github.com/RbBtSn0w/adg/compare/0.1.0...0.1.1) (2026-06-18)
 
 
