@@ -38,12 +38,12 @@ are repository settings and must be applied via the GitHub UI or API (see below)
 ## Keeping beta in sync with main
 
 The flow is one-directional (`beta → main`), so after every release `main`
-gains a `chore(release): … [skip ci]` commit that `beta` lacks — left alone the
-branches slowly drift. `sync-main-to-beta.yml` closes that gap by opening a
+gains a `chore(release): …` commit (tagged to skip CI) that `beta` lacks — left
+alone the branches slowly drift. `sync-main-to-beta.yml` closes that gap by opening a
 **back-merge PR (`main → beta`)** automatically.
 
 - **Trigger**: the CI workflow *completing* on `main`. (A `push` trigger would
-  miss the release commit, whose `[skip ci]` suppresses push-triggered runs.)
+  miss the release commit, whose skip-CI marker suppresses push-triggered runs.)
   Also runnable via **Run workflow** (`workflow_dispatch`).
 - **Behaviour**: idempotent — opens a PR only when `main` is ahead of `beta` and
   no sync PR is already open. It never pushes to `beta` directly, so branch

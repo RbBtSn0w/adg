@@ -2,8 +2,8 @@ name: Sync main to beta
 
 # Keep the beta integration branch aligned with main after a release. When a
 # `beta -> main` release merges, semantic-release pushes a
-# `chore(release): x.y.z [skip ci]` commit back onto main; that `[skip ci]`
-# suppresses push-triggered workflows, so we trigger off the CI workflow
+# `chore(release): x.y.z` commit back onto main tagged to skip CI; that skip-CI
+# marker suppresses push-triggered workflows, so we trigger off the CI workflow
 # *completing* on main (by which point the release commit already exists) and
 # open a back-merge PR (main -> beta). Direct pushes to beta are avoided so the
 # branch protection (PR + review) still applies.
