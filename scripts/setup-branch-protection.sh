@@ -15,7 +15,8 @@
 #       - require PR + 1 review; block direct push / non-ff / deletion
 #       - required status checks (Test matrix; + "Validate base branch" on beta)
 #       - main also requires conversation resolution
-#       - bypass actors: Admin role + release-bot App (RELEASE_BOT_APP_ID)
+#       - bypass actors: release-bot App (RELEASE_BOT_APP_ID); optional repo
+#         role via ADMIN_ROLE_ID
 #       -> create_ruleset() / bypass_actors_json()
 #   [2] "Allow GitHub Actions to create and approve pull requests"
 #       (required by sync-main-to-beta.yml to open the back-merge PR)
@@ -37,7 +38,7 @@
 #        (SYNC_TOKEN remains an optional secret override if you prefer a PAT.)
 #   [M2] github-actions[bot] bypass for release pushes — semantic-release pushes
 #        the `chore(release)` commit + tag with GITHUB_TOKEN (= github-actions[bot]).
-#        That bot is NOT covered by the Admin-role bypass and is not reliably
+#        That bot is NOT one of the scripted bypass actors and is not reliably
 #        addable via the API, so add it by hand to BOTH rulesets:
 #          Settings -> Rules -> Rulesets -> main / beta -> Bypass list ->
 #          Add bypass -> github-actions[bot] -> mode "Always".
@@ -64,18 +65,28 @@ api() { "$GH" api -H "Accept: application/vnd.github+json" "$@"; }
 # Default to the current repo (override with REPO=owner/name).
 REPO="${REPO:-$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "RbBtSn0w/adg")}"
 
-# Required status-check contexts (job names as rendered by Actions).
-TEST_CHECKS='{"context":"Test (Node 22)"},{"context":"Test (Node 23)"}'
-PR_TARGET_CHECK='{"context":"Validate base branch"}'
+# Required status-check contexts as full JSON arrays (job names as rendered by
+# Actions). Override with a complete JSON array, e.g. MAIN_CHECKS='[{"context":"x"}]'.
+MAIN_CHECKS="${MAIN_CHECKS:-[{\"context\":\"Test (Node 22)\"},{\"context\":\"Test (Node 23)\"}]}"
+BETA_CHECKS="${BETA_CHECKS:-[{\"context\":\"Test (Node 22)\"},{\"context\":\"Test (Node 23)\"},{\"context\":\"Validate base branch\"}]}"
 
-# Bypass: repository Admin role always bypasses; add the release-bot App so
-# release automation can push to protected branches. Defaults to this repo's
-# RELEASE_BOT_APP_ID Actions variable; set BYPASS_APP_ID= to disable.
-ADMIN_ROLE_ID="${ADMIN_ROLE_ID:-5}"
-BYPASS_APP_ID="${BYPASS_APP_ID-$(api "/repos/${REPO}/actions/variables/RELEASE_BOT_APP_ID" --jq .value 2>/dev/null || true)}"
+# Bypass actors. The release-bot App lets release automation push to protected
+# branches; it defaults to this repo's RELEASE_BOT_APP_ID Actions variable (set
+# BYPASS_APP_ID= to disable). A 404 prints {"message":...} whose .value is the
+# string "null", so the result must be digit-validated, not just non-empty.
+BYPASS_APP_ID="${BYPASS_APP_ID-$(api "/repos/${REPO}/actions/variables/RELEASE_BOT_APP_ID" --jq .value || true)}"
+[[ "${BYPASS_APP_ID}" =~ ^[0-9]+$ ]] || BYPASS_APP_ID=""
+# Optional repository-role bypass (opt-in). Built-in role ids are GitHub-version
+# specific (admin is commonly 5); leave empty unless you know the right id.
+ADMIN_ROLE_ID="${ADMIN_ROLE_ID:-}"
+[[ -z "${ADMIN_ROLE_ID}" || "${ADMIN_ROLE_ID}" =~ ^[0-9]+$ ]] || { echo "ADMIN_ROLE_ID must be numeric" >&2; exit 1; }
 
 # Toggles for the non-ruleset repository settings.
 APPLY_REPO_SETTINGS="${APPLY_REPO_SETTINGS:-true}"
+# Workflow token default permission: empty = preserve current (sanitized to
+# read/write). The sync workflow uses an App token + an explicit workflow-level
+# `permissions:` block, so "read" here does not block it.
+WORKFLOW_PERMISSIONS="${WORKFLOW_PERMISSIONS:-}"
 ALLOW_SQUASH="${ALLOW_SQUASH:-false}"   # off: avoids squash collapsing commit types
 ALLOW_REBASE="${ALLOW_REBASE:-false}"
 DELETE_BRANCH_ON_MERGE="${DELETE_BRANCH_ON_MERGE:-true}"
@@ -84,9 +95,13 @@ DELETE_BRANCH_ON_MERGE="${DELETE_BRANCH_ON_MERGE:-true}"
 # Rulesets
 # ---------------------------------------------------------------------------
 bypass_actors_json() {
-  local items="{\"actor_id\":${ADMIN_ROLE_ID},\"actor_type\":\"RepositoryRole\",\"bypass_mode\":\"always\"}"
+  local items=""
   if [ -n "${BYPASS_APP_ID}" ]; then
-    items="${items},{\"actor_id\":${BYPASS_APP_ID},\"actor_type\":\"Integration\",\"bypass_mode\":\"always\"}"
+    items="{\"actor_id\":${BYPASS_APP_ID},\"actor_type\":\"Integration\",\"bypass_mode\":\"always\"}"
+  fi
+  if [ -n "${ADMIN_ROLE_ID}" ]; then
+    [ -n "${items}" ] && items="${items},"
+    items="${items}{\"actor_id\":${ADMIN_ROLE_ID},\"actor_type\":\"RepositoryRole\",\"bypass_mode\":\"always\"}"
   fi
   printf '[%s]' "${items}"
 }
@@ -134,7 +149,7 @@ create_ruleset() {
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
-        "required_status_checks": [${checks_json}]
+        "required_status_checks": ${checks_json}
       }
     }
   ]
@@ -147,10 +162,16 @@ JSON
 # ---------------------------------------------------------------------------
 configure_repo_settings() {
   echo "Enabling 'Allow GitHub Actions to create and approve pull requests'"
-  local cur_perm
-  cur_perm="$(api "/repos/${REPO}/actions/permissions/workflow" --jq .default_workflow_permissions 2>/dev/null || echo read)"
+  local cur_perm perm
+  cur_perm="$(api "/repos/${REPO}/actions/permissions/workflow" --jq .default_workflow_permissions || echo read)"
+  # API may return null/empty; only "read" or "write" are valid. Honour an
+  # explicit WORKFLOW_PERMISSIONS override, else preserve the current value.
+  case "${WORKFLOW_PERMISSIONS:-${cur_perm}}" in
+    write) perm=write ;;
+    *)     perm=read ;;
+  esac
   api -X PUT "/repos/${REPO}/actions/permissions/workflow" \
-    -f default_workflow_permissions="${cur_perm}" \
+    -f default_workflow_permissions="${perm}" \
     -F can_approve_pull_request_reviews=true >/dev/null
 
   echo "Setting merge methods (merge-commit only) + auto-delete merged branches"
@@ -165,11 +186,11 @@ configure_repo_settings() {
 # Run
 # ---------------------------------------------------------------------------
 echo "Repo: ${REPO}"
-echo "Bypass actors: Admin role(${ADMIN_ROLE_ID})$([ -n "${BYPASS_APP_ID}" ] && echo " + App(${BYPASS_APP_ID})" || echo " (no release App — set BYPASS_APP_ID)")"
+echo "Bypass actors: $([ -n "${BYPASS_APP_ID}" ] && echo "App(${BYPASS_APP_ID})" || echo "(no release App — set BYPASS_APP_ID)")$([ -n "${ADMIN_ROLE_ID}" ] && echo " + RepositoryRole(${ADMIN_ROLE_ID})")"
 
 # main requires conversation resolution (4th arg = true); beta does not.
-create_ruleset "main"  "main"  "${TEST_CHECKS}"                      "true"
-create_ruleset "beta"  "beta"  "${TEST_CHECKS},${PR_TARGET_CHECK}"   "false"
+create_ruleset "main"  "main"  "${MAIN_CHECKS}"  "true"
+create_ruleset "beta"  "beta"  "${BETA_CHECKS}"  "false"
 
 if [ "${APPLY_REPO_SETTINGS}" = "true" ]; then
   configure_repo_settings
@@ -189,7 +210,7 @@ NOT COVERED — do these manually (see the header for full context):
        SYNC_TOKEN needed (SYNC_TOKEN stays an optional PAT override).
   [M2] github-actions[bot] bypass — add it to the main & beta ruleset bypass
        lists in the UI (Settings -> Rules -> Rulesets -> main/beta -> Bypass
-       list -> "Always"); the Admin-role bypass does NOT cover the Actions bot.
+       list -> "Always"); the scripted bypass actors do NOT cover the Actions bot.
        (Or route semantic-release via the release-bot App from [M1].)
   [M3] Optional: add a release-managers Team to the main ruleset bypass list.
 NOTE

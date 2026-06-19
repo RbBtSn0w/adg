@@ -51,10 +51,12 @@ alone the branches slowly drift. `sync-main-to-beta.yml` closes that gap by open
 - **Merging**: merge the sync PR with a **merge commit** (not squash). Version
   lines in `package.json` / `CHANGELOG.md` may conflict — resolve in favour of
   `main`; the next prerelease on `beta` continues from there.
-- **Token**: set repo secret `SYNC_TOKEN` (a PAT or the release-bot App token)
-  so CI runs on the sync PR and it can satisfy `beta`'s required checks. Without
-  it the PR still opens on `GITHUB_TOKEN`, but a maintainer must merge it (a
-  token-created PR does not start the `pull_request` CI).
+- **Token**: by default the workflow mints a token from the **release-bot App**
+  (`RELEASE_BOT_APP_ID` + `RELEASE_BOT_PRIVATE_KEY`); a PR opened with it triggers
+  CI, so `beta`'s required checks run. `SYNC_TOKEN` is an **optional** PAT
+  override. If neither is available it falls back to `GITHUB_TOKEN`, in which case
+  the PR opens but a maintainer must merge it (a `GITHUB_TOKEN`-created PR does not
+  start the `pull_request` CI).
 
 This is the steady-state replacement for the one-time manual `beta = main`
 reset done when the model was first established.
@@ -80,7 +82,7 @@ defaults `REPO` to the current repo and reads the bypass App id from this repo's
 | Conversation resolution | ✅ | — |
 | Required checks | `Test (Node 22/23)` | `Test (Node 22/23)`, `Validate base branch` |
 | Block direct push / non-ff / deletion | ✅ | ✅ |
-| Bypass actors | Admin role + release-bot App | Admin role + release-bot App |
+| Bypass actors | release-bot App (+ optional repo role) | release-bot App (+ optional repo role) |
 
 **2. Actions permission** — enables *Allow GitHub Actions to create and approve
 pull requests* (required by `sync-main-to-beta.yml`).
@@ -89,15 +91,18 @@ pull requests* (required by `sync-main-to-beta.yml`).
 collapsing Conventional-Commit types) + auto-delete merged head branches.
 
 > Status-check names must match the job names rendered by Actions. If you rename
-> CI jobs, update `TEST_CHECKS` / `PR_TARGET_CHECK` in the script.
+> CI jobs, update `MAIN_CHECKS` / `BETA_CHECKS` in the script.
 
 ### Manual steps the script can't do
-- **`SYNC_TOKEN` secret** — a PAT/App token so CI runs on the back-merge PR (see
-  *Keeping beta in sync with main*). Its value can't be scripted.
-- **Release pushes to protected branches** — the Admin-role bypass does *not*
-  cover `github-actions[bot]`. Either ensure the release-bot App is installed on
-  the repo and semantic-release pushes via its token, or add `github-actions[bot]`
-  to the `main`/`beta` bypass lists in the UI.
+- **Install/scope the release-bot App** on the repo with `pull-requests: write`
+  (and `contents: write` if it also pushes releases). `sync-main-to-beta.yml`
+  reuses it to open the back-merge PR, so **no separate `SYNC_TOKEN`** is needed
+  (`SYNC_TOKEN` stays an optional PAT override). Its App id is already added to
+  the ruleset bypass.
+- **Release pushes to protected branches** — the scripted bypass actors do *not*
+  cover `github-actions[bot]`. Either route semantic-release pushes through the
+  release-bot App token, or add `github-actions[bot]` to the `main`/`beta` bypass
+  lists in the UI.
 - **`release-managers` team** — optionally add it to the `main` bypass list.
 
 ## Release flow (maintainers)
