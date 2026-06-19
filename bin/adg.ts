@@ -382,10 +382,12 @@ function formatColumns(
   return lines.join("\n");
 }
 
-/** Abbreviate the home-directory prefix of an absolute path to `~`. */
+/** Abbreviate the home-directory prefix of an absolute path to `~` (POSIX `/` or Windows `\`). */
 function abbrevHome(p: string): string {
   const home = homedir();
-  return p === home ? "~" : p.startsWith(home + "/") ? "~" + p.slice(home.length) : p;
+  if (p === home) return "~";
+  if (p.startsWith(home + "/") || p.startsWith(home + "\\")) return "~" + p.slice(home.length);
+  return p;
 }
 
 /** Print a plugin's components, each expanded to its member names (verbose view). */
