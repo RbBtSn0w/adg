@@ -14,20 +14,30 @@
 #   Settings -> Rules -> Rulesets -> main -> Bypass list.
 set -euo pipefail
 
-REPO="${REPO:-RbBtSn0w/adg}"
+# Prefer a Homebrew gh, fall back to PATH; fail loud if neither is present.
 GH="${GH:-/opt/homebrew/bin/gh}"
 command -v "$GH" >/dev/null 2>&1 || GH="gh"
+if ! command -v "$GH" >/dev/null 2>&1; then
+  echo "Error: GitHub CLI ('$GH') is not installed or not in PATH." >&2
+  exit 1
+fi
+
+# Default to the current repo (override with REPO=owner/name).
+REPO="${REPO:-$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "RbBtSn0w/adg")}"
 
 api() { "$GH" api -H "Accept: application/vnd.github+json" "$@"; }
 
 delete_ruleset_named() {
-  local name="$1"
-  local id
-  id="$(api "/repos/${REPO}/rulesets" --jq ".[] | select(.name==\"${name}\") | .id" 2>/dev/null || true)"
-  if [ -n "${id}" ]; then
+  local name="$1" ids id
+  # More than one ruleset can share a name (e.g. from earlier runs); delete
+  # every match. stderr is kept so auth/network errors stay visible.
+  ids="$(api "/repos/${REPO}/rulesets" --jq ".[] | select(.name==\"${name}\") | .id")" || return 0
+  [ -n "${ids}" ] || return 0
+  while read -r id; do
+    [ -n "${id}" ] || continue
     echo "Deleting existing ruleset '${name}' (id=${id})"
     api -X DELETE "/repos/${REPO}/rulesets/${id}" >/dev/null
-  fi
+  done <<<"${ids}"
 }
 
 create_ruleset() {
@@ -77,8 +87,14 @@ create_ruleset "beta"  "beta"  "${BETA_CHECKS}"  "false"
 
 cat <<'NOTE'
 
-Done. Remaining manual step (merge-permission restriction on main):
-  Settings -> Rules -> Rulesets -> "main" -> Bypass list
-  Add only: Repository admin / Maintainers / Release managers.
-This keeps stable-release merges restricted to authorized people.
+Done. Remaining manual steps:
+1. Merge-permission restriction on main:
+     Settings -> Rules -> Rulesets -> "main" -> Bypass list
+     Add only: Repository admin / Maintainers / Release managers.
+   This keeps stable-release merges restricted to authorized people.
+2. Allow release automation to push to main AND beta:
+     Settings -> Rules -> Rulesets -> "main" & "beta" -> Bypass list
+     Add the release-bot App (or "github-actions[bot]") with "Always" bypass mode.
+   Without this, semantic-release cannot push its `chore(release)` commits and
+   tags to the protected branches and the release pipeline fails.
 NOTE

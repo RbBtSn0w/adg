@@ -95,6 +95,14 @@ jobs:
             exit 0
           fi
           body="$(gh release view "$new" --json body --jq .body 2>/dev/null || true)"
+          # Idempotent: a re-run for the same tag must not append a second
+          # section. Skip if the release body already has one.
+          case "$body" in
+            *"## New Contributors"*)
+              echo "New Contributors section already present on ${new}; skipping."
+              exit 0
+              ;;
+          esac
           printf '%s\n\n%s\n' "$body" "$section" | gh release edit "$new" --notes-file -
           echo "Appended New Contributors section to release ${new}."
       # Homebrew tap publish only runs for stable releases on main, and only when
