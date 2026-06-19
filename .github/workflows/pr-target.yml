@@ -2,8 +2,14 @@ name: PR Target Branch
 
 # Enforce the contribution flow: feature/fix PRs must target `beta`.
 # The only PR allowed to target `main` is the maintainer release PR from `beta`.
+#
+# Uses `pull_request` (not `pull_request_target`): the check only reads
+# base_ref/head_ref — no secrets or write access — and `pull_request` reports
+# the status check reliably so it can be required by branch protection. A fork
+# that neuters this file just fails to report the required check, which blocks
+# the merge (fail-safe).
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, reopened, synchronize]
     branches: [ main, beta ]
 
