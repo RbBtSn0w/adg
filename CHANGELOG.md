@@ -1,3 +1,9 @@
+## [0.3.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.3...0.3.0-beta.4) (2026-06-20)
+
+### Fixed
+
+* address technical debt items TD-1, TD-2, TD-3 ([#13](https://github.com/RbBtSn0w/adg/issues/13)) ([955a69a](https://github.com/RbBtSn0w/adg/commit/955a69ad5cfa2f628ea3667548a8f542d29d54cf))
+
 ## [0.3.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.2...0.3.0-beta.3) (2026-06-20)
 
 ### Fixed
