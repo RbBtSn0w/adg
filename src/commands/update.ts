@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { folderHash } from "../hash.ts";
-import { packageFilter } from "../package.ts";
+import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, installedPluginDir } from "../paths.ts";
 import { readLock, writeLock } from "../lock.ts";
 import { readManifest } from "../manifest.ts";
@@ -64,7 +64,7 @@ export function updateLock(
       continue;
     }
     const manifest = readManifest(dir);
-    const hash = folderHash(dir, [".claude-plugin", ".codex-plugin"], packageFilter(manifest, { includeProjections: false }));
+    const hash = folderHash(dir, PROJECTION_DIRS, packageFilter(manifest, { includeProjections: false }));
     const changed = hash !== entry.folderHash || manifest.version !== entry.version;
     if (changed) {
       entry.folderHash = hash;

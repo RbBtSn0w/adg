@@ -3,8 +3,10 @@ import { adaptPlugin } from "./adapt.ts";
 import { listPlugins } from "./list.ts";
 import { installedPluginDir } from "../paths.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
+import type { AdapterTarget } from "../adapters/index.ts";
 
-export type LinkTarget = "claude" | "codex";
+/** A single runtime to link into. Any registered adapter target (claude/codex/antigravity). */
+export type LinkTarget = AdapterTarget;
 
 export interface LinkOptions {
   /** Source plugins directory (where installed plugins live). */
