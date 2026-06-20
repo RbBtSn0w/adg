@@ -38,10 +38,12 @@ export function compare(a: Semver, b: Semver): number {
  * pre-release) yields `[]`.
  */
 export function parsePrerelease(v: string): Array<string | number> {
-  const dashIndex = v.indexOf("-");
+  // Drop build metadata first so a hyphen inside it (e.g. `1.2.3+build-1`) is
+  // not mistaken for the pre-release separator.
+  const withoutBuild = v.split("+")[0] ?? "";
+  const dashIndex = withoutBuild.indexOf("-");
   if (dashIndex === -1) return [];
-  // Drop build metadata, then split into identifiers.
-  const pre = v.slice(dashIndex + 1).split("+")[0] ?? "";
+  const pre = withoutBuild.slice(dashIndex + 1);
   if (pre === "") return [];
   return pre.split(".").map((id) => (/^\d+$/.test(id) ? Number(id) : id));
 }

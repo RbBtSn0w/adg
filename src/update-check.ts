@@ -21,6 +21,10 @@ const REGISTRY_URL = `https://registry.npmjs.org/@rbbtsn0w%2Fadg`;
 const REGISTRY_ACCEPT = "application/vnd.npm.install-v1+json";
 const CACHE_FILENAME = "update-check.json";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+// Cap the accumulated response body. The abbreviated packument is small, but a
+// registry that ignores the abbreviated Accept header (or returns an unexpected
+// payload) could stream a much larger body; abort rather than grow unbounded.
+const MAX_RESPONSE_BYTES = 1024 * 1024; // 1 MiB
 
 interface UpdateCache {
   latestVersion: string;
@@ -96,7 +100,18 @@ export function scheduleUpdateCacheRefresh(
       { headers: { "User-Agent": `adg/${currentVersion}`, Accept: REGISTRY_ACCEPT } },
       (res) => {
         let body = "";
-        res.on("data", (chunk: Buffer | string) => { body += String(chunk); });
+        let byteCount = 0;
+        res.on("data", (chunk: Buffer | string) => {
+          byteCount += Buffer.byteLength(chunk);
+          if (byteCount > MAX_RESPONSE_BYTES) {
+            // Oversized payload: stop reading and abort so we neither buffer
+            // unbounded memory nor parse a partial body.
+            body = "";
+            req.destroy();
+            return;
+          }
+          body += String(chunk);
+        });
         res.on("end", () => {
           try {
             const data = JSON.parse(body) as { "dist-tags"?: Record<string, string> };
@@ -159,8 +174,13 @@ export function checkForUpdate(
 
 /** Format an update notice for display on stderr. */
 export function formatUpdateNotice(currentVersion: string, latestVersion: string): string {
+  // A pre-release suggestion lives on its channel dist-tag (e.g. `beta`), not
+  // `latest`; installing `@latest` would pull the stable release instead of the
+  // advertised version. Pin to the exact version so the right artifact installs.
+  const channel = prereleaseChannel(latestVersion);
+  const installTarget = channel ? latestVersion : "latest";
   return (
     `\n  Update available: ${currentVersion} → ${latestVersion}\n` +
-    `  Run: npm install -g ${PACKAGE_NAME}@latest\n`
+    `  Run: npm install -g ${PACKAGE_NAME}@${installTarget}\n`
   );
 }

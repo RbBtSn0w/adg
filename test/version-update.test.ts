@@ -211,3 +211,17 @@ test("formatUpdateNotice contains both versions", () => {
   assert.ok(notice.includes("1.0.0"), "should mention latest version");
   assert.ok(notice.includes("npm install"), "should include the install command");
 });
+
+test("formatUpdateNotice uses @latest for a stable suggestion", () => {
+  const notice = formatUpdateNotice("0.1.1", "1.0.0");
+  assert.ok(notice.includes("@latest"), "stable updates install the latest dist-tag");
+});
+
+test("formatUpdateNotice pins the exact version for a pre-release suggestion", () => {
+  const notice = formatUpdateNotice("0.3.0-beta.1", "0.3.0-beta.2");
+  assert.ok(
+    notice.includes("@0.3.0-beta.2"),
+    "pre-release updates pin the exact version, not @latest",
+  );
+  assert.ok(!notice.includes("@latest"), "must not point pre-release users at @latest");
+});

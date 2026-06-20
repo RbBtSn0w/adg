@@ -57,6 +57,8 @@ test("semver prerelease parsing and comparison", () => {
   assert.deepEqual(parsePrerelease("1.2.3"), []);
   assert.deepEqual(parsePrerelease("0.3.0-beta.2"), ["beta", 2]);
   assert.deepEqual(parsePrerelease("v1.2.3-rc.1+build.5"), ["rc", 1]);
+  // A hyphen inside build metadata is not a pre-release separator.
+  assert.deepEqual(parsePrerelease("1.2.3+build-1"), []);
 
   // Stable outranks any pre-release of the same core version.
   assert.equal(compareVersions("0.3.0", "0.3.0-beta.2"), 1);
