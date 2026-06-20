@@ -1,3 +1,9 @@
+## [0.3.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.1...0.3.0-beta.2) (2026-06-20)
+
+### Added
+
+* add support for Antigravity adapter and enhance agent detection ([#10](https://github.com/RbBtSn0w/adg/issues/10)) ([91d0a63](https://github.com/RbBtSn0w/adg/commit/91d0a6374f5dc25281667e306062bebf0fb08903))
+
 ## [0.3.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.2.1...0.3.0-beta.1) (2026-06-19)
 
 ### Added
