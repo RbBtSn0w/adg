@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import pc from "picocolors";
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
@@ -23,25 +21,15 @@ import { selectTargetsInteractive } from "../src/commands/select-agents.ts";
 import { selectPluginsInteractive } from "../src/commands/select-plugins.ts";
 import { selectScopeInteractive } from "../src/commands/select-scope.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../src/commands/select-components.ts";
-import { globalPluginsDir, installedPluginDir, projectPluginsDir } from "../src/paths.ts";
+import { globalPluginsDir, projectPluginsDir } from "../src/paths.ts";
 import { COMPONENT_TYPES, type ComponentType } from "../src/types.ts";
-import { agentsForComponents, getAgent, type AgentScope, type AgentSyncResult } from "../src/agents/index.ts";
-
-// ---------------------------------------------------------------------------
-// Semantic colors, mirroring `adg skills list` so output reads the same across
-// commands: cyan = primary identifiers (plugins, agents, sources), dim =
-// secondary metadata (paths, hashes, sub-details), green = success, yellow =
-// notes/warnings, red = errors, bold = section titles. picocolors auto-disables
-// on non-TTY / NO_COLOR, so piped output and tests stay plain.
-// ---------------------------------------------------------------------------
-const ui = {
-  title: (s: string) => pc.bold(s),
-  name: (s: string) => pc.cyan(s),
-  meta: (s: string) => pc.dim(s),
-  ok: (s: string) => pc.green(s),
-  warn: (s: string) => pc.yellow(s),
-  err: (s: string) => pc.red(s),
-} as const;
+import { getAgent, type AgentScope } from "../src/agents/index.ts";
+import { ui } from "../src/render/ui.ts";
+import {
+  renderAgentReport,
+  renderMarketplaceList,
+  renderPluginList,
+} from "../src/render/plugins.ts";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for flags.
@@ -315,15 +303,6 @@ function scopeOf(values: Record<string, unknown>): AgentScope {
   return values.global ? "user" : "project";
 }
 
-/** Print per-agent sync outcomes (enabled/disabled/re-synced) generically. */
-function reportAgents(agents: AgentSyncResult[] | undefined, verb: string): void {
-  for (const r of agents ?? []) {
-    const name = getAgent(r.agent)?.displayName ?? r.agent;
-    if (r.affected.length > 0) console.log(`${ui.ok(verb)} in ${ui.name(name)}: ${r.affected.join(", ")}`);
-    else if (r.skipped) console.log(ui.warn(`note: \`${r.agent}\` CLI not found — run \`adg plugins link --target ${r.agent}\` after installing it.`));
-  }
-}
-
 /** Friendly `--target` aliases mapped onto canonical adapter target ids. */
 const TARGET_ALIASES: Record<string, AdapterTarget> = {
   anthropic: "claude",
@@ -361,51 +340,6 @@ function parseVerb(name: string, flags: readonly FlagName[], rest: string[]): { 
     console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}\n`);
     console.error(renderVerbHelp(name));
     process.exit(1);
-  }
-}
-
-/**
- * Lay items out in aligned columns sized to the terminal width (row-major).
- * Items longer than `maxColWidth` are truncated with an ellipsis. Falls back to
- * a single column on narrow terminals. Returns the block as a string.
- */
-function formatColumns(
-  items: string[],
-  opts: { indent?: number; gutter?: number; maxColWidth?: number; width?: number } = {},
-): string {
-  const indent = opts.indent ?? 2;
-  const gutter = opts.gutter ?? 2;
-  const maxColWidth = opts.maxColWidth ?? 24;
-  const termWidth = opts.width ?? process.stdout.columns ?? 80;
-
-  const cells = items.map((s) => (s.length > maxColWidth ? s.slice(0, maxColWidth - 1) + "…" : s));
-  const colWidth = Math.min(Math.max(1, ...cells.map((c) => c.length)), maxColWidth);
-  const cols = Math.max(1, Math.floor((termWidth - indent + gutter) / (colWidth + gutter)));
-
-  const lines: string[] = [];
-  for (let i = 0; i < cells.length; i += cols) {
-    const row = cells.slice(i, i + cols);
-    const padded = row.map((c, j) => (j === row.length - 1 ? c : c.padEnd(colWidth)));
-    lines.push(" ".repeat(indent) + padded.join(" ".repeat(gutter)));
-  }
-  return lines.join("\n");
-}
-
-/** Abbreviate the home-directory prefix of an absolute path to `~` (POSIX `/` or Windows `\`). */
-function abbrevHome(p: string): string {
-  const home = homedir();
-  if (p === home) return "~";
-  if (p.startsWith(home + "/") || p.startsWith(home + "\\")) return "~" + p.slice(home.length);
-  return p;
-}
-
-/** Print a plugin's components, each expanded to its member names (verbose view). */
-function printContents(contents: Record<string, string[]> | undefined, headerIndent: number): void {
-  const entries = (Object.entries(contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
-  for (const [type, names] of entries) {
-    const maxColWidth = Math.max(1, ...names.map((n) => n.length));
-    console.log(`${" ".repeat(headerIndent)}${ui.name(type)} ${ui.meta(`(${names.length}):`)}`);
-    console.log(formatColumns(names, { indent: headerIndent + 2, maxColWidth }));
   }
 }
 
@@ -518,7 +452,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         console.log(ui.meta(`  folderHash: ${res.folderHash}`));
         for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
-      reportAgents(agents, "enabled");
+      for (const line of renderAgentReport(agents, "enabled")) console.log(line);
       return;
     }
     case "import-skills": {
@@ -560,7 +494,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       });
       for (const r of results) console.log(`${r.changed ? ui.ok("updated") : ui.meta("unchanged")} ${ui.name(`${r.name}@${r.version}`)}`);
       for (const m of missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
-      reportAgents(agents, "re-synced");
+      for (const line of renderAgentReport(agents, "re-synced")) console.log(line);
       return;
     }
     case "remove": {
@@ -589,43 +523,8 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       const { values } = parseVerb(verb, cmd.flags, rest);
       const pluginsDir = resolveScopeDir(values);
       const plugins = listPlugins(pluginsDir);
-      if (plugins.length === 0) {
-        console.log(ui.meta(`no plugins recorded in ${pluginsDir}`));
-        return;
-      }
-      // Pre-compute each plugin's display row so the name/path columns can be
-      // aligned across rows (à la `adg skills list`). The `Agents:` column is
-      // derived from the exposed component types — which agents can adapt it.
-      const PATH_MAX = 44;
-      const rows = plugins.map((p) => {
-        const exposed = (Object.entries(p.contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
-        const types = exposed.map(([type]) => type) as ComponentType[];
-        const agents = agentsForComponents(types).map((a) => a.displayName);
-        return {
-          p,
-          label: `${p.name}@${p.version}`,
-          path: abbrevHome(installedPluginDir(pluginsDir, p.name, p.origin)),
-          agents: agents.length > 0 ? agents.join(", ") : "—",
-          counts: exposed.map(([type, names]) => `${type}: ${names.length}`),
-        };
-      });
-      const nameW = Math.max(...rows.map((r) => r.label.length));
-      const pathW = Math.min(PATH_MAX, Math.max(...rows.map((r) => r.path.length)));
-      const ellip = (s: string, w: number) => (s.length > w ? "…" + s.slice(s.length - w + 1) : s);
-
-      // Color mirrors `adg skills list`: cyan name, dim path / dim "Agents:"
-      // label with the agent names left bright, and the provenance/counts line
-      // fully dimmed as secondary metadata. Widths are measured on the uncolored
-      // strings (above), so wrapping the padded text keeps columns aligned.
-      // picocolors auto-disables on non-TTY / NO_COLOR, so pipes stay plain.
-      for (const r of rows) {
-        const partial = r.p.selection ? "  (partial)" : "";
-        const name = ui.name(r.label.padEnd(nameW));
-        const path = ui.meta(ellip(r.path, pathW).padEnd(pathW));
-        console.log(`${name}  ${path}  ${ui.meta("Agents:")} ${r.agents}`);
-        const provenance = `[${r.p.origin.type}] ${r.p.folderHash.slice(0, 19)}${partial}`;
-        console.log(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
-        if (values.verbose) printContents(r.p.contents, 4);
+      for (const line of renderPluginList(plugins, pluginsDir, { verbose: values.verbose })) {
+        console.log(line);
       }
       return;
     }
@@ -678,27 +577,9 @@ async function runMarketplace(args: string[]): Promise<void> {
       const { values } = parseVerb("marketplace", ["verbose", ...SCOPE], rest);
       const dir = resolveScopeDir(values);
       const groups = marketplaceList({ pluginsDir: dir });
-      if (groups.length === 0) {
-        console.log(ui.meta("No plugins installed."));
-        return;
-      }
       // Verbose: drill each plugin down to its components (reuses `plugins list -v`).
       const byName = values.verbose ? new Map(listPlugins(dir).map((p) => [p.name, p])) : undefined;
-      for (const g of groups) {
-        const ref = g.ref ? `@${g.ref}` : "";
-        const n = g.installed.length;
-        const tag = g.remote ? "" : ui.warn("  (local — re-run add to update)");
-        console.log(`${ui.name(`${g.source}${ref}`)}  ${ui.meta(`(${n} plugin${n !== 1 ? "s" : ""})`)}${tag}`);
-        if (byName) {
-          for (const name of g.installed) {
-            const p = byName.get(name);
-            console.log(`  ${ui.name(name)}${p?.selection ? ui.meta("  (partial)") : ""}`);
-            printContents(p?.contents, 4);
-          }
-        } else {
-          console.log(formatColumns(g.installed));
-        }
-      }
+      for (const line of renderMarketplaceList(groups, byName)) console.log(line);
       return;
     }
     case "upgrade": {

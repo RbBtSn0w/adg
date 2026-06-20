@@ -37,6 +37,21 @@ CI.
 5. Open a **Pull Request with base branch `beta`** and fill in the PR template.
 6. Wait for CI and code review. A maintainer merges once both pass.
 
+## Test conventions
+
+- **Name test files after the module or behavior under test** (`adapters.test.ts`,
+  `paths.test.ts`, `render.test.ts`), never after the PR, commit, or issue that
+  introduced them. PR/commit-scoped names (e.g. `pr1-cr-fixes.test.ts`) lose all
+  meaning over time and scatter a module's coverage across files.
+- Put a **regression case in the behavior file it belongs to**, tagged with a
+  short `// (Regression: <PR/issue>)` comment, rather than in a dedicated
+  per-PR file.
+- `test/test-conventions.test.ts` enforces the naming rule in CI; runtime
+  dependency drift between the root and `vendor/skills` is enforced by
+  `npm run check:vendor-deps`.
+- The shared fixtures (`tmp`, `baseManifest`, `scaffoldSource`) live in
+  `test/helpers.ts` — reuse them instead of re-declaring per file.
+
 ## What gets rejected
 
 - PRs targeting `main` directly (CI fails with

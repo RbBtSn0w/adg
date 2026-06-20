@@ -1,0 +1,105 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+import { toAnthropicManifest } from "../src/adapters/anthropic.ts";
+import { toCodexManifest } from "../src/adapters/codex.ts";
+import { type AdgManifest, type PluginSelection } from "../src/types.ts";
+import { tmp, baseManifest } from "./helpers.ts";
+
+test("anthropic adapter (strict) maps fields and keeps skills root", () => {
+  const dir = tmp();
+  const { manifest } = toAnthropicManifest(dir, { ...baseManifest, commands: "./commands/" });
+  assert.equal(manifest.name, "demo");
+  assert.equal(manifest.version, "1.2.3");
+  assert.equal(manifest.skills, "./skills/");
+  assert.equal(manifest.commands, "./commands/");
+  assert.equal(manifest.strict, undefined);
+  rmSync(dir, { recursive: true });
+});
+
+test("anthropic adapter (non-strict) emits explicit skill list + strict:false", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  const { manifest } = toAnthropicManifest(dir, { ...baseManifest, strict: false });
+  assert.equal(manifest.strict, false);
+  assert.deepEqual(manifest.skills, ["./skills/one"]);
+  rmSync(dir, { recursive: true });
+});
+
+test("adapters honor a selection (narrow categories and skills)", () => {
+  const dir = tmp();
+  for (const s of ["one", "two"]) {
+    mkdirSync(join(dir, "skills", s), { recursive: true });
+    writeFileSync(join(dir, "skills", s, "SKILL.md"), "x");
+  }
+  const manifest: AdgManifest = { ...baseManifest, commands: "./commands/", agents: "./agents/" };
+  const selection: PluginSelection = { components: ["skills"], skills: ["one"] };
+
+  const a = toAnthropicManifest(dir, manifest, selection).manifest;
+  assert.equal(a.strict, false);
+  assert.deepEqual(a.skills, ["./skills/one"]);
+  assert.equal(a.commands, undefined, "unselected category must be dropped");
+  assert.equal(a.agents, undefined);
+
+  const c = toCodexManifest(dir, manifest, selection).manifest;
+  assert.deepEqual(c.skills, ["one"]);
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter (strict) keeps the skills root (dir-form pass-through)", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  const { manifest, defaultPath } = toCodexManifest(dir, baseManifest);
+  assert.equal(manifest.name, "demo");
+  // Codex consumes the directory form natively; match Claude rather than
+  // enumerating every skill id (which would drift as skills are added).
+  assert.equal(manifest.skills, "./skills/");
+  assert.ok(defaultPath.includes(".codex-plugin"));
+  rmSync(dir, { recursive: true });
+});
+
+test("strict adapters default an omitted skills field to the ./skills/ root", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  // A strict manifest with no `skills` declaration must keep directory discovery
+  // (root pass-through), not collapse to an explicit `strict: false` enumeration.
+  const { skills, ...rest } = baseManifest;
+  const manifest = rest as AdgManifest;
+
+  const claude = toAnthropicManifest(dir, manifest).manifest;
+  assert.equal(claude.skills, "./skills/");
+  assert.equal(claude.strict, undefined, "omitted skills must not force strict:false");
+
+  const codex = toCodexManifest(dir, manifest).manifest;
+  assert.equal(codex.skills, "./skills/");
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter (non-strict) emits an explicit skill-id array", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  const { manifest } = toCodexManifest(dir, { ...baseManifest, strict: false });
+  assert.deepEqual(manifest.skills, ["one"]);
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter resolves an explicit skills path array to bare ids", () => {
+  const dir = tmp();
+  for (const s of ["one", "two"]) {
+    mkdirSync(join(dir, "skills", s), { recursive: true });
+    writeFileSync(join(dir, "skills", s, "SKILL.md"), "x");
+  }
+  // Even strict: a declared path array is Codex's bare-id form, not a pass-through.
+  const { manifest } = toCodexManifest(dir, {
+    ...baseManifest,
+    skills: ["./skills/one", "./skills/two"],
+  });
+  assert.deepEqual(manifest.skills, ["one", "two"]);
+  rmSync(dir, { recursive: true });
+});
