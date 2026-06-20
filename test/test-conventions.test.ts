@@ -14,8 +14,12 @@ import { dirname } from "node:path";
 test("no test file is named after a PR or commit", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const banned = /(^|[-_])(pr\d+|cr-fix|cr-fixes|commit|hotfix|issue\d+)([-_.]|$)/i;
-  const offenders = readdirSync(here)
+  // Recurse: the runner globs test/**/*.test.ts, so a PR-scoped file in a
+  // subdirectory would still run — match the same breadth here. Compare on the
+  // basename so directory names never trip the filename rule.
+  const offenders = readdirSync(here, { recursive: true, encoding: "utf8" })
     .filter((f) => f.endsWith(".test.ts"))
+    .map((f) => f.split(/[\\/]/).pop()!)
     .filter((f) => banned.test(f));
   assert.deepEqual(
     offenders,

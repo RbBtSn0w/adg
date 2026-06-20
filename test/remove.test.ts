@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,22 +38,31 @@ test("isSymlinkTo: detects a relative symlink regardless of process cwd", () => 
     assert.equal(isSymlinkTo(linkPath, join(root, "other")), false);
   } finally {
     process.chdir(originalCwd);
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("isSymlinkTo: detects an absolute symlink target", () => {
   const root = tmp();
-  const pluginDir = join(root, "p");
-  mkdirSync(pluginDir, { recursive: true });
-  const linkPath = join(root, "link");
-  symlinkSync(pluginDir, linkPath);
+  try {
+    const pluginDir = join(root, "p");
+    mkdirSync(pluginDir, { recursive: true });
+    const linkPath = join(root, "link");
+    symlinkSync(pluginDir, linkPath);
 
-  assert.equal(isSymlinkTo(linkPath, pluginDir), true);
+    assert.equal(isSymlinkTo(linkPath, pluginDir), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("isSymlinkTo: a regular file (not a symlink) is rejected", () => {
   const root = tmp();
-  const file = join(root, "real.txt");
-  writeFileSync(file, "x");
-  assert.equal(isSymlinkTo(file, file), false);
+  try {
+    const file = join(root, "real.txt");
+    writeFileSync(file, "x");
+    assert.equal(isSymlinkTo(file, file), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

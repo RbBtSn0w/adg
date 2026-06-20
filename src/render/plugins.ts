@@ -24,7 +24,9 @@ export function renderContents(
   for (const [type, names] of entries) {
     const maxColWidth = Math.max(1, ...names.map((n) => n.length));
     out.push(`${" ".repeat(headerIndent)}${ui.name(type)} ${ui.meta(`(${names.length}):`)}`);
-    out.push(formatColumns(names, { indent: headerIndent + 2, maxColWidth }));
+    // formatColumns returns one string with embedded newlines; split so `out`
+    // stays a flat list of single lines.
+    out.push(...formatColumns(names, { indent: headerIndent + 2, maxColWidth }).split("\n"));
   }
   return out;
 }
@@ -85,7 +87,7 @@ export function renderPluginList(
     const name = ui.name(r.label.padEnd(nameW));
     const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
     out.push(`${name}  ${path}  ${ui.meta("Agents:")} ${r.agents}`);
-    const provenance = `[${r.p.origin.type}] ${r.p.folderHash.slice(0, 19)}${partial}`;
+    const provenance = `[${r.p.origin.type}] ${(r.p.folderHash ?? "").slice(0, 19)}${partial}`;
     out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
     if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
   }
@@ -116,7 +118,7 @@ export function renderMarketplaceList(
         out.push(...renderContents(p?.contents, 4));
       }
     } else {
-      out.push(formatColumns(g.installed));
+      out.push(...formatColumns(g.installed).split("\n"));
     }
   }
   return out;

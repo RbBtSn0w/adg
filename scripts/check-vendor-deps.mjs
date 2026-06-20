@@ -14,6 +14,7 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { builtinModules } from "node:module";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,10 +30,14 @@ const vendorDeps = { ...vendorPkg.devDependencies, ...vendorPkg.dependencies };
 function vendoredImports() {
   const srcDir = path.join(vendorDir, "src");
   const specifiers = new Set();
-  const importRe = /\bfrom\s+["']([^"']+)["']/g;
-  for (const file of readdirSync(srcDir)) {
-    if (!file.endsWith(".ts")) continue;
-    const text = readFileSync(path.join(srcDir, file), "utf8");
+  // Match static (`from "x"`), side-effect (`import "x"`), dynamic
+  // (`import("x")`) and CommonJS (`require("x")`) specifiers.
+  const importRe = /\b(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
+  // Recurse: the vendored source has subdirs (providers/, prompts/) whose
+  // imports must also be covered, else the drift guard silently misses them.
+  for (const entry of readdirSync(srcDir, { recursive: true })) {
+    if (!entry.endsWith(".ts")) continue;
+    const text = readFileSync(path.join(srcDir, entry), "utf8");
     for (const m of text.matchAll(importRe)) {
       const spec = m[1];
       if (spec.startsWith(".") || spec.startsWith("node:")) continue;
@@ -62,10 +67,8 @@ function satisfies(rootFloor, vendorFloor) {
   return true;
 }
 
-// Node builtins that may appear without the node: prefix.
-const BUILTINS = new Set([
-  "child_process", "crypto", "fs", "os", "path", "readline", "url", "util",
-]);
+// Node builtins that may appear without the node: prefix (fs, stream, zlib, …).
+const BUILTINS = new Set(builtinModules);
 
 const problems = [];
 for (const pkg of [...vendoredImports()].sort()) {
