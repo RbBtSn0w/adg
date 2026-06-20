@@ -8,7 +8,7 @@ import { folderHash } from "../src/hash.ts";
 import { packageFilter } from "../src/package.ts";
 import { collectIssues, validateManifest, ManifestError, readManifest, ADG_MANIFEST_PATH, LEGACY_MANIFEST_PATH } from "../src/manifest.ts";
 import { toAnthropicManifest } from "../src/adapters/anthropic.ts";
-import { toCodexManifest } from "../src/adapters/openai.ts";
+import { toCodexManifest } from "../src/adapters/codex.ts";
 import { resolveSkills, readSkillDescription, skillDescriptionLoader } from "../src/skills.ts";
 import { buildSkillRows, type SkillOption } from "../src/commands/multiselect-skills.ts";
 import { emptyLock, upsertEntry } from "../src/lock.ts";
@@ -151,6 +151,24 @@ test("codex adapter (strict) keeps the skills root (dir-form pass-through)", () 
   // enumerating every skill id (which would drift as skills are added).
   assert.equal(manifest.skills, "./skills/");
   assert.ok(defaultPath.includes(".codex-plugin"));
+  rmSync(dir, { recursive: true });
+});
+
+test("strict adapters default an omitted skills field to the ./skills/ root", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  // A strict manifest with no `skills` declaration must keep directory discovery
+  // (root pass-through), not collapse to an explicit `strict: false` enumeration.
+  const { skills, ...rest } = baseManifest;
+  const manifest = rest as AdgManifest;
+
+  const claude = toAnthropicManifest(dir, manifest).manifest;
+  assert.equal(claude.skills, "./skills/");
+  assert.equal(claude.strict, undefined, "omitted skills must not force strict:false");
+
+  const codex = toCodexManifest(dir, manifest).manifest;
+  assert.equal(codex.skills, "./skills/");
   rmSync(dir, { recursive: true });
 });
 

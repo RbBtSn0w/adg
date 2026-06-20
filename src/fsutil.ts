@@ -5,6 +5,11 @@ export function ensureDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
 }
 
+/** Normalize a path to forward slashes (stable across Windows and POSIX hosts). */
+export function toPosix(p: string): string {
+  return p.split("\\").join("/");
+}
+
 export function writeJson(file: string, value: unknown): void {
   ensureDir(dirname(file));
   writeFileSync(file, JSON.stringify(value, null, 2) + "\n");

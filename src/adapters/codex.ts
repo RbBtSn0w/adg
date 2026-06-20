@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
-import { resolveSkills } from "../skills.ts";
-import { isExposed } from "../components.ts";
+import { resolveProjectedSkills } from "../skills.ts";
 import type { AdapterResult } from "./index.ts";
 
 /**
@@ -21,17 +20,9 @@ export function toCodexManifest(
   manifest: AdgManifest,
   selection?: PluginSelection,
 ): AdapterResult {
-  let skills: string | string[];
-  if (selection) {
-    skills = isExposed(selection, "skills")
-      ? selection.skills ?? resolveSkills(pluginDir, manifest)
-      : [];
-  } else {
-    const strict = manifest.strict !== false;
-    skills = strict && typeof manifest.skills === "string"
-      ? manifest.skills
-      : resolveSkills(pluginDir, manifest);
-  }
+  // Codex's array form is bare ids, so a strict skills *array* is resolved to
+  // ids rather than passed through; only a declared root string passes through.
+  const { skills } = resolveProjectedSkills(pluginDir, manifest, selection, { passthroughArray: false });
 
   const out: Record<string, unknown> = {
     name: manifest.name,

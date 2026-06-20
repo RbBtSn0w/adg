@@ -264,7 +264,7 @@ test("scanNativePlugins resolves Claude before Codex when both coexist", () => {
 
   const found = scanNativePlugins(dir);
   assert.equal(found.length, 1);
-  assert.equal(found[0]!.kind, "anthropic", "Claude (.claude-plugin) wins over Codex");
+  assert.equal(found[0]!.kind, "claude", "Claude (.claude-plugin) wins over Codex");
   rmSync(dir, { recursive: true });
 });
 
@@ -276,8 +276,8 @@ test("scanNativePlugins recognizes codex-only and claude-only plugin dirs", () =
   writeFileSync(join(root, "cld", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "cld", version: "1.0.0", description: "C" }));
 
   const byDir = Object.fromEntries(scanNativePlugins(root).map((p) => [p.dir.endsWith("cdx") ? "cdx" : "cld", p.kind]));
-  assert.equal(byDir.cdx, "openai");
-  assert.equal(byDir.cld, "anthropic");
+  assert.equal(byDir.cdx, "codex");
+  assert.equal(byDir.cld, "claude");
   rmSync(root, { recursive: true });
 });
 

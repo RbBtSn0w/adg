@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { fromNativeManifest } from "../src/adapters/reverse.ts";
+import { toAnthropicManifest } from "../src/adapters/anthropic.ts";
+import { toCodexManifest } from "../src/adapters/codex.ts";
 import { importSkills } from "../src/commands/import.ts";
 import { addPlugins, installPlugin } from "../src/commands/install.ts";
 import { linkPlugins } from "../src/commands/link.ts";
@@ -48,21 +50,93 @@ function writeNative(dir: string, variant: "codex" | "claude", manifest: object,
 test("fromNativeManifest maps codex manifest to ADG", () => {
   const adg = fromNativeManifest(
     { name: "asc", version: "1.2.3", description: "ASC.", skills: ["one", "two"], author: "ADG" },
-    "openai",
+    "codex",
   );
   assert.equal(adg.schemaVersion, ADG_SCHEMA_VERSION);
   assert.equal(adg.name, "asc");
   assert.equal(adg.version, "1.2.3");
-  assert.deepEqual(adg.skills, ["one", "two"]);
+  // Codex bare ids canonicalize to ADG's `./skills/<id>` path-array contract.
+  assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
   assert.deepEqual(adg.author, { name: "ADG" });
   // adapters is no longer part of the DSL; reverse-adapt must not emit it.
   assert.ok(!("adapters" in adg));
 });
 
+test("fromNativeManifest canonicalizes Windows-style codex skill ids", () => {
+  // A native manifest authored on Windows may use backslash separators.
+  const adg = fromNativeManifest(
+    { name: "win", version: "1.0.0", description: "WIN.", skills: ["skills\\one", "two"] },
+    "codex",
+  );
+  assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
+});
+
+test("fromNativeManifest keeps Claude path arrays verbatim", () => {
+  const adg = fromNativeManifest(
+    { name: "cld", version: "1.0.0", description: "CLD.", skills: ["./skills/one", "./skills/two"] },
+    "claude",
+  );
+  assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
+});
+
+test("fromNativeManifest normalizes Windows separators in Claude path arrays", () => {
+  // A Claude manifest authored on Windows may use backslash paths; the ADG
+  // manifest must stay POSIX-pathed so resolveSkillEntries (splits on /) works.
+  const adg = fromNativeManifest(
+    { name: "cld", version: "1.0.0", description: "CLD.", skills: [".\\skills\\one", "./skills/two"] },
+    "claude",
+  );
+  assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
+});
+
 test("fromNativeManifest defaults missing version and skills", () => {
-  const adg = fromNativeManifest({ name: "x" }, "anthropic");
+  const adg = fromNativeManifest({ name: "x" }, "claude");
   assert.equal(adg.version, "0.0.0");
   assert.equal(adg.skills, "./skills/");
+});
+
+// ---- native → ADG → native round-trips ----
+
+/** Seed a plugin dir with the given skill folders so forward adapters can resolve them. */
+function seedSkills(dir: string, names: string[]): void {
+  for (const s of names) {
+    mkdirSync(join(dir, "skills", s), { recursive: true });
+    writeFileSync(join(dir, "skills", s, "SKILL.md"), `---\nname: ${s}\ndescription: ${s}.\n---\n`);
+  }
+}
+
+test("codex skills-array round-trips through ADG to both runtimes", () => {
+  const dir = tmp();
+  seedSkills(dir, ["one", "two"]);
+  // Codex declares bare-id arrays.
+  const adg = fromNativeManifest(
+    { name: "rt", version: "1.0.0", description: "RT.", skills: ["one", "two"] },
+    "codex",
+  );
+
+  // Forward to Claude: must emit `./skills/<id>` paths, not the leaked bare ids.
+  const claude = toAnthropicManifest(dir, adg).manifest;
+  assert.deepEqual(claude.skills, ["./skills/one", "./skills/two"]);
+
+  // Forward back to Codex: array form resolves to bare ids again.
+  const codex = toCodexManifest(dir, adg).manifest;
+  assert.deepEqual(codex.skills, ["one", "two"]);
+  rmSync(dir, { recursive: true });
+});
+
+test("claude skills-root round-trips through ADG to both runtimes", () => {
+  const dir = tmp();
+  seedSkills(dir, ["one", "two"]);
+  // A native manifest with no skills declaration normalizes to the `./skills/` root.
+  const adg = fromNativeManifest({ name: "rt", version: "1.0.0", description: "RT." }, "claude");
+  assert.equal(adg.skills, "./skills/");
+
+  // Strict default: both runtimes pass the root through (directory discovery).
+  const claude = toAnthropicManifest(dir, adg).manifest;
+  assert.equal(claude.skills, "./skills/");
+  const codex = toCodexManifest(dir, adg).manifest;
+  assert.equal(codex.skills, "./skills/");
+  rmSync(dir, { recursive: true });
 });
 
 // ---- import ----

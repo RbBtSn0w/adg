@@ -1,6 +1,6 @@
 import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
 import { toAnthropicManifest } from "./anthropic.ts";
-import { toCodexManifest } from "./openai.ts";
+import { toCodexManifest } from "./codex.ts";
 import { toAntigravityManifest } from "./antigravity.ts";
 
 export interface AdapterResult {
@@ -12,11 +12,13 @@ export interface AdapterResult {
 
 export type AdapterFn = (pluginDir: string, manifest: AdgManifest, selection?: PluginSelection) => AdapterResult;
 
+// `anthropic` is kept as a synonym because Claude's plugin.json *is* the
+// "anthropic" manifest shape. There is deliberately no `openai` key: the runtime
+// is Codex, and an `openai` alias would imply OpenAI support that does not exist.
 export const ADAPTERS: Record<string, AdapterFn> = {
   claude: toAnthropicManifest,
   anthropic: toAnthropicManifest,
   codex: toCodexManifest,
-  openai: toCodexManifest,
   antigravity: toAntigravityManifest,
   agy: toAntigravityManifest,
   gemini: toAntigravityManifest,
