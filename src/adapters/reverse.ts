@@ -69,8 +69,12 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
-/** Canonicalize a skill reference (bare id or path) to ADG's `./skills/<id>` form. */
+/**
+ * Canonicalize a skill reference (bare id or path) to ADG's `./skills/<id>` form.
+ * Accepts both `/` and `\` separators so a Windows-authored native manifest
+ * (e.g. `skills\\foo`) still yields a valid `./skills/foo` entry.
+ */
 function toSkillPath(ref: string): string {
-  const name = ref.replace(/\/+$/, "").split("/").pop() ?? ref;
+  const name = ref.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || ref;
   return `./skills/${name}`;
 }

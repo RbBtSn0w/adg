@@ -69,12 +69,14 @@ export interface ProjectedSkills {
  * one strict/selection decision both adapters share (previously copy-pasted, so
  * it could drift — see the Codex/Claude strict regression that motivated it).
  *
- * In the default strict case a declared skills *root* string is passed through
- * (the runtime discovers skills from the directory). Otherwise — a partial
- * install `selection`, a declared path array, or `strict: false` — an explicit
- * resolved id list is returned. `passthroughArray` keeps a strict array form
- * verbatim (Claude, whose array entries are already `./skills/<id>` paths)
- * rather than resolving it to ids (Codex, whose array form is bare ids).
+ * In the default strict case the declared skills *root* string is passed through
+ * (the runtime discovers skills from the directory); an omitted `skills` is
+ * treated as the default `./skills/` root so the strict default stays
+ * directory-discovery rather than an explicit enumeration. A `selection` or
+ * `strict: false` always yields an explicit resolved id list. A declared `skills`
+ * *array* is runtime-dependent: `passthroughArray` keeps it verbatim (Claude,
+ * whose entries are already `./skills/<id>` paths), otherwise it resolves to ids
+ * (Codex, whose array form is bare ids).
  */
 export function resolveProjectedSkills(
   pluginDir: string,
@@ -89,11 +91,13 @@ export function resolveProjectedSkills(
     return { skills, explicit: true };
   }
   const strict = manifest.strict !== false;
+  // An omitted `skills` defaults to the `./skills/` root, so a strict manifest
+  // without a declaration keeps directory discovery instead of being forced to
+  // an explicit `strict: false` enumeration.
+  const declared = manifest.skills ?? "./skills/";
   const passthrough =
-    strict &&
-    (typeof manifest.skills === "string" ||
-      (opts.passthroughArray && Array.isArray(manifest.skills)));
-  if (passthrough) return { skills: manifest.skills as string | string[], explicit: false };
+    strict && (typeof declared === "string" || (opts.passthroughArray && Array.isArray(declared)));
+  if (passthrough) return { skills: declared, explicit: false };
   return { skills: resolveSkills(pluginDir, manifest), explicit: true };
 }
 

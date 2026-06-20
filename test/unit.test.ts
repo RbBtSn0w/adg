@@ -154,6 +154,24 @@ test("codex adapter (strict) keeps the skills root (dir-form pass-through)", () 
   rmSync(dir, { recursive: true });
 });
 
+test("strict adapters default an omitted skills field to the ./skills/ root", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "skills", "one"), { recursive: true });
+  writeFileSync(join(dir, "skills", "one", "SKILL.md"), "x");
+  // A strict manifest with no `skills` declaration must keep directory discovery
+  // (root pass-through), not collapse to an explicit `strict: false` enumeration.
+  const { skills, ...rest } = baseManifest;
+  const manifest = rest as AdgManifest;
+
+  const claude = toAnthropicManifest(dir, manifest).manifest;
+  assert.equal(claude.skills, "./skills/");
+  assert.equal(claude.strict, undefined, "omitted skills must not force strict:false");
+
+  const codex = toCodexManifest(dir, manifest).manifest;
+  assert.equal(codex.skills, "./skills/");
+  rmSync(dir, { recursive: true });
+});
+
 test("codex adapter (non-strict) emits an explicit skill-id array", () => {
   const dir = tmp();
   mkdirSync(join(dir, "skills", "one"), { recursive: true });

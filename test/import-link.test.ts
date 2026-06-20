@@ -62,6 +62,15 @@ test("fromNativeManifest maps codex manifest to ADG", () => {
   assert.ok(!("adapters" in adg));
 });
 
+test("fromNativeManifest canonicalizes Windows-style codex skill ids", () => {
+  // A native manifest authored on Windows may use backslash separators.
+  const adg = fromNativeManifest(
+    { name: "win", version: "1.0.0", description: "WIN.", skills: ["skills\\one", "two"] },
+    "codex",
+  );
+  assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
+});
+
 test("fromNativeManifest keeps Claude path arrays verbatim", () => {
   const adg = fromNativeManifest(
     { name: "cld", version: "1.0.0", description: "CLD.", skills: ["./skills/one", "./skills/two"] },
