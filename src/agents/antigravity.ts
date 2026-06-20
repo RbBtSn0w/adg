@@ -1,0 +1,196 @@
+import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, relative } from "node:path";
+import { ensureDir, writeJson } from "../fsutil.ts";
+import { readManifest } from "../manifest.ts";
+import { resolveSkillEntries } from "../skills.ts";
+import { isExposed } from "../components.ts";
+import { installedPluginDir, lockPath } from "../paths.ts";
+import { readLock } from "../lock.ts";
+import { ANTIGRAVITY_PROJECTION_DIR } from "../adapters/antigravity.ts";
+import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
+import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
+
+/**
+ * Antigravity (`agy`) agent.
+ *
+ * Antigravity discovers a plugin by convention relative to the directory handed
+ * to `agy plugin install` — `plugin.json` plus sibling `skills/`, `agents/`,
+ * `commands/`, `hooks/` dirs and a `mcp_config.json`, with no manifest path
+ * indirection. We therefore project a self-contained agy plugin root under
+ * `<store>/.antigravity-plugin/`: generated `plugin.json` + `mcp_config.json`
+ * (the ADG `mcp/.mcp.json` shape is exactly agy's, so it passes through) and
+ * *symlinks* to the real component dirs one level up, so nothing is duplicated
+ * on disk. agy follows these symlinks; where the platform forbids them (e.g.
+ * Windows without privilege) we fall back to a copy. We then drive
+ * `agy plugin install/uninstall` (which owns `~/.gemini/antigravity-cli`).
+ */
+
+const ID = "antigravity";
+
+/**
+ * Single-directory component fields: agy reads each as a sibling dir named by
+ * convention. `skills` is handled separately because it can be a path-list and
+ * supports per-skill subsetting.
+ */
+const DIR_FIELDS = ["agents", "commands", "hooks"] as const satisfies readonly ComponentType[];
+
+function geminiHome(env: NodeJS.ProcessEnv): string {
+  return env.GEMINI_HOME?.trim() || join(homedir(), ".gemini");
+}
+
+/**
+ * agy's config/store home: `<GEMINI_HOME>/antigravity-cli` (defaulting to
+ * `~/.gemini/antigravity-cli`). Exported so the resolver itself is testable
+ * without depending on the host filesystem state.
+ */
+export function antigravityHome(env: NodeJS.ProcessEnv = process.env): string {
+  return join(geminiHome(env), "antigravity-cli");
+}
+
+function available(): boolean {
+  // `--help` is rejected by `install` (it parses it as a target), so probe the
+  // plugin command group with its own `help` subcommand instead.
+  return spawnSync("agy", ["plugin", "help"], { stdio: "ignore" }).status === 0;
+}
+
+function run(args: string[]): { ok: boolean; out: string } {
+  const r = spawnSync("agy", args, { encoding: "utf8" });
+  const ok = r.status === 0;
+  // Surface the CLI's own diagnostics on failure instead of swallowing them.
+  if (!ok && r.stderr) console.error(r.stderr.trim());
+  return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+}
+
+/** A plugin's resolved store directory plus its persisted partial-install selection. */
+interface PluginStore {
+  dir: string;
+  selection?: PluginSelection;
+}
+
+/** Resolve a plugin's on-disk store directory and selection from the lock's provenance. */
+function pluginStore(pluginsDir: string, name: string): PluginStore | undefined {
+  const entry = readLock(lockPath(pluginsDir)).plugins[name];
+  if (!entry) return undefined;
+  const dir = installedPluginDir(pluginsDir, name, entry.origin);
+  return existsSync(dir) ? { dir, selection: entry.selection } : undefined;
+}
+
+/** First on-disk top segment of a declared component path (e.g. "./agents/" -> "agents"). */
+function componentSegment(value: AdgManifest[keyof AdgManifest]): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value;
+  if (typeof first !== "string") return undefined;
+  const seg = first.replace(/^\.?[/\\]/, "").split(/[/\\]/)[0];
+  return seg || undefined;
+}
+
+/**
+ * Symlink `linkPath` at `absTarget` (target stored relative so the projection
+ * survives the whole plugin dir being moved), copying instead where symlinks are
+ * unavailable (e.g. Windows without privilege). Idempotent.
+ */
+function linkOrCopy(linkPath: string, absTarget: string): void {
+  rmSync(linkPath, { recursive: true, force: true });
+  ensureDir(dirname(linkPath));
+  try {
+    symlinkSync(relative(dirname(linkPath), absTarget), linkPath, "dir");
+  } catch {
+    cpSync(absTarget, linkPath, { recursive: true });
+  }
+}
+
+/**
+ * Build the agy-native projection under `<dir>/.antigravity-plugin/`: a
+ * `plugin.json` (name only), a `mcp_config.json` copied verbatim from the
+ * manifest's mcp file when present, and relative symlinks (copy fallback) to the
+ * declared component dirs named for agy's convention.
+ *
+ * An optional `selection` (the plugin's partial install) narrows what is
+ * projected: component categories outside it are dropped, and `skills` is pinned
+ * to the selected subset. `skills` is also projected per-skill into a real
+ * `skills/` dir, so a path-list spanning multiple roots is fully honored rather
+ * than collapsing to its first root. Idempotent; safe to re-run.
+ */
+export function writeAntigravityProjection(dir: string, selection?: PluginSelection): void {
+  const manifest = readManifest(dir);
+  const stage = join(dir, ANTIGRAVITY_PROJECTION_DIR);
+  ensureDir(stage);
+
+  writeJson(join(stage, "plugin.json"), { name: manifest.name });
+
+  const mcpConfig = join(stage, "mcp_config.json");
+  rmSync(mcpConfig, { force: true });
+  if (manifest.mcp && isExposed(selection, "mcp")) {
+    const mcpFile = join(dir, manifest.mcp);
+    // The ADG mcp file shape is exactly agy's `mcp_config.json`, so copy it
+    // verbatim — preserving formatting and avoiding a parse/re-serialize round-trip.
+    if (existsSync(mcpFile)) cpSync(mcpFile, mcpConfig);
+  }
+
+  const skillsDir = join(stage, "skills");
+  rmSync(skillsDir, { recursive: true, force: true });
+  if (manifest.skills !== undefined && isExposed(selection, "skills")) {
+    const pick = selection?.skills;
+    for (const e of resolveSkillEntries(dir, manifest)) {
+      if (pick && !pick.includes(e.name)) continue;
+      if (!e.skillMd) continue;
+      const srcSkillDir = dirname(e.skillMd);
+      if (existsSync(srcSkillDir) && statSync(srcSkillDir).isDirectory()) {
+        linkOrCopy(join(skillsDir, e.name), srcSkillDir);
+      }
+    }
+  }
+
+  for (const field of DIR_FIELDS) {
+    const link = join(stage, field);
+    rmSync(link, { recursive: true, force: true });
+    if (!isExposed(selection, field)) continue;
+    const seg = componentSegment(manifest[field]);
+    if (!seg) continue;
+    const srcDir = join(dir, seg);
+    // agy reads the component by its convention name (`field`); point that at
+    // the real source dir so a non-conventional source name still resolves.
+    if (existsSync(srcDir)) linkOrCopy(link, srcDir);
+  }
+}
+
+export const antigravityAgent: Agent = {
+  id: ID,
+  displayName: "Antigravity",
+  adaptTarget: "antigravity",
+  detect: (env = process.env) => existsSync(antigravityHome(env)),
+  available,
+
+  activate(ctx: AgentContext): AgentSyncResult {
+    if (!available()) return { agent: ID, affected: [], skipped: true };
+    const affected: string[] = [];
+    for (const p of ctx.plugins) {
+      // Isolate each plugin: a malformed manifest or a filesystem error must not
+      // abort activation of the remaining (valid) plugins.
+      try {
+        const store = pluginStore(ctx.pluginsDir, p);
+        if (!store) continue;
+        writeAntigravityProjection(store.dir, store.selection);
+        if (run(["plugin", "install", join(store.dir, ANTIGRAVITY_PROJECTION_DIR)]).ok) affected.push(p);
+      } catch (err) {
+        console.error(`failed to enable "${p}" in Antigravity:`, err);
+      }
+    }
+    return { agent: ID, affected, skipped: false };
+  },
+
+  deactivate(ctx: AgentContext): AgentSyncResult {
+    if (!available()) return { agent: ID, affected: [], skipped: true };
+    const affected: string[] = [];
+    for (const p of ctx.plugins) {
+      if (run(["plugin", "uninstall", p]).ok) affected.push(p);
+    }
+    return { agent: ID, affected, skipped: false };
+  },
+
+  // `agy plugin install` re-imports the source dir, so re-running it is the refresh.
+  refresh(ctx: AgentContext): AgentSyncResult {
+    return antigravityAgent.activate(ctx);
+  },
+};

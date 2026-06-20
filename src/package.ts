@@ -15,7 +15,7 @@ import type { AdgManifest } from "./types.ts";
 const META_RE = /^(README|LICEN[CS]E|CHANGELOG|NOTICE)(\..+)?$/i;
 
 /** Generated runtime projections — shipped, but excluded from the content hash. */
-export const PROJECTION_DIRS = [".claude-plugin", ".codex-plugin"];
+export const PROJECTION_DIRS = [".claude-plugin", ".codex-plugin", ".antigravity-plugin"];
 
 /** Extract the first path segment of a manifest component value (e.g. "./skills/" -> "skills"). */
 function topSegment(p: string): string {

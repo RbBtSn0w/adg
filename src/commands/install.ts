@@ -6,7 +6,7 @@ import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
 import { copyPluginDir, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
-import { packageFilter } from "../package.ts";
+import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
 import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
@@ -43,7 +43,8 @@ export interface InstallResult {
   adapted: string[];
 }
 
-const HASH_IGNORE = [".claude-plugin", ".codex-plugin"];
+// Generated runtime projections never count toward a plugin's content hash.
+const HASH_IGNORE = PROJECTION_DIRS;
 
 function toPosix(p: string): string {
   return p.split("\\").join("/");

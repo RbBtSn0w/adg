@@ -67,7 +67,7 @@ const FLAGS: Record<string, FlagSpec> = {
   dir: { type: "string", short: "d", hint: "<dir>", help: "install into an explicit directory" },
   global: { type: "boolean", short: "g", help: "use ~/.agents/plugins (across all projects)" },
   project: { type: "boolean", help: "use <repo>/.agents/plugins (default)" },
-  target: { type: "string", short: "t", hint: "claude|codex|all", help: "runtime(s) to adapt for" },
+  target: { type: "string", short: "t", hint: "claude|codex|antigravity|all", help: "runtime(s) to adapt for" },
   all: { type: "boolean", short: "a", help: "select all available plugins" },
   plugin: { type: "string", short: "p", multiple: true, hint: "<name>", help: "select a specific plugin (repeatable)" },
   "no-deps": { type: "boolean", short: "n", help: "don't install dependencies" },
@@ -203,7 +203,7 @@ const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
   },
   link: {
     summary: "link installed plugins into a runtime",
-    synopsis: "adg plugins link --target claude|codex",
+    synopsis: "adg plugins link --target claude|codex|antigravity",
     flags: ["target", ...SCOPE],
   },
   migrate: {
@@ -324,10 +324,19 @@ function reportAgents(agents: AgentSyncResult[] | undefined, verb: string): void
   }
 }
 
-function resolveTargets(target: unknown): AdapterTarget[] {
+/** Friendly `--target` aliases mapped onto canonical adapter target ids. */
+const TARGET_ALIASES: Record<string, AdapterTarget> = {
+  anthropic: "claude",
+  openai: "codex",
+  agy: "antigravity",
+  gemini: "antigravity",
+};
+
+function resolveTargets(target: string | undefined | null): AdapterTarget[] {
   if (!target || target === "all") return [...ADAPTER_TARGETS];
-  if (target === "claude" || target === "codex") return [target];
-  fail(`invalid --target "${String(target)}" (expected claude|codex|all)`);
+  const t = TARGET_ALIASES[target] ?? target;
+  if ((ADAPTER_TARGETS as readonly string[]).includes(t)) return [t as AdapterTarget];
+  fail(`invalid --target "${target}" (expected ${[...ADAPTER_TARGETS, "all"].join("|")})`);
 }
 
 /** Parse a `--only skills,commands` list into validated component types. */
@@ -529,8 +538,10 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
     }
     case "link": {
       const { values } = parseVerb(verb, cmd.flags, rest);
-      const target = values.target as LinkTarget | undefined;
-      if (target !== "claude" && target !== "codex") fail("plugins link requires --target claude|codex");
+      if (values.target === undefined || values.target === "all") {
+        fail(`plugins link requires a single --target (${ADAPTER_TARGETS.join("|")})`);
+      }
+      const target = resolveTargets(values.target)[0]!; // validates + maps aliases (agy → antigravity); always non-empty
       const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global) });
       for (const a of res.actions) {
         console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
@@ -641,7 +652,7 @@ Commands:
   adg plugins marketplace list [--verbose] [--global | --project | --dir <dir>]
         Group installed plugins by source. --verbose expands each plugin to its
         components (skills, agents, commands, …).
-  adg plugins marketplace upgrade [<source>] [--all] [--target claude|codex|all] [--global | --project | --dir <dir>]
+  adg plugins marketplace upgrade [<source>] [--all] [--target claude|codex|antigravity|all] [--global | --project | --dir <dir>]
         Re-fetch a source and update its installed plugins (--all also installs
         anything new it now offers). No <source> upgrades every remote source.
   adg plugins marketplace remove <source> [--force] [--global | --project | --dir <dir>]
