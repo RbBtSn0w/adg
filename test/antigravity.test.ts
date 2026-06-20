@@ -5,7 +5,7 @@ import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
 import { ADAPTERS, ADAPTER_TARGETS, ADAPTER_COMPONENTS, toAntigravityManifest } from "../src/adapters/index.ts";
-import { antigravityAgent, writeAntigravityProjection } from "../src/agents/antigravity.ts";
+import { antigravityAgent, antigravityHome, writeAntigravityProjection } from "../src/agents/antigravity.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 
 /**
@@ -70,14 +70,77 @@ test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")), { name: "asc" });
     // The ADG mcp shape is exactly agy's, so it passes through unchanged.
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "mcp_config.json"), "utf8")), mcp);
-    // Component dirs are projected by their agy-convention name and resolve to
-    // the real source dirs one level up (symlink, or copy fallback).
+    // Skills are projected per-skill into a real `skills/` dir, each entry
+    // resolving to its real source dir (symlink, or copy fallback).
     assert.equal(
-      realpathSync(join(stage, "skills")),
-      realpathSync(join(dir, "skills")),
+      realpathSync(join(stage, "skills", "metadata-sync")),
+      realpathSync(join(dir, "skills", "metadata-sync")),
     );
     assert.equal(readFileSync(join(stage, "skills", "metadata-sync", "SKILL.md"), "utf8"), "# skill");
+    // Single-dir components are linked wholesale under their agy-convention name.
+    assert.equal(realpathSync(join(stage, "agents")), realpathSync(join(dir, "agents")));
     assert.equal(readFileSync(join(stage, "agents", "release-captain.md"), "utf8"), "# agent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeAntigravityProjection honors a partial-install selection (components + skill subset)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const mcp = { mcpServers: { asc: { command: "asc" } } };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "asc",
+      version: "0.1.0",
+      description: "App Store Connect",
+      skills: "./skills/",
+      agents: "./agents/",
+      mcp: "./mcp/.mcp.json",
+    });
+    mkdirSync(join(dir, "mcp"), { recursive: true });
+    writeFileSync(join(dir, "mcp", ".mcp.json"), JSON.stringify(mcp));
+    for (const s of ["keep", "drop"]) {
+      mkdirSync(join(dir, "skills", s), { recursive: true });
+      writeFileSync(join(dir, "skills", s, "SKILL.md"), `# ${s}`);
+    }
+    mkdirSync(join(dir, "agents"), { recursive: true });
+    writeFileSync(join(dir, "agents", "a.md"), "# a");
+
+    // Expose only skills (subset "keep") — agents and mcp are not selected.
+    writeAntigravityProjection(dir, { components: ["skills"], skills: ["keep"] });
+
+    const stage = join(dir, PROJ);
+    assert.equal(readFileSync(join(stage, "skills", "keep", "SKILL.md"), "utf8"), "# keep");
+    assert.throws(() => realpathSync(join(stage, "skills", "drop")));
+    assert.throws(() => realpathSync(join(stage, "agents")));
+    assert.throws(() => readFileSync(join(stage, "mcp_config.json"), "utf8"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeAntigravityProjection links every root of a multi-root skills path-list", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "multi",
+      version: "0.1.0",
+      description: "multi-root skills",
+      skills: ["./skills/one", "./extra/two"],
+    });
+    mkdirSync(join(dir, "skills", "one"), { recursive: true });
+    writeFileSync(join(dir, "skills", "one", "SKILL.md"), "# one");
+    mkdirSync(join(dir, "extra", "two"), { recursive: true });
+    writeFileSync(join(dir, "extra", "two", "SKILL.md"), "# two");
+
+    writeAntigravityProjection(dir);
+
+    const stage = join(dir, PROJ);
+    // The second root must not be silently dropped.
+    assert.equal(readFileSync(join(stage, "skills", "one", "SKILL.md"), "utf8"), "# one");
+    assert.equal(readFileSync(join(stage, "skills", "two", "SKILL.md"), "utf8"), "# two");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -106,7 +169,13 @@ test("writeAntigravityProjection omits mcp_config.json when the plugin declares 
   }
 });
 
-test("detect keys off <GEMINI_HOME>/antigravity-cli, defaulting to ~/.gemini", () => {
+test("antigravityHome resolves <GEMINI_HOME>/antigravity-cli, defaulting to ~/.gemini", () => {
+  // Exercise the production resolver directly (no filesystem state needed).
+  assert.equal(antigravityHome({ GEMINI_HOME: "/tmp/g" } as NodeJS.ProcessEnv), join("/tmp/g", "antigravity-cli"));
+  assert.equal(antigravityHome({} as NodeJS.ProcessEnv), join(homedir(), ".gemini", "antigravity-cli"));
+});
+
+test("detect keys off <GEMINI_HOME>/antigravity-cli", () => {
   const tmp = mkdtempSync(join(tmpdir(), "adg-agy-home-"));
   try {
     const gemini = join(tmp, "gemini");
@@ -115,12 +184,6 @@ test("detect keys off <GEMINI_HOME>/antigravity-cli, defaulting to ~/.gemini", (
 
     mkdirSync(join(gemini, "antigravity-cli"));
     assert.equal(antigravityAgent.detect({ GEMINI_HOME: gemini } as NodeJS.ProcessEnv), true);
-
-    // Default home is ~/.gemini/antigravity-cli when GEMINI_HOME is unset; this
-    // only asserts the resolved path, not its presence on the test machine.
-    const def = antigravityAgent.detect({} as NodeJS.ProcessEnv);
-    assert.equal(typeof def, "boolean");
-    assert.ok(join(homedir(), ".gemini", "antigravity-cli")); // path is well-formed
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

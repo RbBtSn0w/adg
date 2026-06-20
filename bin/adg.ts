@@ -332,11 +332,11 @@ const TARGET_ALIASES: Record<string, AdapterTarget> = {
   gemini: "antigravity",
 };
 
-function resolveTargets(target: unknown): AdapterTarget[] {
+function resolveTargets(target: string | undefined | null): AdapterTarget[] {
   if (!target || target === "all") return [...ADAPTER_TARGETS];
-  const t = typeof target === "string" ? TARGET_ALIASES[target] ?? target : target;
-  if ((ADAPTER_TARGETS as readonly string[]).includes(t as string)) return [t as AdapterTarget];
-  fail(`invalid --target "${String(target)}" (expected ${[...ADAPTER_TARGETS, "all"].join("|")})`);
+  const t = TARGET_ALIASES[target] ?? target;
+  if ((ADAPTER_TARGETS as readonly string[]).includes(t)) return [t as AdapterTarget];
+  fail(`invalid --target "${target}" (expected ${[...ADAPTER_TARGETS, "all"].join("|")})`);
 }
 
 /** Parse a `--only skills,commands` list into validated component types. */

@@ -5,6 +5,7 @@ import { lockPath, installedPluginDir } from "../paths.ts";
 import { readLock, writeLock } from "../lock.ts";
 import { readManifest } from "../manifest.ts";
 import { adaptPlugin } from "./adapt.ts";
+import { ADAPTER_TARGETS } from "../adapters/index.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 
 export interface UpdateResult {
@@ -71,7 +72,9 @@ export function updateLock(
       entry.version = manifest.version;
       entry.updatedAt = now;
       // Regenerate runtime manifests from the updated source, honoring selection.
-      adaptPlugin(dir, ["claude", "codex"], entry.selection);
+      // Covers every registered adapter target (claude/codex/antigravity) so a
+      // projection can't go stale after an update.
+      adaptPlugin(dir, [...ADAPTER_TARGETS], entry.selection);
       changedNames.push(name);
     }
     results.push({ name, changed, version: manifest.version, folderHash: hash });
