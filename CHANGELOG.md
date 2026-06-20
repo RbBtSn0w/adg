@@ -1,3 +1,13 @@
+## [0.3.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.2...0.3.0-beta.3) (2026-06-20)
+
+### Fixed
+
+* **update-check:** notify on beta/rc updates via prerelease-aware compare ([#12](https://github.com/RbBtSn0w/adg/issues/12)) ([264163a](https://github.com/RbBtSn0w/adg/commit/264163aa47e60675c1a2a0e3817755328efae362))
+
+### Changed
+
+* **adapters:** fix naming, dedup strict logic (tech-debt [#9](https://github.com/RbBtSn0w/adg/issues/9)) ([#11](https://github.com/RbBtSn0w/adg/issues/11)) ([33d9727](https://github.com/RbBtSn0w/adg/commit/33d97274c6ba64bb709dee5c7478862edc87a10b))
+
 ## [0.3.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.1...0.3.0-beta.2) (2026-06-20)
 
 ### Added
