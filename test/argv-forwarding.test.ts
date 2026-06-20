@@ -10,9 +10,9 @@ import { selfCliArgv } from "../vendor/skills/src/self-cli.ts";
  * directly on Node 22.6–23.5). Two entry points do this re-invocation — the
  * `adg skills` bridge (skillsChildArgv) and the skills self-update
  * (selfCliArgv) — and both must place execArgv before the entry and its args.
- * (Regression: PR #1 review thread, commit bdd5d6c, T1–T3.)
  */
 
+// (Regression: PR #1 review thread, commit bdd5d6c, T1–T3.)
 test("skillsChildArgv: prepends execArgv before the entry and args", () => {
   assert.deepEqual(
     skillsChildArgv("/x/cli.ts", ["add", "foo"], ["--experimental-strip-types"]),

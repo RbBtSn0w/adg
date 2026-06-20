@@ -1,23 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { isSymlinkTo } from "../src/commands/remove.ts";
+import { tmp } from "./helpers.ts";
 
 /**
  * `remove` detects whether an agent's enabled-plugin entry is the symlink it
  * installed, so it only unlinks its own links. The target must resolve against
- * the link's own directory, not process.cwd(). (Regression: PR #1 review
- * thread, T6 — the old resolve(readlink(...)) against cwd missed relative
- * targets when cwd differed.)
+ * the link's own directory, not process.cwd().
  */
 
-function tmp(prefix = "adg-remove-"): string {
-  return mkdtempSync(join(tmpdir(), prefix));
-}
-
+// (Regression: PR #1 review thread, T6 — the old resolve(readlink(...)) against
+// cwd missed relative symlink targets when cwd differed.)
 test("isSymlinkTo: detects a relative symlink regardless of process cwd", () => {
   const root = tmp();
   const pluginDir = join(root, "myplugin");

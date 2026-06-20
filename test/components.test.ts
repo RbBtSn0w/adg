@@ -6,11 +6,11 @@ import { fileMemberName } from "../src/components.ts";
 
 /**
  * Member names are derived with an OS-aware basename so a component file maps to
- * its bare id on every platform. (Regression: PR #1 review thread, T5 — the old
- * `abs.split("/").pop()` returned the whole path on Windows, where join()
- * produces backslashes.)
+ * its bare id on every platform.
  */
 
+// (Regression: PR #1 review thread, T5 — the old `abs.split("/").pop()` returned
+// the whole path on Windows, where join() produces backslashes.)
 test("fileMemberName: strips directory and extension on POSIX paths", () => {
   assert.equal(fileMemberName("/plugin/agents/release.md", path.posix.basename), "release");
 });
