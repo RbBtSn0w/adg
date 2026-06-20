@@ -12,6 +12,7 @@ import {
   readUpdateCache,
   writeUpdateCache,
   updateCacheDir,
+  resolveLatestForChannel,
 } from "../src/update-check.ts";
 
 function tmp(): string {
@@ -142,6 +143,62 @@ test("checkForUpdate treats an invalid checkedAt timestamp as stale", () => {
   assert.equal(checkForUpdate("0.1.1", env, refresh), "1.0.0");
   assert.deepEqual(refreshCalls, [{ currentVersion: "0.1.1", env }]);
   rmSync(root, { recursive: true });
+});
+
+test("checkForUpdate reports a newer pre-release on the same channel", () => {
+  const root = tmp();
+  const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
+  writeUpdateCache({ latestVersion: "0.3.0-beta.3", checkedAt: new Date().toISOString() }, env);
+  assert.equal(checkForUpdate("0.3.0-beta.2", env), "0.3.0-beta.3");
+  rmSync(root, { recursive: true });
+});
+
+test("checkForUpdate reports a stable release when on a pre-release", () => {
+  const root = tmp();
+  const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
+  writeUpdateCache({ latestVersion: "0.3.0", checkedAt: new Date().toISOString() }, env);
+  assert.equal(checkForUpdate("0.3.0-beta.2", env), "0.3.0");
+  rmSync(root, { recursive: true });
+});
+
+test("checkForUpdate does not report an older stable when on a newer pre-release", () => {
+  const root = tmp();
+  const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
+  writeUpdateCache({ latestVersion: "0.2.9", checkedAt: new Date().toISOString() }, env);
+  assert.equal(checkForUpdate("0.3.0-beta.2", env), undefined);
+  rmSync(root, { recursive: true });
+});
+
+test("checkForUpdate returns undefined for an identical pre-release", () => {
+  const root = tmp();
+  const env = { XDG_STATE_HOME: root } as NodeJS.ProcessEnv;
+  writeUpdateCache({ latestVersion: "0.3.0-beta.2", checkedAt: new Date().toISOString() }, env);
+  assert.equal(checkForUpdate("0.3.0-beta.2", env), undefined);
+  rmSync(root, { recursive: true });
+});
+
+// ---------------------------------------------------------------------------
+// resolveLatestForChannel()
+// ---------------------------------------------------------------------------
+
+test("resolveLatestForChannel follows the matching channel for pre-release users", () => {
+  // Beta user sees the newer beta even though `latest` tracks stable.
+  assert.equal(
+    resolveLatestForChannel("0.3.0-beta.2", { latest: "0.2.9", beta: "0.3.0-beta.3" }),
+    "0.3.0-beta.3",
+  );
+  // Picks the max across channels (a newer stable beats an older beta).
+  assert.equal(
+    resolveLatestForChannel("0.3.0-beta.2", { latest: "0.3.0", beta: "0.3.0-beta.3" }),
+    "0.3.0",
+  );
+});
+
+test("resolveLatestForChannel uses latest for stable users and tolerates gaps", () => {
+  assert.equal(resolveLatestForChannel("0.2.0", { latest: "0.3.0", beta: "0.4.0-beta.1" }), "0.3.0");
+  assert.equal(resolveLatestForChannel("0.3.0-beta.2", { latest: "0.2.9" }), "0.2.9");
+  assert.equal(resolveLatestForChannel("0.3.0-beta.2", undefined), undefined);
+  assert.equal(resolveLatestForChannel("0.3.0-beta.2", {}), undefined);
 });
 
 // ---------------------------------------------------------------------------
