@@ -9,7 +9,11 @@ import type { ListedPlugin } from "../src/commands/list.ts";
 import type { MarketplaceGroup } from "../src/commands/marketplace.ts";
 
 // The render layer (extracted in TD-2) is pure data -> lines, so it is tested
-// here without spawning the CLI. NO_COLOR keeps picocolors output plain.
+// here without spawning the CLI. picocolors enables ANSI codes when CI=true
+// (even off a TTY), so exact-string assertions strip color first; substring
+// checks are unaffected because the wrapped text stays contiguous.
+// eslint-disable-next-line no-control-regex
+const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
 
 test("formatColumns lays items into width-bounded rows", () => {
   const out = formatColumns(["a", "bb", "ccc"], { width: 12, indent: 2, gutter: 2, maxColWidth: 4 });
@@ -90,5 +94,5 @@ test("renderMarketplaceList groups by source and tags local sources", () => {
 });
 
 test("renderMarketplaceList reports an empty store", () => {
-  assert.deepEqual(renderMarketplaceList([]), ["No plugins installed."]);
+  assert.deepEqual(renderMarketplaceList([]).map(stripAnsi), ["No plugins installed."]);
 });
