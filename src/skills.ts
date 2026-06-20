@@ -55,11 +55,12 @@ export interface ProjectedSkills {
   /** Pass-through root/array form, or an explicit resolved skill-id list. */
   skills: string | string[];
   /**
-   * True when `skills` is an explicit resolved id list (a partial-install
-   * `selection`, a declared path array, or `strict: false`); false when it is a
-   * pass-through of the declared root/array. Callers map ids to their runtime's
-   * shape (Codex bare ids vs Claude `./skills/<id>` paths) and mark the manifest
-   * non-strict only when explicit.
+   * True when `skills` is an explicit resolved id list — a partial-install
+   * `selection`, `strict: false`, or a strict array resolved to ids (Codex).
+   * False when `skills` is passed through: the declared root, or a strict array
+   * kept verbatim (Claude; see `passthroughArray`). Callers map ids to their
+   * runtime's shape (Codex bare ids vs Claude `./skills/<id>` paths) and mark the
+   * manifest non-strict only when explicit.
    */
   explicit: boolean;
 }

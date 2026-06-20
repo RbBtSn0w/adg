@@ -1,5 +1,6 @@
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../types.ts";
 import { validateManifest } from "../manifest.ts";
+import { toPosix } from "../fsutil.ts";
 
 export type NativeKind = "claude" | "codex";
 
@@ -50,8 +51,10 @@ export function fromNativeManifest(raw: unknown, kind: NativeKind): AdgManifest 
     manifest.skills = n.skills;
   } else if (isStringArray(n.skills)) {
     // Codex arrays are bare ids; map them to ADG's `./skills/<id>` path form.
-    // Claude arrays are already paths, so they pass through unchanged.
-    manifest.skills = kind === "codex" ? n.skills.map(toSkillPath) : n.skills;
+    // Claude arrays are already paths, but a Windows-authored manifest may use
+    // backslashes, so normalize separators to keep ADG manifests POSIX-pathed
+    // (downstream `resolveSkillEntries` splits on `/`).
+    manifest.skills = kind === "codex" ? n.skills.map(toSkillPath) : n.skills.map(toPosix);
   } else {
     manifest.skills = "./skills/";
   }

@@ -79,6 +79,16 @@ test("fromNativeManifest keeps Claude path arrays verbatim", () => {
   assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
 });
 
+test("fromNativeManifest normalizes Windows separators in Claude path arrays", () => {
+  // A Claude manifest authored on Windows may use backslash paths; the ADG
+  // manifest must stay POSIX-pathed so resolveSkillEntries (splits on /) works.
+  const adg = fromNativeManifest(
+    { name: "cld", version: "1.0.0", description: "CLD.", skills: [".\\skills\\one", "./skills/two"] },
+    "claude",
+  );
+  assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
+});
+
 test("fromNativeManifest defaults missing version and skills", () => {
   const adg = fromNativeManifest({ name: "x" }, "claude");
   assert.equal(adg.version, "0.0.0");
