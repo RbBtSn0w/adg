@@ -4,7 +4,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
-import { copyPluginDir, writeJson } from "../fsutil.ts";
+import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir } from "../paths.ts";
@@ -45,10 +45,6 @@ export interface InstallResult {
 
 // Generated runtime projections never count toward a plugin's content hash.
 const HASH_IGNORE = PROJECTION_DIRS;
-
-function toPosix(p: string): string {
-  return p.split("\\").join("/");
-}
 
 /**
  * Install a single local plugin directory into a plugins directory: copy the

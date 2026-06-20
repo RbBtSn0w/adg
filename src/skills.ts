@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { AdgManifest } from "./types.ts";
+import type { AdgManifest, PluginSelection } from "./types.ts";
 
 /** A resolved skill: its kebab-case name and the SKILL.md path (if one exists). */
 export interface SkillEntry {
@@ -48,6 +48,53 @@ export function resolveSkillEntries(pluginDir: string, manifest: AdgManifest): S
  */
 export function resolveSkills(pluginDir: string, manifest: AdgManifest): string[] {
   return resolveSkillEntries(pluginDir, manifest).map((e) => e.name);
+}
+
+/** The skills a runtime manifest should project, and whether the list is explicit. */
+export interface ProjectedSkills {
+  /** Pass-through root/array form, or an explicit resolved skill-id list. */
+  skills: string | string[];
+  /**
+   * True when `skills` is an explicit resolved id list (a partial-install
+   * `selection`, a declared path array, or `strict: false`); false when it is a
+   * pass-through of the declared root/array. Callers map ids to their runtime's
+   * shape (Codex bare ids vs Claude `./skills/<id>` paths) and mark the manifest
+   * non-strict only when explicit.
+   */
+  explicit: boolean;
+}
+
+/**
+ * Decide the skills a forward adapter should project from an ADG manifest, the
+ * one strict/selection decision both adapters share (previously copy-pasted, so
+ * it could drift — see the Codex/Claude strict regression that motivated it).
+ *
+ * In the default strict case a declared skills *root* string is passed through
+ * (the runtime discovers skills from the directory). Otherwise — a partial
+ * install `selection`, a declared path array, or `strict: false` — an explicit
+ * resolved id list is returned. `passthroughArray` keeps a strict array form
+ * verbatim (Claude, whose array entries are already `./skills/<id>` paths)
+ * rather than resolving it to ids (Codex, whose array form is bare ids).
+ */
+export function resolveProjectedSkills(
+  pluginDir: string,
+  manifest: AdgManifest,
+  selection: PluginSelection | undefined,
+  opts: { passthroughArray: boolean },
+): ProjectedSkills {
+  if (selection) {
+    const skills = selection.components.includes("skills")
+      ? selection.skills ?? resolveSkills(pluginDir, manifest)
+      : [];
+    return { skills, explicit: true };
+  }
+  const strict = manifest.strict !== false;
+  const passthrough =
+    strict &&
+    (typeof manifest.skills === "string" ||
+      (opts.passthroughArray && Array.isArray(manifest.skills)));
+  if (passthrough) return { skills: manifest.skills as string | string[], explicit: false };
+  return { skills: resolveSkills(pluginDir, manifest), explicit: true };
 }
 
 /** Read a SKILL.md's `description` from its YAML frontmatter (undefined if absent). */

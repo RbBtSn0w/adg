@@ -8,7 +8,7 @@ import { folderHash } from "../src/hash.ts";
 import { packageFilter } from "../src/package.ts";
 import { collectIssues, validateManifest, ManifestError, readManifest, ADG_MANIFEST_PATH, LEGACY_MANIFEST_PATH } from "../src/manifest.ts";
 import { toAnthropicManifest } from "../src/adapters/anthropic.ts";
-import { toCodexManifest } from "../src/adapters/openai.ts";
+import { toCodexManifest } from "../src/adapters/codex.ts";
 import { resolveSkills, readSkillDescription, skillDescriptionLoader } from "../src/skills.ts";
 import { buildSkillRows, type SkillOption } from "../src/commands/multiselect-skills.ts";
 import { emptyLock, upsertEntry } from "../src/lock.ts";

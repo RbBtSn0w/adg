@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
-import { writeJson } from "../fsutil.ts";
+import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
@@ -18,10 +18,6 @@ import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
  */
 
 const MARKETPLACE = "adg";
-
-function toPosix(p: string): string {
-  return p.split("\\").join("/");
-}
 
 function claudeHome(env: NodeJS.ProcessEnv): string {
   return env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude");
