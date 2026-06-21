@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
@@ -6,6 +5,7 @@ import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
+import { makeCli } from "./base.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
 /**
@@ -23,14 +23,7 @@ function claudeHome(env: NodeJS.ProcessEnv): string {
   return env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude");
 }
 
-function available(): boolean {
-  return spawnSync("claude", ["plugin", "--help"], { stdio: "ignore" }).status === 0;
-}
-
-function run(args: string[]): { ok: boolean; out: string } {
-  const r = spawnSync("claude", args, { encoding: "utf8" });
-  return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
-}
+const { available, run } = makeCli("claude", { probeArgs: ["plugin", "--help"] });
 
 /**
  * Write a Claude marketplace catalog listing every installed plugin, each
