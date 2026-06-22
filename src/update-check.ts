@@ -99,10 +99,14 @@ export function scheduleUpdateCacheRefresh(
       REGISTRY_URL,
       { headers: { "User-Agent": `adg/${currentVersion}`, Accept: REGISTRY_ACCEPT } },
       (res) => {
+        // Decode as UTF-8 at the stream level so multi-byte characters split
+        // across chunk boundaries are reassembled correctly (raw Buffers would
+        // corrupt them).
+        res.setEncoding("utf8");
         let body = "";
         let byteCount = 0;
-        res.on("data", (chunk: Buffer | string) => {
-          byteCount += Buffer.byteLength(chunk);
+        res.on("data", (chunk: string) => {
+          byteCount += Buffer.byteLength(chunk, "utf8");
           if (byteCount > MAX_RESPONSE_BYTES) {
             // Oversized payload: stop reading and abort so we neither buffer
             // unbounded memory nor parse a partial body.
@@ -110,7 +114,7 @@ export function scheduleUpdateCacheRefresh(
             req.destroy();
             return;
           }
-          body += String(chunk);
+          body += chunk;
         });
         res.on("end", () => {
           try {

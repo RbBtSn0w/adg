@@ -46,9 +46,13 @@ export function formatColumns(
 
 /** Abbreviate the home-directory prefix of an absolute path to `~` (POSIX `/` or Windows `\`). */
 export function abbrevHome(p: string): string {
-  const home = homedir();
-  if (p === home) return "~";
-  if (p.startsWith(home + "/") || p.startsWith(home + "\\")) return "~" + p.slice(home.length);
+  // Compare with separators normalized to "/" so a forward-slash path still
+  // matches a backslash homedir() on Windows. Slicing the original `p` keeps
+  // its native separators in the abbreviated suffix (lengths are 1:1).
+  const home = homedir().replace(/\\/g, "/");
+  const normP = p.replace(/\\/g, "/");
+  if (normP === home) return "~";
+  if (normP.startsWith(home + "/")) return "~" + p.slice(home.length);
   return p;
 }
 

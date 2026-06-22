@@ -205,13 +205,16 @@ export interface PluginUpdateResult {
 }
 
 /** Merge per-agent sync results from several passes into one entry per agent. */
-function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[] {
+export function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[] {
   const merged = new Map<string, AgentSyncResult>();
   for (const r of groups.flat()) {
     const existing = merged.get(r.agent);
     if (existing) {
       existing.affected = [...new Set([...existing.affected, ...r.affected])];
-      existing.skipped = existing.skipped || r.skipped;
+      // Skipped only when EVERY pass skipped the agent (CLI absent throughout).
+      // If any pass ran, the agent was processed — matches addPlugins' merge so
+      // a skipped local rescan can't mask a successful remote re-activation.
+      existing.skipped = existing.skipped && r.skipped;
     } else {
       merged.set(r.agent, { ...r, affected: [...r.affected] });
     }
