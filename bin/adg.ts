@@ -551,7 +551,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
             scope: { label: sc.label, globalDir: globalPluginsDir() },
           });
           for (const line of renderUpdateReport(result)) console.log(line);
-          for (const line of renderAgentReport(result.local.agents, "re-synced")) console.log(line);
+          for (const line of renderAgentReport(result.agents, "re-synced")) console.log(line);
         } catch (err) {
           console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
         }

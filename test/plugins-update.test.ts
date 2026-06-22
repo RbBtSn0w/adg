@@ -139,6 +139,37 @@ test("updatePlugins does not re-activate agents for unchanged plugins, but does 
   }
 });
 
+test("updatePlugins surfaces remote agent re-sync results in a consolidated report", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    // Bump `sales` so it is re-fetched and re-activated.
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgent("codex", calls)],
+    });
+
+    // The remote re-activation must appear in the consolidated agent report,
+    // not be silently dropped (it previously only surfaced for local rescans).
+    assert.deepEqual(
+      result.agents.map((a) => [a.agent, a.affected]),
+      [["codex", ["sales"]]],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("updatePlugins reports updated when upstream content changed", async () => {
   const root = scratch();
   try {

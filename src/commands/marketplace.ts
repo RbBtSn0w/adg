@@ -6,7 +6,7 @@ import { readLock } from "../lock.ts";
 import { addPlugins, type InstallResult } from "./install.ts";
 import { removePlugin } from "./remove.ts";
 import { updateLock, type UpdateLockResult } from "./update.ts";
-import type { Agent, AgentScope } from "../agents/index.ts";
+import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
 
 /**
  * The marketplace layer is a *view* over installed plugins grouped by their
@@ -195,6 +195,28 @@ export interface PluginUpdateResult {
   remote: PluginUpdateSourceResult[];
   /** In-place rescan of local-source / disk-edited plugins (no network). */
   local: UpdateLockResult;
+  /**
+   * Consolidated per-agent re-sync outcome across BOTH the remote re-fetches and
+   * the local rescan, deduplicated by agent. Empty when `activate` was off or
+   * nothing changed. The CLI renders this so remote re-activations are reported,
+   * not just local ones.
+   */
+  agents: AgentSyncResult[];
+}
+
+/** Merge per-agent sync results from several passes into one entry per agent. */
+function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[] {
+  const merged = new Map<string, AgentSyncResult>();
+  for (const r of groups.flat()) {
+    const existing = merged.get(r.agent);
+    if (existing) {
+      existing.affected = [...new Set([...existing.affected, ...r.affected])];
+      existing.skipped = existing.skipped || r.skipped;
+    } else {
+      merged.set(r.agent, { ...r, affected: [...r.affected] });
+    }
+  }
+  return [...merged.values()];
 }
 
 /**
@@ -232,10 +254,11 @@ export async function updatePlugins(
 
   const now = opts.now ?? new Date().toISOString();
   const remote: PluginUpdateSourceResult[] = [];
+  const remoteAgents: AgentSyncResult[] = [];
 
   for (const group of remoteGroups) {
     try {
-      const { installed, available } = await addPlugins({
+      const { installed, available, agents } = await addPlugins({
         spec: group.source,
         pluginsDir: opts.pluginsDir,
         ref: group.ref,
@@ -251,6 +274,7 @@ export async function updatePlugins(
         agents: opts.agents,
         now,
       });
+      if (agents) remoteAgents.push(...agents);
       const availableSet = new Set(available);
       const installedNow = new Set(installed.map((r) => r.name));
       remote.push({
@@ -282,7 +306,8 @@ export async function updatePlugins(
     ? updateLock(opts.pluginsDir, now, { only: localNames, resync: opts.activate, scope: opts.agentScope, agents: opts.agents })
     : { results: [], missing: [] };
 
-  return { remote, local };
+  const agents = mergeAgentResults([remoteAgents, local.agents ?? []]);
+  return { remote, local, agents };
 }
 
 export interface MarketplaceRemoveResult {
