@@ -33,9 +33,15 @@ export function makeCli(bin: string, opts: CliOptions): Cli {
     available: () => spawnSync(bin, opts.probeArgs, { stdio: "ignore" }).status === 0,
     run: (args) => {
       const r = spawnSync(bin, args, { encoding: "utf8" });
-      const ok = r.status === 0;
-      if (!ok && opts.echoStderr && r.stderr) console.error(r.stderr.trim());
-      return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+      // A launch failure (e.g. ENOENT for a missing binary, EACCES) leaves
+      // `status` null and `stderr` empty, exposing the cause only via `error`;
+      // treat that as a failure and keep its message instead of swallowing it.
+      const ok = r.status === 0 && !r.error;
+      if (!ok && opts.echoStderr) {
+        if (r.error) console.error(r.error.message);
+        else if (r.stderr) console.error(r.stderr.trim());
+      }
+      return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? r.error.message : ""}` };
     },
   };
 }
