@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
 import { folderHash } from "../hash.ts";
-import { packageFilter } from "../package.ts";
+import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, installedPluginDir } from "../paths.ts";
 import { readLock, writeLock } from "../lock.ts";
 import { readManifest } from "../manifest.ts";
 import { adaptPlugin } from "./adapt.ts";
+import { ADAPTER_TARGETS } from "../adapters/index.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 
 export interface UpdateResult {
@@ -25,6 +26,12 @@ export interface UpdateOptions {
   resync?: boolean;
   /** Install scope for re-sync; "user" (global) or "project". */
   scope?: AgentScope;
+  /**
+   * Restrict the rescan to these plugin names. Used by `updatePlugins` to refresh
+   * only the local-source bucket (remote sources are handled by re-fetching).
+   * Omitted = rescan every locked plugin.
+   */
+  only?: string[];
   /** Injection seam for tests; defaults to every registered agent. */
   agents?: Agent[];
 }
@@ -57,21 +64,25 @@ export function updateLock(
   const missing: string[] = [];
   const changedNames: string[] = [];
 
+  const only = opts.only ? new Set(opts.only) : undefined;
   for (const [name, entry] of Object.entries(lock.plugins)) {
+    if (only && !only.has(name)) continue;
     const dir = installedPluginDir(pluginsDir, name, entry.origin);
     if (!existsSync(dir)) {
       missing.push(name);
       continue;
     }
     const manifest = readManifest(dir);
-    const hash = folderHash(dir, [".claude-plugin", ".codex-plugin"], packageFilter(manifest, { includeProjections: false }));
+    const hash = folderHash(dir, PROJECTION_DIRS, packageFilter(manifest, { includeProjections: false }));
     const changed = hash !== entry.folderHash || manifest.version !== entry.version;
     if (changed) {
       entry.folderHash = hash;
       entry.version = manifest.version;
       entry.updatedAt = now;
       // Regenerate runtime manifests from the updated source, honoring selection.
-      adaptPlugin(dir, ["claude", "codex"], entry.selection);
+      // Covers every registered adapter target (claude/codex/antigravity) so a
+      // projection can't go stale after an update.
+      adaptPlugin(dir, [...ADAPTER_TARGETS], entry.selection);
       changedNames.push(name);
     }
     results.push({ name, changed, version: manifest.version, folderHash: hash });

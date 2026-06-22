@@ -8,7 +8,31 @@ import { marketplaceSourcePath } from "../src/paths.ts";
 import { installPlugin } from "../src/commands/install.ts";
 import { removePlugin } from "../src/commands/remove.ts";
 import { readMarketplace, emptyMarketplace } from "../src/marketplace.ts";
+import { mergeAgentResults } from "../src/commands/marketplace.ts";
 import { sameSource, ADG_SCHEMA_VERSION } from "../src/types.ts";
+
+test("mergeAgentResults marks an agent skipped only when every pass skipped it", () => {
+  // One pass (local rescan) skipped the agent (CLI absent there) while another
+  // (remote re-activation) actually ran. The merged entry must NOT be skipped,
+  // or the CLI would print a bogus "CLI not found" warning for a real change.
+  const [first, ...rest] = mergeAgentResults([
+    [{ agent: "codex", affected: ["a"], skipped: false }],
+    [{ agent: "codex", affected: [], skipped: true }],
+  ]);
+  assert.equal(rest.length, 0);
+  assert.ok(first);
+  assert.equal(first.skipped, false);
+  assert.deepEqual(first.affected, ["a"]);
+});
+
+test("mergeAgentResults keeps an agent skipped when all passes skipped it", () => {
+  const [first] = mergeAgentResults([
+    [{ agent: "codex", affected: [], skipped: true }],
+    [{ agent: "codex", affected: [], skipped: true }],
+  ]);
+  assert.ok(first);
+  assert.equal(first.skipped, true);
+});
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "adg-mkt-"));

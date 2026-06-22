@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { AdgManifest } from "./types.ts";
+import type { AdgManifest, PluginSelection } from "./types.ts";
 
 /** A resolved skill: its kebab-case name and the SKILL.md path (if one exists). */
 export interface SkillEntry {
@@ -48,6 +48,58 @@ export function resolveSkillEntries(pluginDir: string, manifest: AdgManifest): S
  */
 export function resolveSkills(pluginDir: string, manifest: AdgManifest): string[] {
   return resolveSkillEntries(pluginDir, manifest).map((e) => e.name);
+}
+
+/** The skills a runtime manifest should project, and whether the list is explicit. */
+export interface ProjectedSkills {
+  /** Pass-through root/array form, or an explicit resolved skill-id list. */
+  skills: string | string[];
+  /**
+   * True when `skills` is an explicit resolved id list — a partial-install
+   * `selection`, `strict: false`, or a strict array resolved to ids (Codex).
+   * False when `skills` is passed through: the declared root, or a strict array
+   * kept verbatim (Claude; see `passthroughArray`). Callers map ids to their
+   * runtime's shape (Codex bare ids vs Claude `./skills/<id>` paths) and mark the
+   * manifest non-strict only when explicit.
+   */
+  explicit: boolean;
+}
+
+/**
+ * Decide the skills a forward adapter should project from an ADG manifest, the
+ * one strict/selection decision both adapters share (previously copy-pasted, so
+ * it could drift — see the Codex/Claude strict regression that motivated it).
+ *
+ * In the default strict case the declared skills *root* string is passed through
+ * (the runtime discovers skills from the directory); an omitted `skills` is
+ * treated as the default `./skills/` root so the strict default stays
+ * directory-discovery rather than an explicit enumeration. A `selection` or
+ * `strict: false` always yields an explicit resolved id list. A declared `skills`
+ * *array* is runtime-dependent: `passthroughArray` keeps it verbatim (Claude,
+ * whose entries are already `./skills/<id>` paths), otherwise it resolves to ids
+ * (Codex, whose array form is bare ids).
+ */
+export function resolveProjectedSkills(
+  pluginDir: string,
+  manifest: AdgManifest,
+  selection: PluginSelection | undefined,
+  opts: { passthroughArray: boolean },
+): ProjectedSkills {
+  if (selection) {
+    const skills = selection.components.includes("skills")
+      ? selection.skills ?? resolveSkills(pluginDir, manifest)
+      : [];
+    return { skills, explicit: true };
+  }
+  const strict = manifest.strict !== false;
+  // An omitted `skills` defaults to the `./skills/` root, so a strict manifest
+  // without a declaration keeps directory discovery instead of being forced to
+  // an explicit `strict: false` enumeration.
+  const declared = manifest.skills ?? "./skills/";
+  const passthrough =
+    strict && (typeof declared === "string" || (opts.passthroughArray && Array.isArray(declared)));
+  if (passthrough) return { skills: declared, explicit: false };
+  return { skills: resolveSkills(pluginDir, manifest), explicit: true };
 }
 
 /** Read a SKILL.md's `description` from its YAML frontmatter (undefined if absent). */

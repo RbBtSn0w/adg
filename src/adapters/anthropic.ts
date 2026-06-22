@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
-import { resolveSkills } from "../skills.ts";
+import { resolveProjectedSkills } from "../skills.ts";
 import { isExposed } from "../components.ts";
 import type { AdapterResult } from "./index.ts";
 
@@ -31,23 +31,17 @@ export function toAnthropicManifest(
   if (manifest.agents && isExposed(selection, "agents")) out.agents = manifest.agents;
   if (manifest.hooks && isExposed(selection, "hooks")) out.hooks = manifest.hooks;
   if (manifest.mcp && isExposed(selection, "mcp")) out.mcp = manifest.mcp;
+  if (manifest.apps && isExposed(selection, "apps")) out.apps = manifest.apps;
 
-  if (selection) {
-    // Partial install: always an explicit (possibly empty) skill list.
+  // Claude's array form is already `./skills/<id>` paths, so a strict array is
+  // passed through verbatim; an explicit id list (selection or strict:false) is
+  // mapped to paths and marks the manifest non-strict.
+  const projected = resolveProjectedSkills(pluginDir, manifest, selection, { passthroughArray: true });
+  if (projected.explicit) {
     out.strict = false;
-    const names = isExposed(selection, "skills")
-      ? selection.skills ?? resolveSkills(pluginDir, manifest)
-      : [];
-    out.skills = names.map((name) => `./skills/${name}`);
+    out.skills = (projected.skills as string[]).map((name) => `./skills/${name}`);
   } else {
-    const strict = manifest.strict !== false;
-    if (strict && manifest.skills !== undefined) {
-      out.skills = manifest.skills;
-    } else {
-      // skill-bundle form: explicit list, strict:false
-      out.strict = false;
-      out.skills = resolveSkills(pluginDir, manifest).map((name) => `./skills/${name}`);
-    }
+    out.skills = projected.skills;
   }
 
   return { defaultPath: join(".claude-plugin", "plugin.json"), manifest: out };

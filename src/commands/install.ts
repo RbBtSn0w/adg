@@ -4,9 +4,9 @@ import { basename, join, relative, resolve } from "node:path";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
-import { copyPluginDir, writeJson } from "../fsutil.ts";
+import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
-import { packageFilter } from "../package.ts";
+import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
 import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
@@ -34,6 +34,13 @@ export interface InstallOneOptions {
    * re-installs / upgrades); absent on both = expose everything.
    */
   selection?: PluginSelection;
+  /**
+   * Skip all work (copy, adapt, lock write) when the source's content hash and
+   * version already match the recorded lock entry. Used by `update`, so a source
+   * that hasn't changed upstream is detected and left untouched rather than
+   * re-installed every time. The result is reported with `changed: false`.
+   */
+  skipUnchanged?: boolean;
 }
 
 export interface InstallResult {
@@ -41,13 +48,16 @@ export interface InstallResult {
   installedTo: string;
   folderHash: string;
   adapted: string[];
+  /**
+   * True when this install changed the recorded content: a first-time install,
+   * or a re-install/upgrade whose folder hash or version differs from the prior
+   * lock entry. Lets `update`/`upgrade` report updated-vs-unchanged accurately.
+   */
+  changed: boolean;
 }
 
-const HASH_IGNORE = [".claude-plugin", ".codex-plugin"];
-
-function toPosix(p: string): string {
-  return p.split("\\").join("/");
-}
+// Generated runtime projections never count toward a plugin's content hash.
+const HASH_IGNORE = PROJECTION_DIRS;
 
 /**
  * Install a single local plugin directory into a plugins directory: copy the
@@ -69,14 +79,6 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     opts.origin ?? { type: "local", path: `./${toPosix(name)}` };
   const dest = pluginDir(opts.pluginsDir, name, origin);
 
-  // When the source already lives at the destination (e.g. adapting an
-  // in-repo reference plugin) skip the copy to avoid copying onto itself.
-  // Only the manifest-declared payload is copied (projections included) — dev
-  // cruft like src/ or test/ never ships.
-  if (resolve(dest) !== source) {
-    copyPluginDir(source, dest, packageFilter(manifest, { includeProjections: true }));
-  }
-
   const lockFile = lockPath(opts.pluginsDir);
   const lock = readLock(lockFile);
   const prev = lock.plugins[name];
@@ -87,6 +89,24 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     );
   }
 
+  // Detect-then-update: compute the source's content hash up front (cheap, no
+  // copy) and, when asked, short-circuit if it matches what's already recorded —
+  // so an unchanged upstream source is never re-copied, re-adapted, or re-locked.
+  if (opts.skipUnchanged && prev) {
+    const sourceHash = folderHash(source, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+    if (prev.folderHash === sourceHash && prev.version === manifest.version) {
+      return { name, installedTo: dest, folderHash: sourceHash, adapted: [], changed: false };
+    }
+  }
+
+  // When the source already lives at the destination (e.g. adapting an
+  // in-repo reference plugin) skip the copy to avoid copying onto itself.
+  // Only the manifest-declared payload is copied (projections included) — dev
+  // cruft like src/ or test/ never ships.
+  if (resolve(dest) !== source) {
+    copyPluginDir(source, dest, packageFilter(manifest, { includeProjections: true }));
+  }
+
   // A new selection wins; otherwise keep whatever a prior install recorded so
   // partial installs survive re-install / `marketplace upgrade`.
   const selection = opts.selection ?? prev?.selection;
@@ -95,6 +115,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   const adapted = adaptPlugin(dest, targets, selection).map((r) => r.file);
 
   const hash = folderHash(dest, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+  const changed = !prev || prev.folderHash !== hash || prev.version !== manifest.version;
 
   const entry: Omit<LockEntry, "installedAt" | "updatedAt"> = {
     origin,
@@ -121,7 +142,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   });
   writeMarketplace(marketFile, market);
 
-  return { name, installedTo: dest, folderHash: hash, adapted };
+  return { name, installedTo: dest, folderHash: hash, adapted, changed };
 }
 
 function describe(s: PluginSource): string {
@@ -167,6 +188,19 @@ export interface AddOptions {
   all?: boolean;
   /** Install only these plugin names. */
   plugins?: string[];
+  /**
+   * What to do when a name in `plugins` is no longer present in the source.
+   * "error" (default) throws; "skip" silently drops it — used by `update`, where
+   * an upstream-deleted plugin should be reported, not abort the whole refresh.
+   */
+  missingPlugins?: "error" | "skip";
+  /**
+   * Skip re-installing plugins whose source content/version already match the
+   * lock (detect-then-update). Set by `update` so an unchanged upstream source
+   * causes no disk churn and no agent re-activation. Off by default so `add`
+   * always (re)installs.
+   */
+  skipUnchanged?: boolean;
   /** Install the single plugin at this sub-path. */
   path?: string;
   /** Resolve and install transitive plugin dependencies. Default true. */
@@ -252,10 +286,10 @@ async function selectPluginNames(
 
   if (opts.plugins?.length) {
     const missing = opts.plugins.filter((p) => !candidates.has(p));
-    if (missing.length) {
+    if (missing.length && opts.missingPlugins !== "skip") {
       throw new Error(`plugin(s) not found in source: ${missing.join(", ")}.\nAvailable: ${names.join(", ")}`);
     }
-    return opts.plugins;
+    return opts.plugins.filter((p) => candidates.has(p));
   }
   if (opts.path) {
     const target = resolve(join(workRoot, opts.path));
@@ -358,7 +392,15 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     }
 
     const selected = await selectPluginNames(opts, candidates, workRoot, converted);
-    if (selected.length === 0) throw new Error("no plugins selected");
+    if (selected.length === 0) {
+      // Under "skip" (the update path) every requested plugin was deleted
+      // upstream: don't abort — return what the source still offers so the
+      // caller can report the deletions.
+      if (opts.missingPlugins === "skip") {
+        return { order: [], installed: [], converted, available: [...candidates.keys()] };
+      }
+      throw new Error("no plugins selected");
+    }
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -380,6 +422,10 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       }
     }
 
+    // Snapshot which plugins already existed before this call mutates the lock,
+    // so the activation step below can tell brand-new installs from updates.
+    const existingPlugins = new Set(Object.keys(readLock(lockPath(opts.pluginsDir)).plugins));
+
     const installed: InstallResult[] = [];
     for (const name of order) {
       const candidate = candidates.get(name)!;
@@ -391,17 +437,43 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           marketplaceName: opts.marketplaceName,
           targets,
           selection: selections.get(name),
+          skipUnchanged: opts.skipUnchanged,
           now: opts.now,
         }),
       );
     }
     // Activate into the selected agents so the plugins are actually usable, not
     // just recorded/discoverable — each agent enables them via its own CLI.
-    // undefined targets = all registered agents.
+    // undefined targets = all registered agents. Under skipUnchanged (the update
+    // path) only re-activate plugins that actually changed — re-running an agent
+    // CLI for an untouched plugin is wasted work.
     let agents: AgentSyncResult[] | undefined;
-    if (opts.activate) {
-      const ctx = { pluginsDir: opts.pluginsDir, plugins: installed.map((r) => r.name), scope: opts.scope ?? "project" };
-      agents = (opts.agents ?? resolveAgents(targets)).map((a) => a.activate(ctx));
+    const toActivate = opts.skipUnchanged ? installed.filter((r) => r.changed) : installed;
+    if (opts.activate && toActivate.length > 0) {
+      const resolved = opts.agents ?? resolveAgents(targets);
+      const scope = opts.scope ?? "project";
+      const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
+      // A "changed" plugin is either brand new (no prior lock entry) or an update
+      // to an already-installed one. Only updates go through refresh — agents that
+      // cache a copy (Claude) must drop the stale one and re-pull. Brand-new
+      // plugins must use activate: refresh would issue an uninstall for something
+      // never installed, which warns/errors in those agents. On the add path
+      // (skipUnchanged off) everything is a fresh activate.
+      const activateNames = (opts.skipUnchanged ? toActivate.filter((r) => !existingPlugins.has(r.name)) : toActivate).map((r) => r.name);
+      const refreshNames = opts.skipUnchanged ? toActivate.filter((r) => existingPlugins.has(r.name)).map((r) => r.name) : [];
+
+      agents = resolved.map((a) => {
+        // An agent may run both lifecycles (new installs + updates) in one pass;
+        // merge into the existing affected/skipped contract so downstream report
+        // and consolidation (renderAgentReport, mergeAgentResults) stay unchanged.
+        const parts: AgentSyncResult[] = [];
+        if (activateNames.length > 0) parts.push(a.activate(ctxFor(activateNames)));
+        if (refreshNames.length > 0) parts.push(a.refresh(ctxFor(refreshNames)));
+        return parts.reduce<AgentSyncResult>(
+          (acc, r) => ({ agent: r.agent, affected: [...acc.affected, ...r.affected], skipped: acc.skipped && r.skipped }),
+          { agent: a.id, affected: [], skipped: true },
+        );
+      });
     }
 
     return { order, installed, converted, available: [...candidates.keys()], agents };

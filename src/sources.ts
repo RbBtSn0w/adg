@@ -118,7 +118,7 @@ export const CLAUDE_MANIFEST_PATH = join(".claude-plugin", "plugin.json");
 export interface NativePlugin {
   dir: string;
   /** Which runtime-native manifest was found. */
-  kind: "adg" | "openai" | "anthropic";
+  kind: "adg" | "codex" | "claude";
   /** Path to the native manifest file. */
   manifestFile: string;
 }
@@ -144,11 +144,11 @@ function walkNative(current: string, out: NativePlugin[]): void {
     return;
   }
   if (existsSync(claude)) {
-    out.push({ dir: current, kind: "anthropic", manifestFile: claude });
+    out.push({ dir: current, kind: "claude", manifestFile: claude });
     return;
   }
   if (existsSync(codex)) {
-    out.push({ dir: current, kind: "openai", manifestFile: codex });
+    out.push({ dir: current, kind: "codex", manifestFile: codex });
     return;
   }
   for (const entry of readdirSync(current, { withFileTypes: true })) {

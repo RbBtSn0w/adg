@@ -1,9 +1,9 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { marketplacePath } from "../paths.ts";
 import { readMarketplace } from "../marketplace.ts";
+import { makeCli } from "./base.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
 /**
@@ -18,14 +18,7 @@ function codexHome(env: NodeJS.ProcessEnv): string {
   return env.CODEX_HOME?.trim() || join(homedir(), ".codex");
 }
 
-function available(): boolean {
-  return spawnSync("codex", ["plugin", "--help"], { stdio: "ignore" }).status === 0;
-}
-
-function run(args: string[]): { ok: boolean; out: string } {
-  const r = spawnSync("codex", args, { encoding: "utf8" });
-  return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
-}
+const { available, run } = makeCli("codex", { probeArgs: ["plugin", "--help"] });
 
 /** The marketplace name Codex sees, read from the generated marketplace.json. */
 function marketplaceName(pluginsDir: string): string {

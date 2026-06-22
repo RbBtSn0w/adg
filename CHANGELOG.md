@@ -1,3 +1,63 @@
+## [0.3.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.7...0.3.0-beta.8) (2026-06-22)
+
+### Fixed
+
+* address cross-cutting correctness findings from PR review ([824db40](https://github.com/RbBtSn0w/adg/commit/824db4050860ec85c09325755bae2932b5384a26))
+
+## [0.3.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.6...0.3.0-beta.7) (2026-06-22)
+
+### Added
+
+* refresh cached agents on plugin update ([#22](https://github.com/RbBtSn0w/adg/issues/22)) ([6566a74](https://github.com/RbBtSn0w/adg/commit/6566a7476d30495a94aa69a7e0de1bb60edae883))
+
+## [0.3.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.5...0.3.0-beta.6) (2026-06-22)
+
+### Added
+
+* **plugins:** align `plugins update` with `skills update` (detect-then-update) ([#21](https://github.com/RbBtSn0w/adg/issues/21)) ([2b93c01](https://github.com/RbBtSn0w/adg/commit/2b93c01b03a65fab93a0befe3ea05b5d4639478f))
+
+## [0.3.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.4...0.3.0-beta.5) (2026-06-22)
+
+### Fixed
+
+* project apps, add adapter parity test, harden prepack & audit gates ([#15](https://github.com/RbBtSn0w/adg/issues/15) [#17](https://github.com/RbBtSn0w/adg/issues/17) [#18](https://github.com/RbBtSn0w/adg/issues/18) [#19](https://github.com/RbBtSn0w/adg/issues/19)) ([#20](https://github.com/RbBtSn0w/adg/issues/20)) ([a63ad26](https://github.com/RbBtSn0w/adg/commit/a63ad264d3eec106e92e3d7bc4b805c09c3f74f8)), closes [#3](https://github.com/RbBtSn0w/adg/issues/3)
+
+### Changed
+
+* centralize CLI execution and availability logic into a reusable makeCli factory ([#16](https://github.com/RbBtSn0w/adg/issues/16)) ([00f1454](https://github.com/RbBtSn0w/adg/commit/00f1454dd6822dc005a11835bf052a5468975e64))
+
+## [0.3.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.3...0.3.0-beta.4) (2026-06-20)
+
+### Fixed
+
+* address technical debt items TD-1, TD-2, TD-3 ([#13](https://github.com/RbBtSn0w/adg/issues/13)) ([955a69a](https://github.com/RbBtSn0w/adg/commit/955a69ad5cfa2f628ea3667548a8f542d29d54cf))
+
+## [0.3.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.2...0.3.0-beta.3) (2026-06-20)
+
+### Fixed
+
+* **update-check:** notify on beta/rc updates via prerelease-aware compare ([#12](https://github.com/RbBtSn0w/adg/issues/12)) ([264163a](https://github.com/RbBtSn0w/adg/commit/264163aa47e60675c1a2a0e3817755328efae362))
+
+### Changed
+
+* **adapters:** fix naming, dedup strict logic (tech-debt [#9](https://github.com/RbBtSn0w/adg/issues/9)) ([#11](https://github.com/RbBtSn0w/adg/issues/11)) ([33d9727](https://github.com/RbBtSn0w/adg/commit/33d97274c6ba64bb709dee5c7478862edc87a10b))
+
+## [0.3.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.1...0.3.0-beta.2) (2026-06-20)
+
+### Added
+
+* add support for Antigravity adapter and enhance agent detection ([#10](https://github.com/RbBtSn0w/adg/issues/10)) ([91d0a63](https://github.com/RbBtSn0w/adg/commit/91d0a6374f5dc25281667e306062bebf0fb08903))
+
+## [0.3.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.2.1...0.3.0-beta.1) (2026-06-19)
+
+### Added
+
+* enhance plugin agent listing and error messaging ([#8](https://github.com/RbBtSn0w/adg/issues/8)) ([bc392d1](https://github.com/RbBtSn0w/adg/commit/bc392d14f16993bc4ee8b4e3bf85ee2936063ddf))
+
+### Changed
+
+* **ci:** avoid literal skip-CI directive in prose ([dbfac2d](https://github.com/RbBtSn0w/adg/commit/dbfac2d7e87ffcec6153a4be07e9e43e6affb331)), closes [#6](https://github.com/RbBtSn0w/adg/issues/6)
+
 ## [0.2.1](https://github.com/RbBtSn0w/adg/compare/0.2.0...0.2.1) (2026-06-19)
 
 

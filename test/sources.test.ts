@@ -4,7 +4,15 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, cpSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { satisfies, compare, parseVersion } from "../src/semver.ts";
+import {
+  satisfies,
+  compare,
+  parseVersion,
+  parsePrerelease,
+  comparePrerelease,
+  compareVersions,
+  prereleaseChannel,
+} from "../src/semver.ts";
 import { resolveInstallOrder, DependencyError, type PluginCandidate } from "../src/deps.ts";
 import { parseSource, cloneGitHub, scanPlugins, scanNativePlugins, type GitRunner, type GitHubSource } from "../src/sources.ts";
 import { addPlugins } from "../src/commands/install.ts";
@@ -43,6 +51,35 @@ test("semver parse and compare", () => {
   assert.deepEqual(parseVersion("v1.2.3-beta+build"), [1, 2, 3]);
   assert.equal(compare([1, 0, 0], [1, 0, 1]), -1);
   assert.equal(compare([2, 0, 0], [1, 9, 9]), 1);
+});
+
+test("semver prerelease parsing and comparison", () => {
+  assert.deepEqual(parsePrerelease("1.2.3"), []);
+  assert.deepEqual(parsePrerelease("0.3.0-beta.2"), ["beta", 2]);
+  assert.deepEqual(parsePrerelease("v1.2.3-rc.1+build.5"), ["rc", 1]);
+  // A hyphen inside build metadata is not a pre-release separator.
+  assert.deepEqual(parsePrerelease("1.2.3+build-1"), []);
+
+  // Stable outranks any pre-release of the same core version.
+  assert.equal(compareVersions("0.3.0", "0.3.0-beta.2"), 1);
+  // Newer pre-release of the same channel.
+  assert.equal(compareVersions("0.3.0-beta.3", "0.3.0-beta.2"), 1);
+  assert.equal(compareVersions("0.3.0-beta.2", "0.3.0-beta.3"), -1);
+  assert.equal(compareVersions("0.3.0-beta.2", "0.3.0-beta.2"), 0);
+  // Different core versions still decide first.
+  assert.equal(compareVersions("0.4.0-beta.1", "0.3.0"), 1);
+
+  // SemVer §11 identifier precedence: numeric < alphanumeric.
+  assert.equal(comparePrerelease([1], ["alpha"]), -1);
+  // Longer pre-release wins when shared fields are equal.
+  assert.equal(comparePrerelease(["beta"], ["beta", 1]), -1);
+  // Channel ordering: alpha < beta < rc.
+  assert.equal(compareVersions("1.0.0-alpha.1", "1.0.0-beta.1"), -1);
+  assert.equal(compareVersions("1.0.0-rc.1", "1.0.0-beta.9"), 1);
+
+  assert.equal(prereleaseChannel("0.3.0-beta.2"), "beta");
+  assert.equal(prereleaseChannel("1.0.0-rc.1"), "rc");
+  assert.equal(prereleaseChannel("1.2.3"), null);
 });
 
 test("semver satisfies caret/tilde/exact/wildcard/comparator", () => {
@@ -264,7 +301,7 @@ test("scanNativePlugins resolves Claude before Codex when both coexist", () => {
 
   const found = scanNativePlugins(dir);
   assert.equal(found.length, 1);
-  assert.equal(found[0]!.kind, "anthropic", "Claude (.claude-plugin) wins over Codex");
+  assert.equal(found[0]!.kind, "claude", "Claude (.claude-plugin) wins over Codex");
   rmSync(dir, { recursive: true });
 });
 
@@ -276,8 +313,8 @@ test("scanNativePlugins recognizes codex-only and claude-only plugin dirs", () =
   writeFileSync(join(root, "cld", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "cld", version: "1.0.0", description: "C" }));
 
   const byDir = Object.fromEntries(scanNativePlugins(root).map((p) => [p.dir.endsWith("cdx") ? "cdx" : "cld", p.kind]));
-  assert.equal(byDir.cdx, "openai");
-  assert.equal(byDir.cld, "anthropic");
+  assert.equal(byDir.cdx, "codex");
+  assert.equal(byDir.cld, "claude");
   rmSync(root, { recursive: true });
 });
 

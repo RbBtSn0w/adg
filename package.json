@@ -1,6 +1,6 @@
 {
   "name": "@rbbtsn0w/adg",
-  "version": "0.2.1",
+  "version": "0.3.0-beta.8",
   "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
   "type": "module",
   "license": "MIT",
@@ -23,11 +23,13 @@
   },
   "scripts": {
     "adg": "node ./bin/adg.ts",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json --noCheck",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --noCheck && node -e \"require('fs').chmodSync('dist/bin/adg.js',0o755)\"",
     "test": "node --test 'test/**/*.test.ts'",
+    "check:vendor-deps": "node scripts/check-vendor-deps.mjs",
+    "audit:prod": "npm audit --omit=dev",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run typecheck",
-    "prepack": "npm run build"
+    "prepack": "npm run typecheck && npm run build"
   },
   "files": [
     "dist",
@@ -35,12 +37,12 @@
     "vendor",
     "docs"
   ],
-  "comment:dependencies": "Runtime deps below are required only by the vendored skills CLI (vendor/skills). ADG's own plugins code has zero runtime deps.",
+  "comment:dependencies": "Runtime deps below are required only by the vendored skills CLI (vendor/skills); ADG's own plugins code has zero runtime deps. Root is the single source of truth: each range MUST be >= the floor declared in vendor/skills/package.json, since that is the version the vendored source was authored against. `npm run check:vendor-deps` enforces this and fails on drift.",
   "dependencies": {
-    "@clack/prompts": "^0.7.0",
+    "@clack/prompts": "^0.11.0",
     "@vercel/detect-agent": "^1.2.3",
-    "picocolors": "^1.0.0",
-    "simple-git": "^3.0.0",
+    "picocolors": "^1.1.1",
+    "simple-git": "^3.36.0",
     "xdg-basedir": "^5.1.0",
     "yaml": "^2.8.3"
   },
@@ -52,6 +54,7 @@
     "@semantic-release/npm": "^13.1.5",
     "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/node": "^22.0.0",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
     "semantic-release": "^25.0.5",
     "typescript": "^5.6.0"
   }

@@ -1,0 +1,75 @@
+name: Sync main to beta
+
+# Keep the beta integration branch aligned with main after a release. When a
+# `beta -> main` release merges, semantic-release pushes a
+# `chore(release): x.y.z` commit back onto main. We trigger off the CI workflow
+# *completing* on main (by which point the release commit already exists) and
+# open a back-merge PR (main -> beta). This is idempotent: re-triggers (e.g. the
+# release commit's own CI run) no-op when a sync PR is already open or beta is
+# already current. Direct pushes to beta are avoided so the branch protection
+# (PR + review) still applies.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: sync-main-to-beta
+  cancel-in-progress: false
+
+jobs:
+  open-backmerge-pr:
+    name: Open back-merge PR
+    # Skip failed CI runs; manual dispatch always proceeds.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      # Reuse the release-bot App to mint a short-lived token. A PR opened with
+      # an App token DOES trigger pull_request CI (unlike GITHUB_TOKEN), so the
+      # sync PR can satisfy beta's required checks without a separate PAT.
+      # Requires the App installed on this repo with pull-requests: write.
+      - name: Mint release-bot token
+        id: bot
+        # continue-on-error: if the App id is set but the private key is missing/
+        # invalid or the App isn't installed, don't abort the job — leave the
+        # token empty so the next step falls back to SYNC_TOKEN / GITHUB_TOKEN.
+        if: ${{ vars.RELEASE_BOT_APP_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Open or update back-merge PR
+        # Token preference: release-bot App > optional SYNC_TOKEN override >
+        # GITHUB_TOKEN. Only the first two make a PR that triggers CI; with the
+        # GITHUB_TOKEN fallback the PR opens but a maintainer must merge it (a
+        # GITHUB_TOKEN-created PR does not trigger the pull_request CI).
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --quiet origin main beta
+          ahead="$(git rev-list --count origin/beta..origin/main)"
+          if [ "$ahead" -eq 0 ]; then
+            echo "beta is already up to date with main; nothing to sync."
+            exit 0
+          fi
+          echo "main is ${ahead} commit(s) ahead of beta."
+          existing="$(gh pr list --base beta --head main --state open --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            echo "Back-merge PR #${existing} already open; leaving it for review."
+            exit 0
+          fi
+          gh pr create --base beta --head main \
+            --title "chore: sync main into beta" \
+            --body $'Automated back-merge to keep `beta` aligned with `main` after a release.\n\nMerge with a **merge commit** (not squash) to preserve history. Version-line conflicts in `package.json` / `CHANGELOG.md` may need a manual resolution favouring `main`; semantic-release continues the next prerelease from there.'

@@ -229,7 +229,7 @@ adg plugins link --target codex --global   # regenerate .codex-plugin in place
 adg plugins link --target claude --global  # symlink into ~/.claude/skills/
 
 # maintenance
-adg plugins update --dir plugins           # refresh lock hashes/versions from disk
+adg plugins update --dir plugins           # re-fetch remote sources; rescan local ones in place
 adg plugins list --dir plugins             # list locked plugins
 adg plugins migrate --dir plugins          # move flat installs into per-marketplace dirs
 ```
@@ -360,6 +360,12 @@ Debugging tips:
   `.codex-plugin/` to confirm adaptation output.
 - GitHub clone/sparse logic is injectable (`gitRunner`) and covered offline by
   the test suite; live network clones are exercised by `import owner/repo`.
+
+## Contributing
+
+All feature/fix pull requests target the **`beta`** integration branch; `main`
+is reserved for stable releases. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/branching-and-release.md](docs/branching-and-release.md).
 
 ## License
 

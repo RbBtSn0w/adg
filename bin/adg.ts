@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
@@ -9,21 +9,28 @@ import { ADAPTER_TARGETS, type AdapterTarget } from "../src/adapters/index.ts";
 import { initScaffold, type InitType } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
 import { addPlugins } from "../src/commands/install.ts";
-import { updateLock } from "../src/commands/update.ts";
 import { validatePlugin } from "../src/commands/validate.ts";
 import { listPlugins } from "../src/commands/list.ts";
 import { importSkills } from "../src/commands/import.ts";
 import { linkPlugins, type LinkTarget } from "../src/commands/link.ts";
 import { removePlugin } from "../src/commands/remove.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
-import { marketplaceList, marketplaceRemove, marketplaceUpgrade, type ScopeInfo } from "../src/commands/marketplace.ts";
+import { marketplaceList, marketplaceRemove, marketplaceUpgrade, updatePlugins, type ScopeInfo } from "../src/commands/marketplace.ts";
 import { selectTargetsInteractive } from "../src/commands/select-agents.ts";
 import { selectPluginsInteractive } from "../src/commands/select-plugins.ts";
-import { selectScopeInteractive } from "../src/commands/select-scope.ts";
+import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../src/commands/select-scope.ts";
+import { lockPath } from "../src/paths.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../src/commands/select-components.ts";
 import { globalPluginsDir, projectPluginsDir } from "../src/paths.ts";
 import { COMPONENT_TYPES, type ComponentType } from "../src/types.ts";
-import { getAgent, type AgentScope, type AgentSyncResult } from "../src/agents/index.ts";
+import { getAgent, type AgentScope } from "../src/agents/index.ts";
+import { ui } from "../src/render/ui.ts";
+import {
+  renderAgentReport,
+  renderMarketplaceList,
+  renderPluginList,
+  renderUpdateReport,
+} from "../src/render/plugins.ts";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for flags.
@@ -49,7 +56,7 @@ const FLAGS: Record<string, FlagSpec> = {
   dir: { type: "string", short: "d", hint: "<dir>", help: "install into an explicit directory" },
   global: { type: "boolean", short: "g", help: "use ~/.agents/plugins (across all projects)" },
   project: { type: "boolean", help: "use <repo>/.agents/plugins (default)" },
-  target: { type: "string", short: "t", hint: "claude|codex|all", help: "runtime(s) to adapt for" },
+  target: { type: "string", short: "t", hint: "claude|codex|antigravity|all", help: "runtime(s) to adapt for" },
   all: { type: "boolean", short: "a", help: "select all available plugins" },
   plugin: { type: "string", short: "p", multiple: true, hint: "<name>", help: "select a specific plugin (repeatable)" },
   "no-deps": { type: "boolean", short: "n", help: "don't install dependencies" },
@@ -149,9 +156,23 @@ const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     flags: ["verbose", ...SCOPE],
   },
   update: {
-    summary: "re-sync installed plugins to their sources",
-    synopsis: "adg plugins update",
-    flags: [...SCOPE],
+    summary: "pull upstream changes for installed plugins",
+    synopsis: "adg plugins update [<source>]",
+    positional: "<source>  limit to one source key from `adg plugins marketplace list` (default: all)",
+    blurb:
+      "Re-fetches every remote source and refreshes the plugins installed from it,\n" +
+      "reporting what changed, what's unchanged, what was deleted upstream, and what's\n" +
+      "newly available (install those too with --all). Local-source plugins are\n" +
+      "rescanned in place. In a terminal, it asks whether to update project, global,\n" +
+      "or both; pass a scope flag to skip the prompt.\n\n" +
+      "This is the plugins-domain twin of `adg skills update`.",
+    flags: ["all", ...SCOPE],
+    examples: [
+      "adg plugins update                      # guided: project / global / both",
+      "adg plugins update --global             # every global source",
+      "adg plugins update owner/repo           # just one source",
+      "adg plugins update owner/repo --all     # also install newly-added plugins",
+    ],
   },
   remove: {
     summary: "uninstall a plugin",
@@ -185,7 +206,7 @@ const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
   },
   link: {
     summary: "link installed plugins into a runtime",
-    synopsis: "adg plugins link --target claude|codex",
+    synopsis: "adg plugins link --target claude|codex|antigravity",
     flags: ["target", ...SCOPE],
   },
   migrate: {
@@ -276,7 +297,7 @@ function wantsHelp(args: string[]): boolean {
 }
 
 function fail(msg: string): never {
-  console.error(`error: ${msg}\n`);
+  console.error(`${ui.err("error:")} ${msg}\n`);
   console.error(TOP_USAGE);
   process.exit(1);
 }
@@ -297,19 +318,54 @@ function scopeOf(values: Record<string, unknown>): AgentScope {
   return values.global ? "user" : "project";
 }
 
-/** Print per-agent sync outcomes (enabled/disabled/re-synced) generically. */
-function reportAgents(agents: AgentSyncResult[] | undefined, verb: string): void {
-  for (const r of agents ?? []) {
-    const name = getAgent(r.agent)?.displayName ?? r.agent;
-    if (r.affected.length > 0) console.log(`${verb} in ${name}: ${r.affected.join(", ")}`);
-    else if (r.skipped) console.log(`note: \`${r.agent}\` CLI not found — run \`adg plugins link --target ${r.agent}\` after installing it.`);
-  }
+interface UpdateScopeTarget {
+  dir: string;
+  agentScope: AgentScope;
+  label: string;
+  /** Section heading printed before this scope's report (only set for "both"). */
+  heading?: string;
 }
 
-function resolveTargets(target: unknown): AdapterTarget[] {
+/**
+ * Resolve which scope(s) `plugins update` should refresh, mirroring
+ * `adg skills update`: an explicit --dir is a single ad-hoc location; otherwise
+ * --project/--global (or both) win, a terminal prompts for project/global/both,
+ * and a non-interactive run defaults to project when a project lock exists.
+ */
+async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTarget[]> {
+  if (typeof values.dir === "string") {
+    const dir = resolve(values.dir);
+    return [{ dir, agentScope: "project", label: dir }];
+  }
+  const project: UpdateScopeTarget = { dir: projectPluginsDir(), agentScope: "project", label: "project" };
+  const global: UpdateScopeTarget = { dir: globalPluginsDir(), agentScope: "user", label: "global" };
+
+  let choice: UpdateScope;
+  if (values.global && values.project) choice = "both";
+  else if (values.global) choice = "global";
+  else if (values.project) choice = "project";
+  else if (process.stdin.isTTY) choice = await selectUpdateScopeInteractive();
+  else choice = existsSync(lockPath(projectPluginsDir())) ? "project" : "global";
+
+  if (choice === "both") {
+    return [{ ...project, heading: "Project plugins" }, { ...global, heading: "Global plugins" }];
+  }
+  return [choice === "global" ? global : project];
+}
+
+/** Friendly `--target` aliases mapped onto canonical adapter target ids. */
+const TARGET_ALIASES: Record<string, AdapterTarget> = {
+  anthropic: "claude",
+  openai: "codex",
+  agy: "antigravity",
+  gemini: "antigravity",
+};
+
+function resolveTargets(target: string | undefined | null): AdapterTarget[] {
   if (!target || target === "all") return [...ADAPTER_TARGETS];
-  if (target === "claude" || target === "codex") return [target];
-  fail(`invalid --target "${String(target)}" (expected claude|codex|all)`);
+  const t = TARGET_ALIASES[target] ?? target;
+  if ((ADAPTER_TARGETS as readonly string[]).includes(t)) return [t as AdapterTarget];
+  fail(`invalid --target "${target}" (expected ${[...ADAPTER_TARGETS, "all"].join("|")})`);
 }
 
 /** Parse a `--only skills,commands` list into validated component types. */
@@ -331,46 +387,9 @@ function parseVerb(name: string, flags: readonly FlagName[], rest: string[]): { 
     const { values, positionals } = parseArgs({ args: rest, options: optionsFor(flags), allowPositionals: true });
     return { values: values as ParsedValues, positionals };
   } catch (err) {
-    console.error(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+    console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}\n`);
     console.error(renderVerbHelp(name));
     process.exit(1);
-  }
-}
-
-/**
- * Lay items out in aligned columns sized to the terminal width (row-major).
- * Items longer than `maxColWidth` are truncated with an ellipsis. Falls back to
- * a single column on narrow terminals. Returns the block as a string.
- */
-function formatColumns(
-  items: string[],
-  opts: { indent?: number; gutter?: number; maxColWidth?: number; width?: number } = {},
-): string {
-  const indent = opts.indent ?? 2;
-  const gutter = opts.gutter ?? 2;
-  const maxColWidth = opts.maxColWidth ?? 24;
-  const termWidth = opts.width ?? process.stdout.columns ?? 80;
-
-  const cells = items.map((s) => (s.length > maxColWidth ? s.slice(0, maxColWidth - 1) + "…" : s));
-  const colWidth = Math.min(Math.max(1, ...cells.map((c) => c.length)), maxColWidth);
-  const cols = Math.max(1, Math.floor((termWidth - indent + gutter) / (colWidth + gutter)));
-
-  const lines: string[] = [];
-  for (let i = 0; i < cells.length; i += cols) {
-    const row = cells.slice(i, i + cols);
-    const padded = row.map((c, j) => (j === row.length - 1 ? c : c.padEnd(colWidth)));
-    lines.push(" ".repeat(indent) + padded.join(" ".repeat(gutter)));
-  }
-  return lines.join("\n");
-}
-
-/** Print a plugin's components, each expanded to its member names (verbose view). */
-function printContents(contents: Record<string, string[]> | undefined, headerIndent: number): void {
-  const entries = (Object.entries(contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
-  for (const [type, names] of entries) {
-    const maxColWidth = Math.max(1, ...names.map((n) => n.length));
-    console.log(`${" ".repeat(headerIndent)}${type} (${names.length}):`);
-    console.log(formatColumns(names, { indent: headerIndent + 2, maxColWidth }));
   }
 }
 
@@ -384,7 +403,7 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
   const verb = PLUGIN_ALIASES[rawVerb] ?? rawVerb;
   const cmd = PLUGIN_COMMANDS[verb];
   if (!cmd) {
-    console.error(`error: unknown plugins subcommand: ${rawVerb}\n`);
+    console.error(`${ui.err("error:")} unknown plugins subcommand: ${rawVerb}\n`);
     console.error(renderPluginsHelp());
     process.exit(1);
   }
@@ -407,15 +426,15 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         fail(`invalid --type "${values.type}" (expected plugin|marketplace|all)`);
       }
       const res = initScaffold({ name, dir, type, description: values.description, author: values.author, skill: values.skill?.[0] });
-      console.log(`created ${type} at ${res.pluginDir}`);
-      for (const f of res.created) console.log(`  + ${f}`);
+      console.log(`${ui.ok(`created ${type}`)} at ${ui.name(res.pluginDir)}`);
+      for (const f of res.created) console.log(ui.meta(`  + ${f}`));
       return;
     }
     case "adapt": {
       const { values, positionals } = parseVerb(verb, cmd.flags, rest);
       const pluginDir = resolve(positionals[0] ?? process.cwd());
       for (const r of adaptPlugin(pluginDir, resolveTargets(values.target))) {
-        console.log(`adapted ${r.target} -> ${r.file}`);
+        console.log(`${ui.ok("adapted")} ${ui.name(r.target)} ${ui.meta(`-> ${r.file}`)}`);
       }
       return;
     }
@@ -424,10 +443,10 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       const pluginDir = resolve(positionals[0] ?? process.cwd());
       const res = validatePlugin(pluginDir);
       if (res.ok) {
-        console.log(`ok: ${pluginDir} is a valid ADG plugin`);
+        console.log(`${ui.ok("ok:")} ${ui.name(pluginDir)} is a valid ADG plugin`);
       } else {
-        console.error(`invalid: ${pluginDir}`);
-        for (const i of res.issues) console.error(`  - ${i}`);
+        console.error(`${ui.err("invalid:")} ${ui.name(pluginDir)}`);
+        for (const i of res.issues) console.error(ui.warn(`  - ${i}`));
         process.exit(1);
       }
       return;
@@ -476,14 +495,14 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         activate: true,
         scope: global ? "user" : "project",
       });
-      for (const name of converted) console.log(`converted native manifest -> .agents/.plugin.json: ${name}`);
-      if (order.length > 1) console.log(`install order: ${order.join(" -> ")}`);
+      for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
+      if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
       for (const res of installed) {
-        console.log(`added ${res.name} -> ${res.installedTo}`);
-        console.log(`  folderHash: ${res.folderHash}`);
-        for (const f of res.adapted) console.log(`  adapted: ${f}`);
+        console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
+        console.log(ui.meta(`  folderHash: ${res.folderHash}`));
+        for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
-      reportAgents(agents, "enabled");
+      for (const line of renderAgentReport(agents, "enabled")) console.log(line);
       return;
     }
     case "import-skills": {
@@ -498,32 +517,45 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         pluginsDir: resolveScopeDir(values),
         description: values.description,
       });
-      console.log(`imported skills into ${res.name} -> ${res.installedTo}`);
+      console.log(`${ui.ok("imported skills into")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
       return;
     }
     case "link": {
       const { values } = parseVerb(verb, cmd.flags, rest);
-      const target = values.target as LinkTarget | undefined;
-      if (target !== "claude" && target !== "codex") fail("plugins link requires --target claude|codex");
+      if (values.target === undefined || values.target === "all") {
+        fail(`plugins link requires a single --target (${ADAPTER_TARGETS.join("|")})`);
+      }
+      const target = resolveTargets(values.target)[0]!; // validates + maps aliases (agy → antigravity); always non-empty
       const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global) });
       for (const a of res.actions) {
-        console.log(`linked ${a.name} [${res.target}]${a.linkedTo ? ` -> ${a.linkedTo}` : ""}`);
-        for (const f of a.adapted) console.log(`  adapted: ${f}`);
+        console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
+        for (const f of a.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
       if (res.cliSkipped) {
-        console.log(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`);
+        console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
       }
       return;
     }
     case "update": {
-      const { values } = parseVerb(verb, cmd.flags, rest);
-      const { results, missing, agents } = updateLock(resolveScopeDir(values), undefined, {
-        resync: true,
-        scope: scopeOf(values),
-      });
-      for (const r of results) console.log(`${r.changed ? "updated" : "unchanged"} ${r.name}@${r.version}`);
-      for (const m of missing) console.error(`  ! missing directory for locked plugin: ${m}`);
-      reportAgents(agents, "re-synced");
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const source = positionals[0];
+      for (const sc of await resolveUpdateScopes(values)) {
+        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+        try {
+          const result = await updatePlugins({
+            pluginsDir: sc.dir,
+            source,
+            all: values.all,
+            activate: true,
+            agentScope: sc.agentScope,
+            scope: { label: sc.label, globalDir: globalPluginsDir() },
+          });
+          for (const line of renderUpdateReport(result)) console.log(line);
+          for (const line of renderAgentReport(result.agents, "re-synced")) console.log(line);
+        } catch (err) {
+          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       return;
     }
     case "remove": {
@@ -537,14 +569,14 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
         deactivate: true,
         scope: scopeOf(values),
       });
-      if (res.removedDir) console.log(`removed ${res.name} -> ${res.removedDir}`);
-      else console.log(`removed ${res.name} (no directory on disk)`);
-      for (const link of res.unlinked) console.log(`  unlinked: ${link}`);
+      if (res.removedDir) console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta(`-> ${res.removedDir}`)}`);
+      else console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta("(no directory on disk)")}`);
+      for (const link of res.unlinked) console.log(ui.meta(`  unlinked: ${link}`));
       for (const r of res.agents ?? []) {
-        if (r.affected.length > 0) console.log(`  disabled in ${getAgent(r.agent)?.displayName ?? r.agent}`);
+        if (r.affected.length > 0) console.log(ui.meta(`  disabled in ${getAgent(r.agent)?.displayName ?? r.agent}`));
       }
       if (!res.removedFromLock && !res.removedDir) {
-        console.log(`  ${res.name} was not recorded in the lock`);
+        console.log(ui.warn(`  ${res.name} was not recorded in the lock`));
       }
       return;
     }
@@ -552,29 +584,17 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       const { values } = parseVerb(verb, cmd.flags, rest);
       const pluginsDir = resolveScopeDir(values);
       const plugins = listPlugins(pluginsDir);
-      if (plugins.length === 0) {
-        console.log(`no plugins recorded in ${pluginsDir}`);
-        return;
-      }
-      for (const p of plugins) {
-        const partial = p.selection ? "  (partial)" : "";
-        console.log(`${p.name}@${p.version}  [${p.origin.type}] ${p.folderHash.slice(0, 19)}${partial}`);
-        const entries = (Object.entries(p.contents ?? {}) as [string, string[]][]).filter(([, names]) => names.length > 0);
-        if (entries.length === 0) continue;
-        if (values.verbose) {
-          printContents(p.contents, 2);
-        } else {
-          console.log(`  ${entries.map(([type, names]) => `${type}: ${names.length}`).join("  ")}`);
-        }
+      for (const line of renderPluginList(plugins, pluginsDir, { verbose: values.verbose })) {
+        console.log(line);
       }
       return;
     }
     case "migrate": {
       const { values } = parseVerb(verb, cmd.flags, rest);
       const res = migrateLayout(resolveScopeDir(values));
-      for (const m of res.moved) console.log(`moved ${m.name}: ${m.from} -> ${m.to}`);
-      for (const m of res.missing) console.error(`  ! missing directory for locked plugin: ${m}`);
-      if (res.moved.length === 0) console.log(`nothing to migrate (${res.unchanged.length} already in place)`);
+      for (const m of res.moved) console.log(`${ui.ok("moved")} ${ui.name(m.name)}: ${ui.meta(`${m.from} -> ${m.to}`)}`);
+      for (const m of res.missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
+      if (res.moved.length === 0) console.log(ui.meta(`nothing to migrate (${res.unchanged.length} already in place)`));
       return;
     }
     case "marketplace":
@@ -592,11 +612,10 @@ Commands:
   adg plugins marketplace list [--verbose] [--global | --project | --dir <dir>]
         Group installed plugins by source. --verbose expands each plugin to its
         components (skills, agents, commands, …).
-  adg plugins marketplace upgrade [<source>] [--all] [--target claude|codex|all] [--global | --project | --dir <dir>]
-        Re-fetch a source and update its installed plugins (--all also installs
-        anything new it now offers). No <source> upgrades every remote source.
   adg plugins marketplace remove <source> [--force] [--global | --project | --dir <dir>]
         Uninstall every plugin that came from <source>.
+  adg plugins marketplace upgrade …   (deprecated → use \`adg plugins update\`)
+        Kept as an alias. To pull upstream changes, prefer \`adg plugins update\`.
 
 <source> is a key from \`marketplace list\` (e.g. owner/repo).`;
 
@@ -618,30 +637,13 @@ async function runMarketplace(args: string[]): Promise<void> {
       const { values } = parseVerb("marketplace", ["verbose", ...SCOPE], rest);
       const dir = resolveScopeDir(values);
       const groups = marketplaceList({ pluginsDir: dir });
-      if (groups.length === 0) {
-        console.log("No plugins installed.");
-        return;
-      }
       // Verbose: drill each plugin down to its components (reuses `plugins list -v`).
       const byName = values.verbose ? new Map(listPlugins(dir).map((p) => [p.name, p])) : undefined;
-      for (const g of groups) {
-        const ref = g.ref ? `@${g.ref}` : "";
-        const n = g.installed.length;
-        const tag = g.remote ? "" : "  (local — re-run add to update)";
-        console.log(`${g.source}${ref}  (${n} plugin${n !== 1 ? "s" : ""})${tag}`);
-        if (byName) {
-          for (const name of g.installed) {
-            const p = byName.get(name);
-            console.log(`  ${name}${p?.selection ? "  (partial)" : ""}`);
-            printContents(p?.contents, 4);
-          }
-        } else {
-          console.log(formatColumns(g.installed));
-        }
-      }
+      for (const line of renderMarketplaceList(groups, byName)) console.log(line);
       return;
     }
     case "upgrade": {
+      console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
       const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
       const results = await marketplaceUpgrade({
         pluginsDir: resolveScopeDir(values),
@@ -654,10 +656,10 @@ async function runMarketplace(args: string[]): Promise<void> {
       });
       for (const r of results) {
         const conv = r.converted.length ? ` (${r.converted.length} converted from native)` : "";
-        console.log(`upgraded ${r.source}: ${r.updated.length} plugin(s)${conv}`);
-        for (const p of r.updated) console.log(`  ${p.name} -> ${p.installedTo}`);
+        console.log(`${ui.ok("upgraded")} ${ui.name(r.source)}: ${r.updated.length} plugin(s)${ui.meta(conv)}`);
+        for (const p of r.updated) console.log(`  ${ui.name(p.name)} ${ui.meta(`-> ${p.installedTo}`)}`);
         if (r.available.length > 0) {
-          console.log(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`);
+          console.log(ui.meta(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`));
         }
       }
       return;
@@ -675,11 +677,11 @@ async function runMarketplace(args: string[]): Promise<void> {
         force: values.force,
         deactivate: true,
       });
-      console.log(`removed ${res.removed.length} plugin(s) from ${res.source}: ${res.removed.join(", ")}`);
+      console.log(`${ui.ok("removed")} ${res.removed.length} plugin(s) from ${ui.name(res.source)}: ${res.removed.join(", ")}`);
       return;
     }
     default: {
-      console.error(`error: unknown marketplace subcommand: ${sub}\n`);
+      console.error(`${ui.err("error:")} unknown marketplace subcommand: ${sub}\n`);
       console.error(MARKETPLACE_USAGE);
       process.exit(1);
     }
@@ -794,7 +796,7 @@ function isInvokedDirectly(): boolean {
 
 if (isInvokedDirectly()) {
   main(process.argv.slice(2)).catch((err) => {
-    console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   });
 }

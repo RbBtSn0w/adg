@@ -5,7 +5,8 @@ import { lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { addPlugins, type InstallResult } from "./install.ts";
 import { removePlugin } from "./remove.ts";
-import type { AgentScope } from "../agents/index.ts";
+import { updateLock, type UpdateLockResult } from "./update.ts";
+import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
 
 /**
  * The marketplace layer is a *view* over installed plugins grouped by their
@@ -171,6 +172,145 @@ export async function marketplaceUpgrade(
   }
 
   return results;
+}
+
+/** Per-source outcome of `updatePlugins` (the network "check + update" pass). */
+export interface PluginUpdateSourceResult {
+  source: string;
+  ref?: string;
+  /** Plugin names whose content/version changed upstream and were refreshed. */
+  updated: string[];
+  /** Re-fetched but byte-identical to what was installed. */
+  unchanged: string[];
+  /** Installed locally but no longer present in the source (deleted upstream). */
+  deleted: string[];
+  /** Discovered in the source but not installed (offered for `--all`). */
+  available: string[];
+  /** Set when the source could not be fetched; the message explains why. */
+  failed?: string;
+}
+
+export interface PluginUpdateResult {
+  /** One entry per remote source that was checked. */
+  remote: PluginUpdateSourceResult[];
+  /** In-place rescan of local-source / disk-edited plugins (no network). */
+  local: UpdateLockResult;
+  /**
+   * Consolidated per-agent re-sync outcome across BOTH the remote re-fetches and
+   * the local rescan, deduplicated by agent. Empty when `activate` was off or
+   * nothing changed. The CLI renders this so remote re-activations are reported,
+   * not just local ones.
+   */
+  agents: AgentSyncResult[];
+}
+
+/** Merge per-agent sync results from several passes into one entry per agent. */
+export function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[] {
+  const merged = new Map<string, AgentSyncResult>();
+  for (const r of groups.flat()) {
+    const existing = merged.get(r.agent);
+    if (existing) {
+      existing.affected = [...new Set([...existing.affected, ...r.affected])];
+      // Skipped only when EVERY pass skipped the agent (CLI absent throughout).
+      // If any pass ran, the agent was processed — matches addPlugins' merge so
+      // a skipped local rescan can't mask a successful remote re-activation.
+      existing.skipped = existing.skipped && r.skipped;
+    } else {
+      merged.set(r.agent, { ...r, affected: [...r.affected] });
+    }
+  }
+  return [...merged.values()];
+}
+
+/**
+ * The plugins-domain equivalent of `adg skills update`: re-fetch every remote
+ * source (or one named `source`), report which installed plugins changed,
+ * stayed the same, were deleted upstream, or are newly available, and refresh
+ * local-source plugins in place. Failures are recorded per-source rather than
+ * aborting the whole pass, so one unreachable repo doesn't hide the rest.
+ */
+export async function updatePlugins(
+  opts: MarketplaceScope & {
+    source?: string;
+    all?: boolean;
+    targets?: AdapterTarget[];
+    gitRunner?: GitRunner;
+    /** Re-activate the agents after updating (set by the CLI; off by default). */
+    activate?: boolean;
+    /** Install scope for re-activation / local rescan. */
+    agentScope?: AgentScope;
+    /** Injection seam for tests; forwarded to the install + local-rescan steps. */
+    agents?: Agent[];
+  },
+): Promise<PluginUpdateResult> {
+  const allGroups = marketplaceList({ pluginsDir: opts.pluginsDir });
+
+  // A named source narrows to just that group (and must be remote); otherwise we
+  // refresh every remote source and rescan the local bucket.
+  const remoteGroups = opts.source
+    ? [requireGroup(opts.pluginsDir, opts.source, opts.scope)]
+    : allGroups.filter((g) => g.remote);
+
+  if (opts.source && !remoteGroups[0]!.remote) {
+    throw new Error(`source "${opts.source}" is local and cannot be re-synced; re-run \`adg plugins add\`.`);
+  }
+
+  const now = opts.now ?? new Date().toISOString();
+  const remote: PluginUpdateSourceResult[] = [];
+  const remoteAgents: AgentSyncResult[] = [];
+
+  for (const group of remoteGroups) {
+    try {
+      const { installed, available, agents } = await addPlugins({
+        spec: group.source,
+        pluginsDir: opts.pluginsDir,
+        ref: group.ref,
+        // Default: refresh what's installed. --all: also install anything new.
+        ...(opts.all ? { all: true } : { plugins: group.installed }),
+        missingPlugins: "skip", // an upstream deletion is reported, not fatal
+        skipUnchanged: true, // detect-then-update: leave unchanged plugins alone
+        targets: opts.targets,
+        marketplaceName: group.source,
+        gitRunner: opts.gitRunner,
+        activate: opts.activate,
+        scope: opts.agentScope,
+        agents: opts.agents,
+        now,
+      });
+      if (agents) remoteAgents.push(...agents);
+      const availableSet = new Set(available);
+      const installedNow = new Set(installed.map((r) => r.name));
+      remote.push({
+        source: group.source,
+        ...(group.ref ? { ref: group.ref } : {}),
+        updated: installed.filter((r) => r.changed).map((r) => r.name).sort(),
+        unchanged: installed.filter((r) => !r.changed).map((r) => r.name).sort(),
+        deleted: group.installed.filter((n) => !availableSet.has(n)).sort(),
+        available: available.filter((n) => !installedNow.has(n) && !group.installed.includes(n)).sort(),
+      });
+    } catch (err) {
+      remote.push({
+        source: group.source,
+        ...(group.ref ? { ref: group.ref } : {}),
+        updated: [],
+        unchanged: [],
+        deleted: [],
+        available: [],
+        failed: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Local-source / disk-edited plugins can't be re-fetched, but a rescan still
+  // refreshes their lock/manifests/agents. Only run it on a full pass (no named
+  // source) and only for the local bucket — remote ones were just re-fetched.
+  const localNames = opts.source ? [] : (allGroups.find((g) => !g.remote)?.installed ?? []);
+  const local: UpdateLockResult = localNames.length
+    ? updateLock(opts.pluginsDir, now, { only: localNames, resync: opts.activate, scope: opts.agentScope, agents: opts.agents })
+    : { results: [], missing: [] };
+
+  const agents = mergeAgentResults([remoteAgents, local.agents ?? []]);
+  return { remote, local, agents };
 }
 
 export interface MarketplaceRemoveResult {

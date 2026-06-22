@@ -10,13 +10,21 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import https from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { compare, parseVersion } from "./semver.ts";
+import { compareVersions, prereleaseChannel } from "./semver.ts";
 
 const PACKAGE_NAME = "@rbbtsn0w/adg";
 // URL-encode the slash in the scoped package name for the npm registry API.
-const REGISTRY_URL = `https://registry.npmjs.org/@rbbtsn0w%2Fadg/latest`;
+// The abbreviated packument (vnd.npm.install-v1+json) is small and exposes
+// `dist-tags`, which we need to follow the caller's release channel (e.g. the
+// `beta` dist-tag for pre-release users, not just `latest`).
+const REGISTRY_URL = `https://registry.npmjs.org/@rbbtsn0w%2Fadg`;
+const REGISTRY_ACCEPT = "application/vnd.npm.install-v1+json";
 const CACHE_FILENAME = "update-check.json";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+// Cap the accumulated response body. The abbreviated packument is small, but a
+// registry that ignores the abbreviated Accept header (or returns an unexpected
+// payload) could stream a much larger body; abort rather than grow unbounded.
+const MAX_RESPONSE_BYTES = 1024 * 1024; // 1 MiB
 
 interface UpdateCache {
   latestVersion: string;
@@ -55,6 +63,29 @@ export function writeUpdateCache(cache: UpdateCache, env: NodeJS.ProcessEnv = pr
 }
 
 /**
+ * Pick the newest version relevant to the caller's release channel from the
+ * registry's `dist-tags`.
+ *
+ * Always considers `latest` (stable). When `currentVersion` is a pre-release
+ * (e.g. `0.3.0-beta.2`) it also considers the matching channel tag (e.g.
+ * `beta`), so pre-release users are notified of newer pre-releases as well as a
+ * newer stable. Returns the max candidate by pre-release-aware comparison, or
+ * `undefined` when no usable tag is present.
+ */
+export function resolveLatestForChannel(
+  currentVersion: string,
+  distTags: Record<string, string> | undefined,
+): string | undefined {
+  if (!distTags) return undefined;
+  const candidates: string[] = [];
+  if (typeof distTags.latest === "string") candidates.push(distTags.latest);
+  const channel = prereleaseChannel(currentVersion);
+  if (channel && typeof distTags[channel] === "string") candidates.push(distTags[channel]!);
+  if (candidates.length === 0) return undefined;
+  return candidates.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best));
+}
+
+/**
  * Fire-and-forget background fetch of the latest version from the npm registry.
  * The socket is unreffed so Node can exit naturally without waiting for the
  * request to complete — the cache will be refreshed on the *next* run.
@@ -66,15 +97,31 @@ export function scheduleUpdateCacheRefresh(
   try {
     const req = https.get(
       REGISTRY_URL,
-      { headers: { "User-Agent": `adg/${currentVersion}`, Accept: "application/json" } },
+      { headers: { "User-Agent": `adg/${currentVersion}`, Accept: REGISTRY_ACCEPT } },
       (res) => {
+        // Decode as UTF-8 at the stream level so multi-byte characters split
+        // across chunk boundaries are reassembled correctly (raw Buffers would
+        // corrupt them).
+        res.setEncoding("utf8");
         let body = "";
-        res.on("data", (chunk: Buffer | string) => { body += String(chunk); });
+        let byteCount = 0;
+        res.on("data", (chunk: string) => {
+          byteCount += Buffer.byteLength(chunk, "utf8");
+          if (byteCount > MAX_RESPONSE_BYTES) {
+            // Oversized payload: stop reading and abort so we neither buffer
+            // unbounded memory nor parse a partial body.
+            body = "";
+            req.destroy();
+            return;
+          }
+          body += chunk;
+        });
         res.on("end", () => {
           try {
-            const data = JSON.parse(body) as { version?: string };
-            if (typeof data.version === "string") {
-              writeUpdateCache({ latestVersion: data.version, checkedAt: new Date().toISOString() }, env);
+            const data = JSON.parse(body) as { "dist-tags"?: Record<string, string> };
+            const latestVersion = resolveLatestForChannel(currentVersion, data["dist-tags"]);
+            if (latestVersion !== undefined) {
+              writeUpdateCache({ latestVersion, checkedAt: new Date().toISOString() }, env);
             }
           } catch {
             // Ignore parse errors
@@ -123,9 +170,7 @@ export function checkForUpdate(
   if (!cache) return undefined;
 
   try {
-    const current = parseVersion(currentVersion);
-    const latest = parseVersion(cache.latestVersion);
-    return compare(latest, current) > 0 ? cache.latestVersion : undefined;
+    return compareVersions(cache.latestVersion, currentVersion) > 0 ? cache.latestVersion : undefined;
   } catch {
     return undefined;
   }
@@ -133,8 +178,13 @@ export function checkForUpdate(
 
 /** Format an update notice for display on stderr. */
 export function formatUpdateNotice(currentVersion: string, latestVersion: string): string {
+  // A pre-release suggestion lives on its channel dist-tag (e.g. `beta`), not
+  // `latest`; installing `@latest` would pull the stable release instead of the
+  // advertised version. Pin to the exact version so the right artifact installs.
+  const channel = prereleaseChannel(latestVersion);
+  const installTarget = channel ? latestVersion : "latest";
   return (
     `\n  Update available: ${currentVersion} → ${latestVersion}\n` +
-    `  Run: npm install -g ${PACKAGE_NAME}@latest\n`
+    `  Run: npm install -g ${PACKAGE_NAME}@${installTarget}\n`
   );
 }
