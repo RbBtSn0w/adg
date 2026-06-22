@@ -1,3 +1,13 @@
+## [0.3.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.4...0.3.0-beta.5) (2026-06-22)
+
+### Fixed
+
+* project apps, add adapter parity test, harden prepack & audit gates ([#15](https://github.com/RbBtSn0w/adg/issues/15) [#17](https://github.com/RbBtSn0w/adg/issues/17) [#18](https://github.com/RbBtSn0w/adg/issues/18) [#19](https://github.com/RbBtSn0w/adg/issues/19)) ([#20](https://github.com/RbBtSn0w/adg/issues/20)) ([a63ad26](https://github.com/RbBtSn0w/adg/commit/a63ad264d3eec106e92e3d7bc4b805c09c3f74f8)), closes [#3](https://github.com/RbBtSn0w/adg/issues/3)
+
+### Changed
+
+* centralize CLI execution and availability logic into a reusable makeCli factory ([#16](https://github.com/RbBtSn0w/adg/issues/16)) ([00f1454](https://github.com/RbBtSn0w/adg/commit/00f1454dd6822dc005a11835bf052a5468975e64))
+
 ## [0.3.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.3...0.3.0-beta.4) (2026-06-20)
 
 ### Fixed
