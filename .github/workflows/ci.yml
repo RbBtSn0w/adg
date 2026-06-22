@@ -22,6 +22,11 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run check:vendor-deps
+      # Production-scoped audit: the shipped CLI's runtime deps must stay clean.
+      # Dev tooling is excluded on purpose — e.g. @semantic-release/npm bundles
+      # npm, which bundles a flagged undici with no upstream bump available, and
+      # never reaches the published package.
+      - run: npm run audit:prod
       - run: npm run typecheck
       - run: npm run build
       - run: npm test

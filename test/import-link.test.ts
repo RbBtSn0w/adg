@@ -89,6 +89,14 @@ test("fromNativeManifest normalizes Windows separators in Claude path arrays", (
   assert.deepEqual(adg.skills, ["./skills/one", "./skills/two"]);
 });
 
+test("fromNativeManifest carries the apps directory back into ADG", () => {
+  const adg = fromNativeManifest(
+    { name: "cld", version: "1.0.0", description: "CLD.", apps: "./apps/" },
+    "claude",
+  );
+  assert.equal(adg.apps, "./apps/");
+});
+
 test("fromNativeManifest defaults missing version and skills", () => {
   const adg = fromNativeManifest({ name: "x" }, "claude");
   assert.equal(adg.version, "0.0.0");
