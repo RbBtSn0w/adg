@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
@@ -9,17 +9,17 @@ import { ADAPTER_TARGETS, type AdapterTarget } from "../src/adapters/index.ts";
 import { initScaffold, type InitType } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
 import { addPlugins } from "../src/commands/install.ts";
-import { updateLock } from "../src/commands/update.ts";
 import { validatePlugin } from "../src/commands/validate.ts";
 import { listPlugins } from "../src/commands/list.ts";
 import { importSkills } from "../src/commands/import.ts";
 import { linkPlugins, type LinkTarget } from "../src/commands/link.ts";
 import { removePlugin } from "../src/commands/remove.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
-import { marketplaceList, marketplaceRemove, marketplaceUpgrade, type ScopeInfo } from "../src/commands/marketplace.ts";
+import { marketplaceList, marketplaceRemove, marketplaceUpgrade, updatePlugins, type ScopeInfo } from "../src/commands/marketplace.ts";
 import { selectTargetsInteractive } from "../src/commands/select-agents.ts";
 import { selectPluginsInteractive } from "../src/commands/select-plugins.ts";
-import { selectScopeInteractive } from "../src/commands/select-scope.ts";
+import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../src/commands/select-scope.ts";
+import { lockPath } from "../src/paths.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../src/commands/select-components.ts";
 import { globalPluginsDir, projectPluginsDir } from "../src/paths.ts";
 import { COMPONENT_TYPES, type ComponentType } from "../src/types.ts";
@@ -29,6 +29,7 @@ import {
   renderAgentReport,
   renderMarketplaceList,
   renderPluginList,
+  renderUpdateReport,
 } from "../src/render/plugins.ts";
 
 // ---------------------------------------------------------------------------
@@ -155,9 +156,23 @@ const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     flags: ["verbose", ...SCOPE],
   },
   update: {
-    summary: "re-sync installed plugins to their sources",
-    synopsis: "adg plugins update",
-    flags: [...SCOPE],
+    summary: "pull upstream changes for installed plugins",
+    synopsis: "adg plugins update [<source>]",
+    positional: "<source>  limit to one source key from `adg plugins marketplace list` (default: all)",
+    blurb:
+      "Re-fetches every remote source and refreshes the plugins installed from it,\n" +
+      "reporting what changed, what's unchanged, what was deleted upstream, and what's\n" +
+      "newly available (install those too with --all). Local-source plugins are\n" +
+      "rescanned in place. In a terminal, it asks whether to update project, global,\n" +
+      "or both; pass a scope flag to skip the prompt.\n\n" +
+      "This is the plugins-domain twin of `adg skills update`.",
+    flags: ["all", ...SCOPE],
+    examples: [
+      "adg plugins update                      # guided: project / global / both",
+      "adg plugins update --global             # every global source",
+      "adg plugins update owner/repo           # just one source",
+      "adg plugins update owner/repo --all     # also install newly-added plugins",
+    ],
   },
   remove: {
     summary: "uninstall a plugin",
@@ -301,6 +316,41 @@ function scopeInfo(values: Record<string, unknown>): ScopeInfo {
 /** Map the active scope to an agent install scope (global → user, else project). */
 function scopeOf(values: Record<string, unknown>): AgentScope {
   return values.global ? "user" : "project";
+}
+
+interface UpdateScopeTarget {
+  dir: string;
+  agentScope: AgentScope;
+  label: string;
+  /** Section heading printed before this scope's report (only set for "both"). */
+  heading?: string;
+}
+
+/**
+ * Resolve which scope(s) `plugins update` should refresh, mirroring
+ * `adg skills update`: an explicit --dir is a single ad-hoc location; otherwise
+ * --project/--global (or both) win, a terminal prompts for project/global/both,
+ * and a non-interactive run defaults to project when a project lock exists.
+ */
+async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTarget[]> {
+  if (typeof values.dir === "string") {
+    const dir = resolve(values.dir);
+    return [{ dir, agentScope: "project", label: dir }];
+  }
+  const project: UpdateScopeTarget = { dir: projectPluginsDir(), agentScope: "project", label: "project" };
+  const global: UpdateScopeTarget = { dir: globalPluginsDir(), agentScope: "user", label: "global" };
+
+  let choice: UpdateScope;
+  if (values.global && values.project) choice = "both";
+  else if (values.global) choice = "global";
+  else if (values.project) choice = "project";
+  else if (process.stdin.isTTY) choice = await selectUpdateScopeInteractive();
+  else choice = existsSync(lockPath(projectPluginsDir())) ? "project" : "global";
+
+  if (choice === "both") {
+    return [{ ...project, heading: "Project plugins" }, { ...global, heading: "Global plugins" }];
+  }
+  return [choice === "global" ? global : project];
 }
 
 /** Friendly `--target` aliases mapped onto canonical adapter target ids. */
@@ -487,14 +537,25 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       return;
     }
     case "update": {
-      const { values } = parseVerb(verb, cmd.flags, rest);
-      const { results, missing, agents } = updateLock(resolveScopeDir(values), undefined, {
-        resync: true,
-        scope: scopeOf(values),
-      });
-      for (const r of results) console.log(`${r.changed ? ui.ok("updated") : ui.meta("unchanged")} ${ui.name(`${r.name}@${r.version}`)}`);
-      for (const m of missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
-      for (const line of renderAgentReport(agents, "re-synced")) console.log(line);
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const source = positionals[0];
+      for (const sc of await resolveUpdateScopes(values)) {
+        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+        try {
+          const result = await updatePlugins({
+            pluginsDir: sc.dir,
+            source,
+            all: values.all,
+            activate: true,
+            agentScope: sc.agentScope,
+            scope: { label: sc.label, globalDir: globalPluginsDir() },
+          });
+          for (const line of renderUpdateReport(result)) console.log(line);
+          for (const line of renderAgentReport(result.local.agents, "re-synced")) console.log(line);
+        } catch (err) {
+          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       return;
     }
     case "remove": {
@@ -551,11 +612,10 @@ Commands:
   adg plugins marketplace list [--verbose] [--global | --project | --dir <dir>]
         Group installed plugins by source. --verbose expands each plugin to its
         components (skills, agents, commands, …).
-  adg plugins marketplace upgrade [<source>] [--all] [--target claude|codex|antigravity|all] [--global | --project | --dir <dir>]
-        Re-fetch a source and update its installed plugins (--all also installs
-        anything new it now offers). No <source> upgrades every remote source.
   adg plugins marketplace remove <source> [--force] [--global | --project | --dir <dir>]
         Uninstall every plugin that came from <source>.
+  adg plugins marketplace upgrade …   (deprecated → use \`adg plugins update\`)
+        Kept as an alias. To pull upstream changes, prefer \`adg plugins update\`.
 
 <source> is a key from \`marketplace list\` (e.g. owner/repo).`;
 
@@ -583,6 +643,7 @@ async function runMarketplace(args: string[]): Promise<void> {
       return;
     }
     case "upgrade": {
+      console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
       const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
       const results = await marketplaceUpgrade({
         pluginsDir: resolveScopeDir(values),

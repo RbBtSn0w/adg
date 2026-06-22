@@ -229,7 +229,7 @@ adg plugins link --target codex --global   # regenerate .codex-plugin in place
 adg plugins link --target claude --global  # symlink into ~/.claude/skills/
 
 # maintenance
-adg plugins update --dir plugins           # refresh lock hashes/versions from disk
+adg plugins update --dir plugins           # re-fetch remote sources; rescan local ones in place
 adg plugins list --dir plugins             # list locked plugins
 adg plugins migrate --dir plugins          # move flat installs into per-marketplace dirs
 ```

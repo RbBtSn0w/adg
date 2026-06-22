@@ -26,6 +26,12 @@ export interface UpdateOptions {
   resync?: boolean;
   /** Install scope for re-sync; "user" (global) or "project". */
   scope?: AgentScope;
+  /**
+   * Restrict the rescan to these plugin names. Used by `updatePlugins` to refresh
+   * only the local-source bucket (remote sources are handled by re-fetching).
+   * Omitted = rescan every locked plugin.
+   */
+  only?: string[];
   /** Injection seam for tests; defaults to every registered agent. */
   agents?: Agent[];
 }
@@ -58,7 +64,9 @@ export function updateLock(
   const missing: string[] = [];
   const changedNames: string[] = [];
 
+  const only = opts.only ? new Set(opts.only) : undefined;
   for (const [name, entry] of Object.entries(lock.plugins)) {
+    if (only && !only.has(name)) continue;
     const dir = installedPluginDir(pluginsDir, name, entry.origin);
     if (!existsSync(dir)) {
       missing.push(name);
