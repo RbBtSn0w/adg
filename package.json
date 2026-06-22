@@ -26,9 +26,10 @@
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --noCheck && node -e \"require('fs').chmodSync('dist/bin/adg.js',0o755)\"",
     "test": "node --test 'test/**/*.test.ts'",
     "check:vendor-deps": "node scripts/check-vendor-deps.mjs",
+    "audit:prod": "npm audit --omit=dev",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run typecheck",
-    "prepack": "npm run build"
+    "prepack": "npm run typecheck && npm run build"
   },
   "files": [
     "dist",
