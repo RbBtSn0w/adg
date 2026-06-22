@@ -1,3 +1,9 @@
+## [0.3.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.5...0.3.0-beta.6) (2026-06-22)
+
+### Added
+
+* **plugins:** align `plugins update` with `skills update` (detect-then-update) ([#21](https://github.com/RbBtSn0w/adg/issues/21)) ([2b93c01](https://github.com/RbBtSn0w/adg/commit/2b93c01b03a65fab93a0befe3ea05b5d4639478f))
+
 ## [0.3.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.4...0.3.0-beta.5) (2026-06-22)
 
 ### Fixed
