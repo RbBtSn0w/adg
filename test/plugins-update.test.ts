@@ -32,6 +32,29 @@ function recordingAgent(id: string, calls: { id: string; plugins: string[] }[]):
   };
 }
 
+/** A fake agent that records which lifecycle method (activate vs refresh) was called. */
+function recordingAgentByMethod(
+  id: string,
+  calls: { id: string; method: "activate" | "refresh"; plugins: string[] }[],
+): Agent {
+  return {
+    id,
+    displayName: id,
+    adaptTarget: "codex",
+    detect: () => true,
+    available: () => true,
+    activate: (ctx) => {
+      calls.push({ id, method: "activate", plugins: ctx.plugins });
+      return { agent: id, affected: ctx.plugins, skipped: false };
+    },
+    deactivate: () => ({ agent: id, affected: [], skipped: false }),
+    refresh: (ctx) => {
+      calls.push({ id, method: "refresh", plugins: ctx.plugins });
+      return { agent: id, affected: ctx.plugins, skipped: false };
+    },
+  };
+}
+
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "adg-update-"));
 }
@@ -134,6 +157,52 @@ test("updatePlugins does not re-activate agents for unchanged plugins, but does 
       agents: [recordingAgent("codex", busy)],
     });
     assert.deepEqual(busy, [{ id: "codex", plugins: ["sales"] }], "only the changed plugin is re-activated");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins refreshes (not plain-activates) changed plugins, so cached agents re-pull", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+
+    // A fresh add must use activate (first install).
+    const addCalls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", addCalls)],
+    });
+    assert.deepEqual(
+      addCalls.map((c) => c.method),
+      ["activate"],
+      "fresh add uses activate",
+    );
+
+    // Bump `sales` upstream → the update path must refresh it, not plain-activate,
+    // so agents that cache a copy (Claude) drop the stale one and re-pull.
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    const updateCalls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+    await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", updateCalls)],
+    });
+    assert.deepEqual(
+      updateCalls,
+      [{ id: "codex", method: "refresh", plugins: ["sales"] }],
+      "update path refreshes only the changed plugin",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

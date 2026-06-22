@@ -447,7 +447,13 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     const toActivate = opts.skipUnchanged ? installed.filter((r) => r.changed) : installed;
     if (opts.activate && toActivate.length > 0) {
       const ctx = { pluginsDir: opts.pluginsDir, plugins: toActivate.map((r) => r.name), scope: opts.scope ?? "project" };
-      agents = (opts.agents ?? resolveAgents(targets)).map((a) => a.activate(ctx));
+      const resolved = opts.agents ?? resolveAgents(targets);
+      // Update path (skipUnchanged): the plugin is already installed in the agent,
+      // so use refresh — agents that cache a copy (Claude) must drop the old one
+      // and re-pull, otherwise a plain re-install no-ops and serves stale content.
+      // A fresh add uses activate. Codex/Antigravity alias refresh->activate, so
+      // they are unaffected; this just makes Claude match the local-source path.
+      agents = resolved.map((a) => (opts.skipUnchanged ? a.refresh(ctx) : a.activate(ctx)));
     }
 
     return { order, installed, converted, available: [...candidates.keys()], agents };
