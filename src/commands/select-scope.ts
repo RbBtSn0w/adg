@@ -19,3 +19,26 @@ export async function selectScopeInteractive(): Promise<boolean> {
   }
   return scope as boolean;
 }
+
+export type UpdateScope = "project" | "global" | "both";
+
+/**
+ * Ask which scope(s) to update: project, global, or both — mirroring
+ * `adg skills update`. Used by `plugins update` when no scope flag was given in
+ * an interactive terminal.
+ */
+export async function selectUpdateScopeInteractive(): Promise<UpdateScope> {
+  const scope = await p.select({
+    message: "Update scope",
+    options: [
+      { value: "project" as UpdateScope, label: "Project", hint: "plugins in .agents/plugins" },
+      { value: "global" as UpdateScope, label: "Global", hint: "plugins in ~/.agents/plugins" },
+      { value: "both" as UpdateScope, label: "Both", hint: "update everything" },
+    ],
+  });
+  if (p.isCancel(scope)) {
+    p.cancel("Cancelled");
+    process.exit(0);
+  }
+  return scope as UpdateScope;
+}

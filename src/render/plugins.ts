@@ -3,7 +3,7 @@ import { installedPluginDir } from "../paths.ts";
 import { agentsForComponents, getAgent, type AgentSyncResult } from "../agents/index.ts";
 import type { ComponentType } from "../types.ts";
 import type { ListedPlugin } from "../commands/list.ts";
-import type { MarketplaceGroup } from "../commands/marketplace.ts";
+import type { MarketplaceGroup, PluginUpdateResult } from "../commands/marketplace.ts";
 
 // ---------------------------------------------------------------------------
 // Presentation layer for `adg plugins`. Each function turns command-layer data
@@ -91,6 +91,41 @@ export function renderPluginList(
     out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
     if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
   }
+  return out;
+}
+
+/**
+ * `adg plugins update` — per-source updated/unchanged/deleted/available lines,
+ * plus the local-bucket rescan, in the spirit of `adg skills update`. Returns a
+ * one-line "nothing to update" message when no remote source had any change.
+ */
+export function renderUpdateReport(result: PluginUpdateResult): string[] {
+  const out: string[] = [];
+
+  for (const r of result.remote) {
+    const ref = r.ref ? `@${r.ref}` : "";
+    const head = `${ui.name(`${r.source}${ref}`)}`;
+    if (r.failed) {
+      out.push(`${head} ${ui.err("could not be checked")} ${ui.meta(`— ${r.failed}`)}`);
+      continue;
+    }
+    if (r.updated.length > 0) out.push(`${head}: ${ui.ok(`updated ${r.updated.join(", ")}`)}`);
+    else out.push(`${head}: ${ui.meta(`up to date (${r.unchanged.length})`)}`);
+
+    if (r.deleted.length > 0) {
+      out.push(ui.warn(`  deleted upstream: ${r.deleted.join(", ")} — remove with \`adg plugins remove <name>\``));
+    }
+    if (r.available.length > 0) {
+      out.push(ui.meta(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`));
+    }
+  }
+
+  for (const res of result.local.results) {
+    out.push(`${res.changed ? ui.ok("updated") : ui.meta("unchanged")} ${ui.name(`${res.name}@${res.version}`)} ${ui.meta("(local)")}`);
+  }
+  for (const m of result.local.missing) out.push(ui.warn(`  ! missing directory for locked plugin: ${m}`));
+
+  if (out.length === 0) out.push(ui.meta("nothing to update (no installed sources)"));
   return out;
 }
 
