@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -9,6 +8,7 @@ import { isExposed } from "../components.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { ANTIGRAVITY_PROJECTION_DIR } from "../adapters/antigravity.ts";
+import { makeCli } from "./base.ts";
 import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
@@ -49,19 +49,10 @@ export function antigravityHome(env: NodeJS.ProcessEnv = process.env): string {
   return join(geminiHome(env), "antigravity-cli");
 }
 
-function available(): boolean {
-  // `--help` is rejected by `install` (it parses it as a target), so probe the
-  // plugin command group with its own `help` subcommand instead.
-  return spawnSync("agy", ["plugin", "help"], { stdio: "ignore" }).status === 0;
-}
-
-function run(args: string[]): { ok: boolean; out: string } {
-  const r = spawnSync("agy", args, { encoding: "utf8" });
-  const ok = r.status === 0;
-  // Surface the CLI's own diagnostics on failure instead of swallowing them.
-  if (!ok && r.stderr) console.error(r.stderr.trim());
-  return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
-}
+// `--help` is rejected by `agy plugin install` (it parses it as a target), so
+// probe the plugin command group with its own `help` subcommand instead.
+// `echoStderr` surfaces the CLI's own diagnostics on failure.
+const { available, run } = makeCli("agy", { probeArgs: ["plugin", "help"], echoStderr: true });
 
 /** A plugin's resolved store directory plus its persisted partial-install selection. */
 interface PluginStore {
