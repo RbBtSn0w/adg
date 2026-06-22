@@ -208,6 +208,47 @@ test("updatePlugins refreshes (not plain-activates) changed plugins, so cached a
   }
 });
 
+test("updatePlugins --all activates brand-new plugins but refreshes updated ones", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    // Bump an installed plugin (→ refresh) and introduce a brand-new one (→ activate,
+    // never refresh — refreshing a never-installed plugin would uninstall nothing
+    // and warn/error in agents like Claude).
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    writeNativeMarket(remote, ["ops"]);
+
+    const calls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+    await updatePlugins({
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", calls)],
+    });
+
+    assert.deepEqual(
+      calls.find((c) => c.method === "activate"),
+      { id: "codex", method: "activate", plugins: ["ops"] },
+      "brand-new plugin is activated, not refreshed",
+    );
+    assert.deepEqual(
+      calls.find((c) => c.method === "refresh"),
+      { id: "codex", method: "refresh", plugins: ["sales"] },
+      "updated plugin is refreshed",
+    );
+    assert.equal(calls.length, 2, "no extra lifecycle calls (finance unchanged)");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("updatePlugins surfaces remote agent re-sync results in a consolidated report", async () => {
   const root = scratch();
   try {

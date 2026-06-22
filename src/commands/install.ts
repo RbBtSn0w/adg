@@ -422,6 +422,10 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       }
     }
 
+    // Snapshot which plugins already existed before this call mutates the lock,
+    // so the activation step below can tell brand-new installs from updates.
+    const existingPlugins = new Set(Object.keys(readLock(lockPath(opts.pluginsDir)).plugins));
+
     const installed: InstallResult[] = [];
     for (const name of order) {
       const candidate = candidates.get(name)!;
@@ -446,14 +450,30 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     let agents: AgentSyncResult[] | undefined;
     const toActivate = opts.skipUnchanged ? installed.filter((r) => r.changed) : installed;
     if (opts.activate && toActivate.length > 0) {
-      const ctx = { pluginsDir: opts.pluginsDir, plugins: toActivate.map((r) => r.name), scope: opts.scope ?? "project" };
       const resolved = opts.agents ?? resolveAgents(targets);
-      // Update path (skipUnchanged): the plugin is already installed in the agent,
-      // so use refresh — agents that cache a copy (Claude) must drop the old one
-      // and re-pull, otherwise a plain re-install no-ops and serves stale content.
-      // A fresh add uses activate. Codex/Antigravity alias refresh->activate, so
-      // they are unaffected; this just makes Claude match the local-source path.
-      agents = resolved.map((a) => (opts.skipUnchanged ? a.refresh(ctx) : a.activate(ctx)));
+      const scope = opts.scope ?? "project";
+      const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
+      // A "changed" plugin is either brand new (no prior lock entry) or an update
+      // to an already-installed one. Only updates go through refresh — agents that
+      // cache a copy (Claude) must drop the stale one and re-pull. Brand-new
+      // plugins must use activate: refresh would issue an uninstall for something
+      // never installed, which warns/errors in those agents. On the add path
+      // (skipUnchanged off) everything is a fresh activate.
+      const activateNames = (opts.skipUnchanged ? toActivate.filter((r) => !existingPlugins.has(r.name)) : toActivate).map((r) => r.name);
+      const refreshNames = opts.skipUnchanged ? toActivate.filter((r) => existingPlugins.has(r.name)).map((r) => r.name) : [];
+
+      agents = resolved.map((a) => {
+        // An agent may run both lifecycles (new installs + updates) in one pass;
+        // merge into the existing affected/skipped contract so downstream report
+        // and consolidation (renderAgentReport, mergeAgentResults) stay unchanged.
+        const parts: AgentSyncResult[] = [];
+        if (activateNames.length > 0) parts.push(a.activate(ctxFor(activateNames)));
+        if (refreshNames.length > 0) parts.push(a.refresh(ctxFor(refreshNames)));
+        return parts.reduce<AgentSyncResult>(
+          (acc, r) => ({ agent: r.agent, affected: [...acc.affected, ...r.affected], skipped: acc.skipped && r.skipped }),
+          { agent: a.id, affected: [], skipped: true },
+        );
+      });
     }
 
     return { order, installed, converted, available: [...candidates.keys()], agents };
