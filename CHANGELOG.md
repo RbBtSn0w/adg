@@ -1,3 +1,9 @@
+## [0.3.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.7...0.3.0-beta.8) (2026-06-22)
+
+### Fixed
+
+* address cross-cutting correctness findings from PR review ([824db40](https://github.com/RbBtSn0w/adg/commit/824db4050860ec85c09325755bae2932b5384a26))
+
 ## [0.3.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.6...0.3.0-beta.7) (2026-06-22)
 
 ### Added
