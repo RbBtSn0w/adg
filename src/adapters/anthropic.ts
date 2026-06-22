@@ -31,6 +31,7 @@ export function toAnthropicManifest(
   if (manifest.agents && isExposed(selection, "agents")) out.agents = manifest.agents;
   if (manifest.hooks && isExposed(selection, "hooks")) out.hooks = manifest.hooks;
   if (manifest.mcp && isExposed(selection, "mcp")) out.mcp = manifest.mcp;
+  if (manifest.apps && isExposed(selection, "apps")) out.apps = manifest.apps;
 
   // Claude's array form is already `./skills/<id>` paths, so a strict array is
   // passed through verbatim; an explicit id list (selection or strict:false) is

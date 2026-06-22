@@ -30,14 +30,14 @@ export type AdapterTarget = (typeof ADAPTER_TARGETS)[number];
 /**
  * Component categories each adapter target can actually express, mirroring what
  * the adapters emit: the Claude manifest carries skills/agents/commands/hooks/mcp
- * (`toAnthropicManifest`), while Codex only consumes skills (`toCodexManifest`).
- * Antigravity (`agy`) discovers the same superset as Claude via convention
- * (skills/agents/commands/hooks dirs + mcp_config.json). `apps` is emitted by
- * none, so it maps to no target. Used to derive which agents a plugin is
- * adaptable to from its exposed component types.
+ * plus apps (`toAnthropicManifest`), while Codex only consumes skills
+ * (`toCodexManifest`). Antigravity (`agy`) discovers components by convention
+ * (skills/agents/commands/hooks dirs + mcp_config.json) and does not surface
+ * apps, so apps maps only to the Claude target. Used to derive which agents a
+ * plugin is adaptable to from its exposed component types.
  */
 export const ADAPTER_COMPONENTS: Record<AdapterTarget, ComponentType[]> = {
-  claude: ["skills", "agents", "commands", "hooks", "mcp"],
+  claude: ["skills", "agents", "commands", "hooks", "mcp", "apps"],
   codex: ["skills"],
   antigravity: ["skills", "agents", "commands", "hooks", "mcp"],
 };
