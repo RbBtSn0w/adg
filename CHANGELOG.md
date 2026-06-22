@@ -1,3 +1,9 @@
+## [0.3.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.6...0.3.0-beta.7) (2026-06-22)
+
+### Added
+
+* refresh cached agents on plugin update ([#22](https://github.com/RbBtSn0w/adg/issues/22)) ([6566a74](https://github.com/RbBtSn0w/adg/commit/6566a7476d30495a94aa69a7e0de1bb60edae883))
+
 ## [0.3.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.3.0-beta.5...0.3.0-beta.6) (2026-06-22)
 
 ### Added
