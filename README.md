@@ -224,15 +224,25 @@ adg plugins add owner/repo --ref main --sparse .agents/plugins --sparse plugins 
 adg plugins add ./some/local/repo --dir plugins
 adg plugins import-skills ~/.agents/skills --as asc --prefix asc- --dir plugins
 
-# project installed plugins into a runtime's discovery path
-adg plugins link --target codex --global   # regenerate .codex-plugin in place
-adg plugins link --target claude --global  # symlink into ~/.claude/skills/
+# project installed plugins into a runtime's discovery path (store stays the source of truth)
+adg plugins link   --target codex --global          # enable in one agent (regenerate .codex-plugin)
+adg plugins link   --target claude --global         # symlink into ~/.claude/skills/
+adg plugins unlink --target antigravity asc         # disable in one agent only; store untouched
+adg plugins sync   --target antigravity asc         # reconcile one agent to the store (clears residual)
+adg plugins marketplace sync owner/repo --target codex   # same, scoped to a whole source
 
-# maintenance
+# diagnose & maintain
+adg plugins status --target antigravity    # live-diff the store vs an agent; each drift row shows its fix
 adg plugins update --dir plugins           # re-fetch remote sources; rescan local ones in place
 adg plugins list --dir plugins             # list locked plugins
 adg plugins migrate --dir plugins          # move flat installs into per-marketplace dirs
 ```
+
+Two layers, two verb pairs. The **store** (`add` / `remove`) is the system of
+record; **agents are projections** of it (`link` / `unlink` toggle one agent;
+`sync` forces an agent to match the store). `remove` deletes from the store and
+every agent at once — for per-agent control use `unlink`. When something looks
+off, `status` shows the drift and `sync` repairs it.
 
 #### On-disk layout
 
