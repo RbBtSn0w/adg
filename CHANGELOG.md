@@ -1,3 +1,9 @@
+## [0.4.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.3.0...0.4.0-beta.1) (2026-06-23)
+
+### Added
+
+* **plugins:** add unlink/sync/status verbs and fix antigravity residual ([#27](https://github.com/RbBtSn0w/adg/issues/27)) ([c47e598](https://github.com/RbBtSn0w/adg/commit/c47e5984fef2c78cf4eeef5eab2612aa5bf899b2))
+
 ## [0.3.0](https://github.com/RbBtSn0w/adg/compare/0.2.1...0.3.0) (2026-06-22)
 
 ### Added
