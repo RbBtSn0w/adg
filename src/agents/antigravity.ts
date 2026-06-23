@@ -155,6 +155,11 @@ export const antigravityAgent: Agent = {
 
   activate(ctx: AgentContext): AgentSyncResult {
     if (!available()) return { agent: ID, affected: [], skipped: true };
+    // Query agy once up front so the pre-install uninstall below is issued only
+    // for plugins that are actually present (a brand-new plugin has no residual
+    // to clear). `undefined` (couldn't enumerate) falls back to always
+    // uninstalling, preserving the clean-replace guarantee.
+    const installed = antigravityInstalled();
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       // Isolate each plugin: a malformed manifest or a filesystem error must not
@@ -166,9 +171,11 @@ export const antigravityAgent: Agent = {
         // `agy plugin install` *merges* into an existing `<store>/plugins/<name>`
         // rather than replacing it, so components dropped since the last sync (a
         // narrowed selection, or a skill removed upstream) would linger as
-        // residual data. Uninstall first to force a clean re-import; a
-        // not-yet-installed plugin makes this a harmless no-op.
-        run(["plugin", "uninstall", p]);
+        // residual data. Uninstall an existing copy first to force a clean
+        // re-import; skip it for a not-yet-installed plugin (nothing to clear).
+        if (installed === undefined || installed.includes(p)) {
+          run(["plugin", "uninstall", p]);
+        }
         if (run(["plugin", "install", join(store.dir, ANTIGRAVITY_PROJECTION_DIR)]).ok) affected.push(p);
       } catch (err) {
         console.error(`failed to enable "${p}" in Antigravity:`, err);
@@ -198,13 +205,20 @@ export const antigravityAgent: Agent = {
   // here" rather than asserting they are ADG orphans.
   // `available()` (stdio-ignored probe) gates the query, so an absent CLI is a
   // quiet `undefined` ("unknown") rather than echoing a spawn error to stderr.
-  listInstalled(): string[] | undefined {
-    if (!available()) return undefined;
-    const res = run(["plugin", "list"]);
-    if (!res.ok) return undefined;
-    return parseAntigravityPluginList(res.out);
-  },
+  listInstalled: () => antigravityInstalled(),
 };
+
+/**
+ * The plugin names agy currently has imported, or `undefined` when the CLI is
+ * absent or its output can't be parsed. Shared by `listInstalled` and by
+ * `activate` (to skip the pre-install uninstall for brand-new plugins).
+ */
+function antigravityInstalled(): string[] | undefined {
+  if (!available()) return undefined;
+  const res = run(["plugin", "list"]);
+  if (!res.ok) return undefined;
+  return parseAntigravityPluginList(res.out);
+}
 
 /**
  * Parse `agy plugin list` JSON (`{ imports: [{ name }] }`) into deduped plugin
