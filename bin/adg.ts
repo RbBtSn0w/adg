@@ -13,9 +13,12 @@ import { validatePlugin } from "../src/commands/validate.ts";
 import { listPlugins } from "../src/commands/list.ts";
 import { importSkills } from "../src/commands/import.ts";
 import { linkPlugins, type LinkTarget } from "../src/commands/link.ts";
+import { unlinkPlugins } from "../src/commands/unlink.ts";
+import { syncPlugins } from "../src/commands/sync.ts";
 import { removePlugin } from "../src/commands/remove.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
-import { marketplaceList, marketplaceRemove, marketplaceUpgrade, updatePlugins, type ScopeInfo } from "../src/commands/marketplace.ts";
+import { pluginStatus } from "../src/commands/status.ts";
+import { marketplaceList, marketplaceRemove, marketplaceSync, marketplaceUpgrade, updatePlugins, type ScopeInfo } from "../src/commands/marketplace.ts";
 import { selectTargetsInteractive } from "../src/commands/select-agents.ts";
 import { selectPluginsInteractive } from "../src/commands/select-plugins.ts";
 import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../src/commands/select-scope.ts";
@@ -29,6 +32,7 @@ import {
   renderAgentReport,
   renderMarketplaceList,
   renderPluginList,
+  renderStatus,
   renderUpdateReport,
 } from "../src/render/plugins.ts";
 
@@ -155,6 +159,12 @@ const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     blurb: "Each plugin shows a one-line summary of what it contains. Add --verbose\nto expand every component (skills, agents, commands, …) to its member names.",
     flags: ["verbose", ...SCOPE],
   },
+  status: {
+    summary: "show store-vs-agent drift per runtime",
+    synopsis: "adg plugins status [--target claude|codex|antigravity]",
+    blurb: "Query each agent's CLI live and diff it against the store: what's in\nsync, missing (needs `link`/`sync`), or present in the agent only. Each drift\nrow carries the command that repairs it. Inspects the active scope (--global →\nuser, else project). Name-level only — run `sync` if unsure.",
+    flags: ["target", ...SCOPE],
+  },
   update: {
     summary: "pull upstream changes for installed plugins",
     synopsis: "adg plugins update [<source>]",
@@ -206,8 +216,32 @@ const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
   },
   link: {
     summary: "link installed plugins into a runtime",
-    synopsis: "adg plugins link --target claude|codex|antigravity",
+    synopsis: "adg plugins link --target claude|codex|antigravity [name...]",
+    positional: "[name...]  installed plugin names to link (default: all)",
+    blurb: "Project the store into one agent: (re)generate its manifests and enable\nthe plugins via that agent's CLI. The store is unchanged. The inverse is\n`adg plugins unlink`; to force an agent to match the store, use `adg plugins sync`.",
     flags: ["target", ...SCOPE],
+  },
+  unlink: {
+    summary: "unlink plugins from a runtime (store kept)",
+    synopsis: "adg plugins unlink --target claude|codex|antigravity [name...]",
+    positional: "[name...]  installed plugin names to unlink (default: all)",
+    blurb: "Disable the plugins in one agent without removing them from the store —\nthe per-agent inverse of `link`. To delete from the store and every agent\nat once, use `adg plugins remove`.",
+    flags: ["target", ...SCOPE],
+    examples: [
+      "adg plugins unlink --target antigravity asc   # drop asc from agy only",
+      "adg plugins unlink --target codex             # unlink everything from codex",
+    ],
+  },
+  sync: {
+    summary: "reconcile a runtime's plugins with the store",
+    synopsis: "adg plugins sync --target claude|codex|antigravity [name...]",
+    positional: "[name...]  installed plugin names to sync (default: all)",
+    blurb: "Make one agent's copy match the store: regenerate manifests and re-import,\nclearing components that were dropped since the last sync. Use this to repair\ndrift (e.g. residual skills). Only store-known plugins are touched.",
+    flags: ["target", ...SCOPE],
+    examples: [
+      "adg plugins sync --target antigravity asc   # clear agy residual for asc",
+      "adg plugins sync --target claude            # re-sync every plugin into Claude",
+    ],
   },
   migrate: {
     summary: "move flat installs into per-marketplace dirs",
@@ -368,6 +402,14 @@ function resolveTargets(target: string | undefined | null): AdapterTarget[] {
   fail(`invalid --target "${target}" (expected ${[...ADAPTER_TARGETS, "all"].join("|")})`);
 }
 
+/** A single-agent projection verb (link/unlink/sync) needs exactly one --target. */
+function requireSingleTarget(target: string | undefined, verb: string): AdapterTarget {
+  if (target === undefined || target === "all") {
+    fail(`plugins ${verb} requires a single --target (${ADAPTER_TARGETS.join("|")})`);
+  }
+  return resolveTargets(target)[0]!; // validates + maps aliases (agy → antigravity); always non-empty
+}
+
 /** Parse a `--only skills,commands` list into validated component types. */
 function resolveComponents(only: string | undefined): ComponentType[] | undefined {
   if (only === undefined) return undefined;
@@ -521,18 +563,43 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       return;
     }
     case "link": {
-      const { values } = parseVerb(verb, cmd.flags, rest);
-      if (values.target === undefined || values.target === "all") {
-        fail(`plugins link requires a single --target (${ADAPTER_TARGETS.join("|")})`);
-      }
-      const target = resolveTargets(values.target)[0]!; // validates + maps aliases (agy → antigravity); always non-empty
-      const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global) });
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const target = requireSingleTarget(values.target, "link");
+      const names = positionals.length > 0 ? positionals : undefined;
+      const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
       for (const a of res.actions) {
         console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
         for (const f of a.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
       if (res.cliSkipped) {
         console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
+      }
+      return;
+    }
+    case "unlink": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const target = requireSingleTarget(values.target, "unlink");
+      const names = positionals.length > 0 ? positionals : undefined;
+      const res = unlinkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+      for (const name of res.unlinked) console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
+      if (res.cliSkipped) {
+        console.log(ui.warn(`note: \`${target}\` CLI not found — nothing was unlinked from ${target}.`));
+      } else if (res.unlinked.length === 0) {
+        console.log(ui.meta(`nothing to unlink from ${target}`));
+      }
+      return;
+    }
+    case "sync": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const target = requireSingleTarget(values.target, "sync");
+      const names = positionals.length > 0 ? positionals : undefined;
+      const res = syncPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+      for (const a of res.actions) {
+        const tail = a.synced ? ui.meta(` -> ${res.target}`) : "";
+        console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
+      }
+      if (res.cliSkipped) {
+        console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were regenerated, but nothing was re-synced in ${target}.`));
       }
       return;
     }
@@ -573,7 +640,13 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       else console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta("(no directory on disk)")}`);
       for (const link of res.unlinked) console.log(ui.meta(`  unlinked: ${link}`));
       for (const r of res.agents ?? []) {
-        if (r.affected.length > 0) console.log(ui.meta(`  disabled in ${getAgent(r.agent)?.displayName ?? r.agent}`));
+        const display = getAgent(r.agent)?.displayName ?? r.agent;
+        if (r.affected.length > 0) console.log(ui.meta(`  disabled in ${display}`));
+        // CLI absent → the plugin may still be enabled there; surface the precise
+        // repair so a store-deleted plugin can't silently linger in that agent.
+        else if (r.skipped) {
+          console.log(ui.warn(`  ${r.agent} CLI not found — if enabled there, run \`adg plugins unlink --target ${r.agent} ${res.name}\``));
+        }
       }
       if (!res.removedFromLock && !res.removedDir) {
         console.log(ui.warn(`  ${res.name} was not recorded in the lock`));
@@ -587,6 +660,13 @@ async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<
       for (const line of renderPluginList(plugins, pluginsDir, { verbose: values.verbose })) {
         console.log(line);
       }
+      return;
+    }
+    case "status": {
+      const { values } = parseVerb(verb, cmd.flags, rest);
+      const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
+      const statuses = pluginStatus({ pluginsDir: resolveScopeDir(values), scope: scopeOf(values), targets });
+      for (const line of renderStatus(statuses)) console.log(line);
       return;
     }
     case "migrate": {
@@ -614,6 +694,9 @@ Commands:
         components (skills, agents, commands, …).
   adg plugins marketplace remove <source> [--force] [--global | --project | --dir <dir>]
         Uninstall every plugin that came from <source>.
+  adg plugins marketplace sync <source> --target <agent> [--global | --project | --dir <dir>]
+        Reconcile one agent's copy of every plugin from <source> with the store
+        (the source-scoped twin of \`adg plugins sync\`).
   adg plugins marketplace upgrade …   (deprecated → use \`adg plugins update\`)
         Kept as an alias. To pull upstream changes, prefer \`adg plugins update\`.
 
@@ -678,6 +761,26 @@ async function runMarketplace(args: string[]): Promise<void> {
         deactivate: true,
       });
       console.log(`${ui.ok("removed")} ${res.removed.length} plugin(s) from ${ui.name(res.source)}: ${res.removed.join(", ")}`);
+      return;
+    }
+    case "sync": {
+      const { values, positionals } = parseVerb("marketplace", ["target", ...SCOPE], rest);
+      const source = positionals[0];
+      if (!source) fail("marketplace sync requires a <source>");
+      const target = requireSingleTarget(values.target, "marketplace sync");
+      const res = marketplaceSync({
+        pluginsDir: resolveScopeDir(values),
+        scope: scopeInfo(values),
+        source,
+        target,
+        global: Boolean(values.global),
+      });
+      for (const a of res.actions) {
+        console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.synced ? ui.meta(` -> ${res.target}`) : ""}`);
+      }
+      if (res.cliSkipped) {
+        console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were regenerated, but nothing was re-synced in ${target}.`));
+      }
       return;
     }
     default: {

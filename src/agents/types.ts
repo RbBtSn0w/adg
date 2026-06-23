@@ -44,4 +44,13 @@ export interface Agent {
   deactivate(ctx: AgentContext): AgentSyncResult;
   /** Refresh the agent's cached copy after the store changed. */
   refresh(ctx: AgentContext): AgentSyncResult;
+  /**
+   * Best-effort list of the plugin names this agent currently has enabled, by
+   * querying its CLI. Powers `adg plugins status`'s drift detection. Returns
+   * `undefined` (not `[]`) when the agent's CLI is absent or its output can't be
+   * parsed, so "unknown" is never confused with "nothing installed". `ctx` lets
+   * an agent scope the query (e.g. to its own marketplace). Optional: an agent
+   * that can't enumerate its plugins simply omits it.
+   */
+  listInstalled?(ctx: AgentContext): string[] | undefined;
 }

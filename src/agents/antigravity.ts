@@ -163,6 +163,12 @@ export const antigravityAgent: Agent = {
         const store = pluginStore(ctx.pluginsDir, p);
         if (!store) continue;
         writeAntigravityProjection(store.dir, store.selection);
+        // `agy plugin install` *merges* into an existing `<store>/plugins/<name>`
+        // rather than replacing it, so components dropped since the last sync (a
+        // narrowed selection, or a skill removed upstream) would linger as
+        // residual data. Uninstall first to force a clean re-import; a
+        // not-yet-installed plugin makes this a harmless no-op.
+        run(["plugin", "uninstall", p]);
         if (run(["plugin", "install", join(store.dir, ANTIGRAVITY_PROJECTION_DIR)]).ok) affected.push(p);
       } catch (err) {
         console.error(`failed to enable "${p}" in Antigravity:`, err);
@@ -180,8 +186,39 @@ export const antigravityAgent: Agent = {
     return { agent: ID, affected, skipped: false };
   },
 
-  // `agy plugin install` re-imports the source dir, so re-running it is the refresh.
+  // Re-running activate is the refresh: it uninstalls then re-imports the source
+  // dir, so a shrunk component set replaces the stale copy instead of merging.
   refresh(ctx: AgentContext): AgentSyncResult {
     return antigravityAgent.activate(ctx);
   },
+
+  // `agy plugin list` emits JSON (`{ imports: [{ name }] }`). agy has no
+  // marketplace concept, so this returns *every* imported plugin — including
+  // ones imported outside ADG; the caller treats agy-only names as "not managed
+  // here" rather than asserting they are ADG orphans.
+  // `available()` (stdio-ignored probe) gates the query, so an absent CLI is a
+  // quiet `undefined` ("unknown") rather than echoing a spawn error to stderr.
+  listInstalled(): string[] | undefined {
+    if (!available()) return undefined;
+    const res = run(["plugin", "list"]);
+    if (!res.ok) return undefined;
+    return parseAntigravityPluginList(res.out);
+  },
 };
+
+/**
+ * Parse `agy plugin list` JSON (`{ imports: [{ name }] }`) into deduped plugin
+ * names, or `undefined` when the output isn't the expected JSON. Pure (no CLI)
+ * so it is unit-testable against captured output.
+ */
+export function parseAntigravityPluginList(out: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(out) as { imports?: { name?: unknown }[] };
+    const names = (parsed.imports ?? [])
+      .map((i) => i.name)
+      .filter((n): n is string => typeof n === "string");
+    return [...new Set(names)];
+  } catch {
+    return undefined; // unparseable output — report "unknown", don't guess
+  }
+}

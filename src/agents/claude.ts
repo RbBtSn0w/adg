@@ -6,7 +6,7 @@ import { readManifest } from "../manifest.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { makeCli } from "./base.ts";
-import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
+import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
 
 /**
  * Claude Code agent.
@@ -110,4 +110,55 @@ export const claudeAgent: Agent = {
     const act = claudeAgent.activate(ctx);
     return { agent: "claude", affected: act.affected, skipped: act.skipped };
   },
+
+  // Query Claude's live plugin state for `adg plugins status`, scoped to the
+  // ADG marketplace and the requested install scope. `available()` gates the
+  // query so an absent CLI is a quiet `undefined` ("unknown").
+  listInstalled(ctx: AgentContext): string[] | undefined {
+    if (!available()) return undefined;
+    const res = run(["plugin", "list"]);
+    if (!res.ok) return undefined;
+    return parseClaudePluginList(res.out, MARKETPLACE, ctx.scope);
+  },
 };
+
+/**
+ * Parse `claude plugin list` output into the *enabled* plugin names from a given
+ * marketplace and install scope. The listing groups each plugin as a
+ * `❯ <name>@<marketplace>` header followed by indented `Scope:` / `Status:`
+ * lines; we pair them so a plugin enabled only in another scope, disabled, or
+ * from a different marketplace is excluded. Pure (no CLI) so it is unit-testable
+ * against captured output.
+ */
+export function parseClaudePluginList(out: string, marketplace: string, scope: AgentScope): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let cur: { name: string; mp: string; scope?: string; enabled?: boolean } | undefined;
+  const flush = (): void => {
+    if (cur && cur.mp === marketplace && cur.scope === scope && cur.enabled && !seen.has(cur.name)) {
+      seen.add(cur.name);
+      names.push(cur.name);
+    }
+  };
+  for (const line of out.split("\n")) {
+    const head = line.match(/^\s*❯\s*(\S+?)@([\w.-]+)\s*$/);
+    if (head) {
+      flush();
+      cur = { name: head[1]!, mp: head[2]! };
+      continue;
+    }
+    if (!cur) continue;
+    const sc = line.match(/^\s*Scope:\s*(\S+)/);
+    if (sc) {
+      // Normalize case so a future `Scope: Project` still matches "project".
+      cur.scope = sc[1]!.toLowerCase();
+      continue;
+    }
+    const st = line.match(/^\s*Status:\s*(.+)$/);
+    // "disabled" does not contain "enabled", so a substring test cleanly
+    // distinguishes the two states.
+    if (st) cur.enabled = /enabled/i.test(st[1]!);
+  }
+  flush();
+  return names;
+}

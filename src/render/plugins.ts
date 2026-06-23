@@ -4,6 +4,7 @@ import { agentsForComponents, getAgent, type AgentSyncResult } from "../agents/i
 import type { ComponentType } from "../types.ts";
 import type { ListedPlugin } from "../commands/list.ts";
 import type { MarketplaceGroup, PluginUpdateResult } from "../commands/marketplace.ts";
+import type { AgentStatus } from "../commands/status.ts";
 
 // ---------------------------------------------------------------------------
 // Presentation layer for `adg plugins`. Each function turns command-layer data
@@ -126,6 +127,34 @@ export function renderUpdateReport(result: PluginUpdateResult): string[] {
   for (const m of result.local.missing) out.push(ui.warn(`  ! missing directory for locked plugin: ${m}`));
 
   if (out.length === 0) out.push(ui.meta("nothing to update (no installed sources)"));
+  return out;
+}
+
+/**
+ * `adg plugins status` — per-agent diff of the store against the agent's live
+ * plugin list, each drift row tagged with the command that repairs it.
+ */
+export function renderStatus(statuses: AgentStatus[]): string[] {
+  if (statuses.length === 0) return [ui.meta("no agents detected — install an agent CLI, then `adg plugins link`.")];
+
+  const out: string[] = [];
+  for (const s of statuses) {
+    out.push(ui.name(s.displayName));
+    if (!s.queryable) {
+      out.push(ui.meta("  live state unknown — agent CLI not available or not queryable"));
+      continue;
+    }
+    out.push(ui.meta(`  in sync (${s.inSync.length})${s.inSync.length ? ": " + s.inSync.join(", ") : ""}`));
+    if (s.missing.length > 0) {
+      out.push(ui.warn(`  missing (${s.missing.length}): ${s.missing.join(", ")}`));
+      out.push(ui.meta(`     → adg plugins sync --target ${s.id} ${s.missing.join(" ")}`));
+    }
+    if (s.agentOnly.length > 0) {
+      out.push(ui.warn(`  in agent only (${s.agentOnly.length}): ${s.agentOnly.join(", ")}`));
+      out.push(ui.meta(`     → if ADG-managed, adg plugins unlink --target ${s.id} <name>  (else ignore)`));
+    }
+  }
+  out.push(ui.meta("note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure."));
   return out;
 }
 

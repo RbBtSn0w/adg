@@ -5,6 +5,7 @@ import { lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { addPlugins, type InstallResult } from "./install.ts";
 import { removePlugin } from "./remove.ts";
+import { syncPlugins, type SyncResult } from "./sync.ts";
 import { updateLock, type UpdateLockResult } from "./update.ts";
 import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
 
@@ -335,4 +336,23 @@ export function marketplaceRemove(
     removed.push(name);
   }
   return { source: opts.source, removed };
+}
+
+/**
+ * Reconcile one agent's copy of every plugin from a given source to the store —
+ * the source-scoped twin of `adg plugins sync`. Resolves the source's installed
+ * plugins from the lock, then drives `syncPlugins` for just that set, so a whole
+ * marketplace can be repaired in one call without naming each plugin.
+ */
+export function marketplaceSync(
+  opts: MarketplaceScope & { source: string; target: AdapterTarget; global?: boolean; agent?: Agent },
+): SyncResult {
+  const group = requireGroup(opts.pluginsDir, opts.source, opts.scope);
+  return syncPlugins({
+    pluginsDir: opts.pluginsDir,
+    target: opts.target,
+    global: opts.global,
+    names: group.installed,
+    agent: opts.agent,
+  });
 }
