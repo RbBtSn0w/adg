@@ -328,19 +328,19 @@ export function fail(msg: string): never {
   process.exit(1);
 }
 
-export function resolveScopeDir(values: Record<string, unknown>): string {
+export function resolveScopeDir(values: ParsedValues): string {
   if (typeof values.dir === "string") return resolve(values.dir);
   return values.global ? globalPluginsDir() : projectPluginsDir();
 }
 
 /** Describe the active scope so "source not found" errors can name where they looked. */
-export function scopeInfo(values: Record<string, unknown>): ScopeInfo {
+export function scopeInfo(values: ParsedValues): ScopeInfo {
   const label = typeof values.dir === "string" ? resolve(values.dir) : values.global ? "global" : "project";
   return { label, globalDir: globalPluginsDir() };
 }
 
 /** Map the active scope to an agent install scope (global → user, else project). */
-export function scopeOf(values: Record<string, unknown>): AgentScope {
+export function scopeOf(values: ParsedValues): AgentScope {
   return values.global ? "user" : "project";
 }
 
