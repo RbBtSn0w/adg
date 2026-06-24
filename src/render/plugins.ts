@@ -154,6 +154,13 @@ export function renderStatus(statuses: AgentStatus[]): string[] {
       out.push(ui.meta(`     → if ADG-managed, adg plugins unlink --target ${s.id} <name>  (else ignore)`));
     }
   }
+
+  const totalSync = statuses.reduce((acc, s) => acc + s.inSync.length + s.missing.length, 0);
+  const totalAgentOnly = statuses.reduce((acc, s) => acc + s.agentOnly.length, 0);
+  if (totalSync === 0 && totalAgentOnly > 0) {
+    out.push(ui.meta("tip: project store has no plugins recorded. If you wanted to check global plugins, append --global (-g)"));
+  }
+
   out.push(ui.meta("note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure."));
   return out;
 }

@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { makeCli } from "../src/agents/base.ts";
+import { makeCli, skippedResult } from "../src/agents/base.ts";
 
 // `node` is guaranteed present in the test environment, so it stands in for a
 // real agent CLI; a deliberately absent name exercises the launch-failure path.
@@ -20,6 +23,29 @@ test("available() is false when the probe command exits non-zero", () => {
 test("available() is false when the binary cannot be launched", () => {
   const cli = makeCli(MISSING, { probeArgs: ["--help"] });
   assert.equal(cli.available(), false);
+});
+
+// The probe is memoized: a CLI's presence can't change within one `adg` run, so
+// repeated guard calls must not re-spawn. Use a probe that records each run to a
+// temp file and assert it ran exactly once across several `available()` calls.
+test("available() memoizes the probe and only spawns once", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-probe-"));
+  const marker = join(dir, "runs");
+  try {
+    const cli = makeCli("node", {
+      probeArgs: ["-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'x')`],
+    });
+    assert.equal(cli.available(), true);
+    assert.equal(cli.available(), true);
+    assert.equal(cli.available(), true);
+    assert.equal(readFileSync(marker, "utf8"), "x", "probe should have spawned exactly once");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("skippedResult builds the canonical CLI-absent lifecycle result", () => {
+  assert.deepEqual(skippedResult("claude"), { agent: "claude", affected: [], skipped: true });
 });
 
 test("run() concatenates stdout and stderr and reports success", () => {

@@ -9,7 +9,7 @@ import { addPlugins } from "../src/commands/install.ts";
 import type { GitRunner } from "../src/sources.ts";
 import { removePlugin } from "../src/commands/remove.ts";
 import { updateLock } from "../src/commands/update.ts";
-import { marketplaceList, marketplaceRemove, marketplaceUpgrade } from "../src/commands/marketplace.ts";
+import { marketplaceList, marketplaceRemove, updatePlugins } from "../src/commands/marketplace.ts";
 import type { Agent } from "../src/agents/index.ts";
 import { readLock } from "../src/lock.ts";
 import { readMarketplace } from "../src/marketplace.ts";
@@ -291,29 +291,6 @@ test("marketplace list groups installed plugins by source", async () => {
   }
 });
 
-test("marketplace upgrade refreshes installed and reports newly available", async () => {
-  const root = scratch();
-  try {
-    const remote = join(root, "remote");
-    writeNativeMarket(remote, ["sales", "finance", "ops"]);
-    const pluginsDir = join(root, "pdir");
-    const gitRunner = fakeClone(remote);
-    // Install only two of the three the source offers.
-    await addPlugins({ spec: "acme/market", pluginsDir, plugins: ["sales", "finance"], targets: ["codex"], gitRunner });
-
-    const [res] = await marketplaceUpgrade({ pluginsDir, source: "acme/market", targets: ["codex"], gitRunner });
-    assert.deepEqual(res!.updated.map((u) => u.name).sort(), ["finance", "sales"]);
-    assert.deepEqual(res!.available, ["ops"], "the uninstalled plugin is surfaced");
-    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"], "default upgrade does not install new ones");
-
-    // --all also installs what's newly available.
-    await marketplaceUpgrade({ pluginsDir, source: "acme/market", all: true, targets: ["codex"], gitRunner });
-    assert.deepEqual(lockNames(pluginsDir), ["finance", "ops", "sales"]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("marketplace remove uninstalls every plugin from a source", async () => {
   const root = scratch();
   try {
@@ -331,7 +308,9 @@ test("marketplace remove uninstalls every plugin from a source", async () => {
   }
 });
 
-test("marketplace upgrade rejects a local source and unknown source", async () => {
+// `marketplace upgrade` is now a thin alias for `updatePlugins`; assert the
+// named-source guards on `updatePlugins` directly (the path the alias reaches).
+test("update rejects a local source and unknown source", async () => {
   const root = scratch();
   try {
     const src = join(root, "src");
@@ -342,10 +321,10 @@ test("marketplace upgrade rejects a local source and unknown source", async () =
     // alpha installed from a local path → grouped under "(local)", not re-syncable.
     assert.equal(marketplaceList({ pluginsDir })[0]!.remote, false);
     await assert.rejects(
-      () => marketplaceUpgrade({ pluginsDir, source: "(local)" }),
+      () => updatePlugins({ pluginsDir, source: "(local)" }),
       /local .*cannot be re-synced/,
     );
-    await assert.rejects(() => marketplaceUpgrade({ pluginsDir, source: "nope/repo" }), /no installed source/);
+    await assert.rejects(() => updatePlugins({ pluginsDir, source: "nope/repo" }), /no installed source/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

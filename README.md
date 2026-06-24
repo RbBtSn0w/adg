@@ -227,15 +227,18 @@ adg plugins import-skills ~/.agents/skills --as asc --prefix asc- --dir plugins
 # project installed plugins into a runtime's discovery path (store stays the source of truth)
 adg plugins link   --target codex --global          # enable in one agent (regenerate .codex-plugin)
 adg plugins link   --target claude --global         # symlink into ~/.claude/skills/
-adg plugins unlink --target antigravity asc         # disable in one agent only; store untouched
+adg plugins unlink --target antigravity asc         # disable in one agent only (supports agent-only residuals)
+adg plugins unlink --target all asc                 # disable in all agents
 adg plugins sync   --target antigravity asc         # reconcile one agent to the store (clears residual)
-adg plugins marketplace sync owner/repo --target codex   # same, scoped to a whole source
+adg plugins sync   --target all --global            # reconcile all agents to the store in one go
+adg plugins marketplace sync owner/repo --target all     # same, scoped to a whole source across all agents
 
 # diagnose & maintain
-adg plugins status --target antigravity    # live-diff the store vs an agent; each drift row shows its fix
+adg plugins status --target antigravity    # live-diff store vs agent (isolates global plugins if project is uninitialized)
 adg plugins update --dir plugins           # re-fetch remote sources; rescan local ones in place
 adg plugins list --dir plugins             # list locked plugins
 adg plugins migrate --dir plugins          # move flat installs into per-marketplace dirs
+
 ```
 
 Two layers, two verb pairs. The **store** (`add` / `remove`) is the system of
