@@ -1,0 +1,459 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { adaptPlugin } from "../commands/adapt.ts";
+import { addPlugins } from "../commands/install.ts";
+import { validatePlugin } from "../commands/validate.ts";
+import { listPlugins } from "../commands/list.ts";
+import { importSkills } from "../commands/import.ts";
+import { linkPlugins } from "../commands/link.ts";
+import { unlinkPlugins } from "../commands/unlink.ts";
+import { syncPlugins } from "../commands/sync.ts";
+import { removePlugin } from "../commands/remove.ts";
+import { migrateLayout } from "../commands/migrate.ts";
+import { pluginStatus } from "../commands/status.ts";
+import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult } from "../commands/marketplace.ts";
+import { initScaffold, type InitType } from "../commands/init.ts";
+import { confirmFullInstall, selectComponentsInteractive } from "../commands/select-components.ts";
+import { selectPluginsInteractive } from "../commands/select-plugins.ts";
+import { selectTargetsInteractive } from "../commands/select-agents.ts";
+import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../commands/select-scope.ts";
+import { globalPluginsDir, projectPluginsDir, lockPath } from "../paths.ts";
+import { getAgent, type AgentScope } from "../agents/index.ts";
+import { ui } from "../render/ui.ts";
+import {
+  renderAgentReport,
+  renderMarketplaceList,
+  renderPluginList,
+  renderStatus,
+  renderUpdateReport,
+} from "../render/plugins.ts";
+import {
+  MARKETPLACE_USAGE,
+  PLUGIN_ALIASES,
+  PLUGIN_COMMANDS,
+  SCOPE,
+  fail,
+  parseVerb,
+  renderPluginsHelp,
+  renderVerbHelp,
+  requireSingleTarget,
+  resolveComponents,
+  resolveScopeDir,
+  resolveTargets,
+  scopeInfo,
+  scopeOf,
+  wantsHelp,
+  type ParsedValues,
+  type PluginCommand,
+} from "./index.ts";
+
+interface UpdateScopeTarget {
+  dir: string;
+  agentScope: AgentScope;
+  label: string;
+  /** Section heading printed before this scope's report (only set for "both"). */
+  heading?: string;
+}
+
+/**
+ * Resolve which scope(s) `plugins update` should refresh, mirroring
+ * `adg skills update`: an explicit --dir is a single ad-hoc location; otherwise
+ * --project/--global (or both) win, a terminal prompts for project/global/both,
+ * and a non-interactive run defaults to project when a project lock exists.
+ */
+async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTarget[]> {
+  if (typeof values.dir === "string") {
+    const dir = resolve(values.dir);
+    return [{ dir, agentScope: "project", label: dir }];
+  }
+  const project: UpdateScopeTarget = { dir: projectPluginsDir(), agentScope: "project", label: "project" };
+  const global: UpdateScopeTarget = { dir: globalPluginsDir(), agentScope: "user", label: "global" };
+
+  let choice: UpdateScope;
+  if (values.global && values.project) choice = "both";
+  else if (values.global) choice = "global";
+  else if (values.project) choice = "project";
+  else if (process.stdin.isTTY) choice = await selectUpdateScopeInteractive();
+  else choice = existsSync(lockPath(projectPluginsDir())) ? "project" : "global";
+
+  if (choice === "both") {
+    return [{ ...project, heading: "Project plugins" }, { ...global, heading: "Global plugins" }];
+  }
+  return [choice === "global" ? global : project];
+}
+
+/** Render an update/upgrade result: per-source changes, then per-agent re-sync. */
+function printUpdateReport(result: PluginUpdateResult): void {
+  for (const line of renderUpdateReport(result)) console.log(line);
+  for (const line of renderAgentReport(result.agents, "re-synced")) console.log(line);
+}
+
+/**
+ * Top-level dispatcher for `adg plugins <verb>`: render help, resolve aliases,
+ * look the verb up in the command table, then hand off to the per-verb handler
+ * (or the marketplace sub-dispatcher). Kept free of `spawnSync` so the whole
+ * dispatch surface is unit-testable.
+ */
+export async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<void> {
+  // `adg plugins` (no verb) or an explicit help request → the L1 overview.
+  if (rawVerb === undefined || rawVerb === "-h" || rawVerb === "--help" || rawVerb === "help") {
+    console.log(renderPluginsHelp());
+    return;
+  }
+
+  const verb = PLUGIN_ALIASES[rawVerb] ?? rawVerb;
+  const cmd = PLUGIN_COMMANDS[verb];
+  if (!cmd) {
+    console.error(`${ui.err("error:")} unknown plugins subcommand: ${rawVerb}\n`);
+    console.error(renderPluginsHelp());
+    process.exit(1);
+  }
+
+  // `adg plugins <verb> -h` → just this command's help. (marketplace handles
+  // its own sub-help, so let it through.)
+  if (!cmd.delegated && wantsHelp(rest)) {
+    console.log(renderVerbHelp(verb));
+    return;
+  }
+
+  if (verb === "marketplace") return runMarketplace(rest);
+  return runPluginsVerb(verb, rest, cmd);
+}
+
+async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<void> {
+  switch (verb) {
+    case "init": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const name = positionals[0];
+      if (!name) fail("plugins init requires a <name>");
+      const dir = values.dir ? resolve(values.dir) : resolve(process.cwd(), "plugins");
+      const type = (values.type ?? "plugin") as InitType;
+      if (type !== "plugin" && type !== "marketplace" && type !== "all") {
+        fail(`invalid --type "${values.type}" (expected plugin|marketplace|all)`);
+      }
+      const res = initScaffold({ name, dir, type, description: values.description, author: values.author, skill: values.skill?.[0] });
+      console.log(`${ui.ok(`created ${type}`)} at ${ui.name(res.pluginDir)}`);
+      for (const f of res.created) console.log(ui.meta(`  + ${f}`));
+      return;
+    }
+    case "adapt": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const pluginDir = resolve(positionals[0] ?? process.cwd());
+      for (const r of adaptPlugin(pluginDir, resolveTargets(values.target))) {
+        console.log(`${ui.ok("adapted")} ${ui.name(r.target)} ${ui.meta(`-> ${r.file}`)}`);
+      }
+      return;
+    }
+    case "validate": {
+      const { positionals } = parseVerb(verb, cmd.flags, rest);
+      const pluginDir = resolve(positionals[0] ?? process.cwd());
+      const res = validatePlugin(pluginDir);
+      if (res.ok) {
+        console.log(`${ui.ok("ok:")} ${ui.name(pluginDir)} is a valid ADG plugin`);
+      } else {
+        console.error(`${ui.err("invalid:")} ${ui.name(pluginDir)}`);
+        for (const i of res.issues) console.error(ui.warn(`  - ${i}`));
+        process.exit(1);
+      }
+      return;
+    }
+    case "add": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const spec = positionals[0];
+      if (!spec) fail("plugins add requires a <plugin-dir | owner/repo[@ref] | github-url>");
+      const tty = process.stdin.isTTY;
+      // Scope: honor an explicit --dir/--global/--project, else ask in a terminal
+      // (defaulting to project non-interactively).
+      let global = Boolean(values.global);
+      if (!values.dir && values.global === undefined && values.project === undefined && tty) {
+        global = await selectScopeInteractive();
+      }
+      const pluginsDir = values.dir
+        ? resolve(values.dir)
+        : global
+          ? globalPluginsDir()
+          : projectPluginsDir();
+      // A source may hold one plugin or a whole marketplace. addPlugins discovers
+      // all of them; in a terminal the user picks scope, then plugins, then agents,
+      // then (unless --only/--skill narrow it) chooses what to install per plugin.
+      // --all / --plugin / --path / --only / --skill narrow non-interactively.
+      const only = resolveComponents(values.only);
+      const skillsSubset = values.skill && values.skill.length > 0 ? values.skill : undefined;
+      const narrowed = only !== undefined || skillsSubset !== undefined;
+      const { order, installed, converted, agents } = await addPlugins({
+        spec,
+        pluginsDir,
+        ref: values.ref,
+        sparse: values.sparse,
+        path: values.path,
+        all: values.all,
+        plugins: values.plugin,
+        only,
+        skillsSubset,
+        withDeps: !values["no-deps"],
+        marketplaceName: values["marketplace-name"],
+        targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
+        selectPlugins: tty ? selectPluginsInteractive : undefined,
+        selectTargets: tty && values.target === undefined ? selectTargetsInteractive : undefined,
+        confirmFull: tty && !narrowed ? confirmFullInstall : undefined,
+        selectComponents: tty && !narrowed ? selectComponentsInteractive : undefined,
+        // Make the install actually usable in the chosen agents, not just stored.
+        activate: true,
+        scope: global ? "user" : "project",
+      });
+      for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
+      if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
+      for (const res of installed) {
+        console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
+        console.log(ui.meta(`  folderHash: ${res.folderHash}`));
+        for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
+      }
+      for (const line of renderAgentReport(agents, "enabled")) console.log(line);
+      return;
+    }
+    case "import-skills": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const dir = positionals[0];
+      if (!dir) fail("plugins import-skills requires a <skills-dir>");
+      if (!values.as) fail("plugins import-skills requires --as <plugin-name>");
+      const res = importSkills({
+        skillsDir: resolve(dir),
+        as: values.as,
+        prefix: values.prefix,
+        pluginsDir: resolveScopeDir(values),
+        description: values.description,
+      });
+      console.log(`${ui.ok("imported skills into")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
+      return;
+    }
+    case "link": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const targets = values.target === "all"
+        ? resolveTargets("all")
+        : [requireSingleTarget(values.target, "link")];
+      const names = positionals.length > 0 ? positionals : undefined;
+      for (const target of targets) {
+        const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+        for (const a of res.actions) {
+          console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
+          for (const f of a.adapted) console.log(ui.meta(`  adapted: ${f}`));
+        }
+        if (res.cliSkipped) {
+          console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
+        }
+      }
+      return;
+    }
+    case "unlink": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const targets = values.target === "all"
+        ? resolveTargets("all")
+        : [requireSingleTarget(values.target, "unlink")];
+      const names = positionals.length > 0 ? positionals : undefined;
+      for (const target of targets) {
+        const res = unlinkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+        for (const name of res.unlinked) console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
+        if (res.cliSkipped) {
+          console.log(ui.warn(`note: \`${target}\` CLI not found — nothing was unlinked from ${target}.`));
+        } else if (res.unlinked.length === 0) {
+          if (targets.length === 1) {
+            console.log(ui.meta(`nothing to unlink from ${target}`));
+          }
+        }
+      }
+      return;
+    }
+    case "sync": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const targets = values.target === "all"
+        ? resolveTargets("all")
+        : [requireSingleTarget(values.target, "sync")];
+      const names = positionals.length > 0 ? positionals : undefined;
+      for (const target of targets) {
+        const res = syncPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+        for (const a of res.actions) {
+          const tail = a.synced ? ui.meta(` -> ${res.target}`) : "";
+          console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
+        }
+        if (res.cliSkipped) {
+          console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were regenerated, but nothing was re-synced in ${target}.`));
+        }
+      }
+      return;
+    }
+    case "update": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const source = positionals[0];
+      for (const sc of await resolveUpdateScopes(values)) {
+        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+        try {
+          const result = await updatePlugins({
+            pluginsDir: sc.dir,
+            source,
+            all: values.all,
+            activate: true,
+            agentScope: sc.agentScope,
+            scope: { label: sc.label, globalDir: globalPluginsDir() },
+          });
+          printUpdateReport(result);
+        } catch (err) {
+          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      return;
+    }
+    case "remove": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const name = positionals[0];
+      if (!name) fail("plugins remove requires a <name>");
+      const res = removePlugin({
+        pluginsDir: resolveScopeDir(values),
+        name,
+        force: values.force,
+        deactivate: true,
+        scope: scopeOf(values),
+      });
+      if (res.removedDir) console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta(`-> ${res.removedDir}`)}`);
+      else console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta("(no directory on disk)")}`);
+      for (const link of res.unlinked) console.log(ui.meta(`  unlinked: ${link}`));
+      for (const r of res.agents ?? []) {
+        const display = getAgent(r.agent)?.displayName ?? r.agent;
+        if (r.affected.length > 0) console.log(ui.meta(`  disabled in ${display}`));
+        // CLI absent → the plugin may still be enabled there; surface the precise
+        // repair so a store-deleted plugin can't silently linger in that agent.
+        else if (r.skipped) {
+          console.log(ui.warn(`  ${r.agent} CLI not found — if enabled there, run \`adg plugins unlink --target ${r.agent} ${res.name}\``));
+        }
+      }
+      if (!res.removedFromLock && !res.removedDir) {
+        console.log(ui.warn(`  ${res.name} was not recorded in the lock`));
+      }
+      return;
+    }
+    case "list": {
+      const { values } = parseVerb(verb, cmd.flags, rest);
+      const pluginsDir = resolveScopeDir(values);
+      const plugins = listPlugins(pluginsDir);
+      for (const line of renderPluginList(plugins, pluginsDir, { verbose: values.verbose })) {
+        console.log(line);
+      }
+      return;
+    }
+    case "status": {
+      const { values } = parseVerb(verb, cmd.flags, rest);
+      const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
+      const statuses = pluginStatus({ pluginsDir: resolveScopeDir(values), scope: scopeOf(values), targets });
+      for (const line of renderStatus(statuses)) console.log(line);
+      return;
+    }
+    case "migrate": {
+      const { values } = parseVerb(verb, cmd.flags, rest);
+      const res = migrateLayout(resolveScopeDir(values));
+      for (const m of res.moved) console.log(`${ui.ok("moved")} ${ui.name(m.name)}: ${ui.meta(`${m.from} -> ${m.to}`)}`);
+      for (const m of res.missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
+      if (res.moved.length === 0) console.log(ui.meta(`nothing to migrate (${res.unchanged.length} already in place)`));
+      return;
+    }
+    // A verb present in PLUGIN_COMMANDS but missing here (other than `marketplace`,
+    // routed before this point) is a wiring bug, not user error — fail loudly
+    // rather than silently no-op.
+    default:
+      fail(`unhandled plugins verb: ${verb}`);
+  }
+}
+
+async function runMarketplace(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  // `marketplace <sub> -h` → the marketplace help (it documents every sub + flags).
+  if (sub !== undefined && wantsHelp(rest)) {
+    console.log(MARKETPLACE_USAGE);
+    return;
+  }
+  switch (sub) {
+    case undefined:
+    case "-h":
+    case "--help":
+    case "help":
+      console.log(MARKETPLACE_USAGE);
+      return;
+    case "list": {
+      const { values } = parseVerb("marketplace", ["verbose", ...SCOPE], rest);
+      const dir = resolveScopeDir(values);
+      const groups = marketplaceList({ pluginsDir: dir });
+      // Verbose: drill each plugin down to its components (reuses `plugins list -v`).
+      const byName = values.verbose ? new Map(listPlugins(dir).map((p) => [p.name, p])) : undefined;
+      for (const line of renderMarketplaceList(groups, byName)) console.log(line);
+      return;
+    }
+    case "upgrade": {
+      // Deprecated: a thin alias for `adg plugins update`. It runs the exact same
+      // update path (re-fetch + refresh, with the richer changed/unchanged/deleted
+      // report) so there is no second implementation to drift.
+      console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
+      const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
+      // Mirror `plugins update`'s error handling: report a failed re-fetch and
+      // exit cleanly rather than throwing to the top-level catch, so the two
+      // alias paths behave identically.
+      try {
+        const result = await updatePlugins({
+          pluginsDir: resolveScopeDir(values),
+          scope: scopeInfo(values),
+          activate: true,
+          agentScope: scopeOf(values),
+          source: positionals[0],
+          all: values.all,
+          targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
+        });
+        printUpdateReport(result);
+      } catch (err) {
+        console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+    case "remove":
+    case "rm": {
+      const { values, positionals } = parseVerb("marketplace", ["force", ...SCOPE], rest);
+      const source = positionals[0];
+      if (!source) fail("marketplace remove requires a <source>");
+      const res = marketplaceRemove({
+        pluginsDir: resolveScopeDir(values),
+        scope: scopeInfo(values),
+        agentScope: scopeOf(values),
+        source,
+        force: values.force,
+        deactivate: true,
+      });
+      console.log(`${ui.ok("removed")} ${res.removed.length} plugin(s) from ${ui.name(res.source)}: ${res.removed.join(", ")}`);
+      return;
+    }
+    case "sync": {
+      const { values, positionals } = parseVerb("marketplace", ["target", ...SCOPE], rest);
+      const source = positionals[0];
+      if (!source) fail("marketplace sync requires a <source>");
+      const targets = values.target === "all"
+        ? resolveTargets("all")
+        : [requireSingleTarget(values.target, "marketplace sync")];
+      for (const target of targets) {
+        const res = marketplaceSync({
+          pluginsDir: resolveScopeDir(values),
+          scope: scopeInfo(values),
+          source,
+          target,
+          global: Boolean(values.global),
+        });
+        for (const a of res.actions) {
+          console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.synced ? ui.meta(` -> ${res.target}`) : ""}`);
+        }
+        if (res.cliSkipped) {
+          console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were regenerated, but nothing was re-synced in ${target}.`));
+        }
+      }
+      return;
+    }
+    default: {
+      console.error(`${ui.err("error:")} unknown marketplace subcommand: ${sub}\n`);
+      console.error(MARKETPLACE_USAGE);
+      process.exit(1);
+    }
+  }
+}

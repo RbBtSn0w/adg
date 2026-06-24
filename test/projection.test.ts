@@ -112,6 +112,21 @@ test("unlink rejects an unknown plugin name", () => {
   rmSync(work, { recursive: true });
 });
 
+test("unlink allows deactivating an agent-only plugin (present in agent but not in store)", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+
+  const rec = recorder();
+  // agent has "gamma" (agent-only, not seeded in store)
+  const agent = fakeAgent("codex", rec, { installed: ["gamma"] });
+  const res = unlinkPlugins({ pluginsDir: store, target: "codex", names: ["gamma"], agent });
+
+  assert.deepEqual(res.unlinked, ["gamma"]);
+  assert.deepEqual(rec.deactivate.map((c) => c.plugins), [["gamma"]]);
+  rmSync(work, { recursive: true });
+});
+
 test("unlink reports cliSkipped when the agent CLI is unavailable", () => {
   const work = tmp();
   const store = join(work, "store");

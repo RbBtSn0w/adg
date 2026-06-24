@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
 import { listPlugins } from "./list.ts";
 import { allAgents, resolveAgents, type Agent, type AgentScope } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
+import { lockPath } from "../paths.ts";
 
 /**
  * `adg plugins status` — compare the store against what each agent actually has
@@ -44,19 +46,30 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
   // can't be queried reports "unknown" anyway — so this never silently drops one.
   const agents = opts.agents ?? (opts.targets ? resolveAgents(opts.targets) : allAgents());
 
+  const hasProjectLock = existsSync(lockPath(opts.pluginsDir));
+
   return agents.map((a) => {
     const installed = a.listInstalled?.({ pluginsDir: opts.pluginsDir, plugins: [], scope: opts.scope });
     if (installed === undefined) {
       return { id: a.id, displayName: a.displayName, queryable: false, inSync: [], missing: [], agentOnly: [] };
     }
     const agentSet = new Set(installed);
+
+    // If we're in project scope and the project doesn't have an ADG lock file,
+    // the project is not initialized with ADG plugins. We should not report global
+    // or other projects' plugins as "agent only" since they are unrelated.
+    const agentOnly = (opts.scope === "project" && !hasProjectLock)
+      ? []
+      : installed.filter((n) => !storeSet.has(n));
+
     return {
       id: a.id,
       displayName: a.displayName,
       queryable: true,
       inSync: store.filter((n) => agentSet.has(n)),
       missing: store.filter((n) => !agentSet.has(n)),
-      agentOnly: installed.filter((n) => !storeSet.has(n)),
+      agentOnly,
     };
   });
 }
+

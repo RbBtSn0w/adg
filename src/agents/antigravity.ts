@@ -8,7 +8,7 @@ import { isExposed } from "../components.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { ANTIGRAVITY_PROJECTION_DIR } from "../adapters/antigravity.ts";
-import { makeCli } from "./base.ts";
+import { makeCli, skippedResult } from "./base.ts";
 import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
@@ -154,7 +154,7 @@ export const antigravityAgent: Agent = {
   available,
 
   activate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: ID, affected: [], skipped: true };
+    if (!available()) return skippedResult(ID);
     // Query agy once up front so the pre-install uninstall below is issued only
     // for plugins that are actually present (a brand-new plugin has no residual
     // to clear). `undefined` (couldn't enumerate) falls back to always
@@ -185,7 +185,7 @@ export const antigravityAgent: Agent = {
   },
 
   deactivate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: ID, affected: [], skipped: true };
+    if (!available()) return skippedResult(ID);
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       if (run(["plugin", "uninstall", p]).ok) affected.push(p);

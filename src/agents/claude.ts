@@ -5,7 +5,7 @@ import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { makeCli } from "./base.ts";
+import { makeCli, skippedResult } from "./base.ts";
 import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
 
 /**
@@ -83,7 +83,7 @@ export const claudeAgent: Agent = {
   available,
 
   activate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: "claude", affected: [], skipped: true };
+    if (!available()) return skippedResult("claude");
     writeClaudeCatalog(ctx.pluginsDir);
     syncMarketplace(ctx.pluginsDir);
     const affected: string[] = [];
@@ -94,7 +94,7 @@ export const claudeAgent: Agent = {
   },
 
   deactivate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: "claude", affected: [], skipped: true };
+    if (!available()) return skippedResult("claude");
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       if (run(["plugin", "uninstall", p, "--scope", ctx.scope]).ok) affected.push(p);
@@ -103,7 +103,7 @@ export const claudeAgent: Agent = {
   },
 
   refresh(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: "claude", affected: [], skipped: true };
+    if (!available()) return skippedResult("claude");
     // Claude caches a copy on install and won't re-pull from a local marketplace,
     // so uninstall (keeping data) then re-install to force a fresh copy.
     for (const p of ctx.plugins) run(["plugin", "uninstall", p, "--scope", ctx.scope, "--keep-data"]);

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { marketplacePath } from "../paths.ts";
 import { readMarketplace } from "../marketplace.ts";
-import { makeCli } from "./base.ts";
+import { makeCli, skippedResult } from "./base.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
 /**
@@ -34,7 +34,7 @@ export const codexAgent: Agent = {
 
   activate(ctx: AgentContext): AgentSyncResult {
     const mp = marketplaceName(ctx.pluginsDir);
-    if (!available()) return { agent: "codex", affected: [], skipped: true };
+    if (!available()) return skippedResult("codex");
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       if (run(["plugin", "add", `${p}@${mp}`]).ok) affected.push(p);
@@ -44,7 +44,7 @@ export const codexAgent: Agent = {
 
   deactivate(ctx: AgentContext): AgentSyncResult {
     const mp = marketplaceName(ctx.pluginsDir);
-    if (!available()) return { agent: "codex", affected: [], skipped: true };
+    if (!available()) return skippedResult("codex");
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       if (run(["plugin", "remove", `${p}@${mp}`]).ok) affected.push(p);
