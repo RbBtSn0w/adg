@@ -77,10 +77,11 @@ async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTar
 
   // Home==global trap: a "project" (or "both") scope whose store resolves to the
   // global store would re-pin global plugins to the cwd. Collapse to global.
-  if (choice !== "global" && projectPluginsDir() === globalPluginsDir()) {
+  // Reuse the dirs already resolved above instead of walking the filesystem again.
+  if (choice !== "global" && project.dir === global.dir) {
     console.error(
       ui.warn(
-        `note: the project store resolves to the global store (${globalPluginsDir()}); updating global only so plugins aren't pinned to a project (cwd) scope.`,
+        `note: the project store resolves to the global store (${global.dir}); updating global only so plugins aren't pinned to a project (cwd) scope.`,
       ),
     );
     choice = "global";
