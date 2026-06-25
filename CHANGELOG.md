@@ -1,3 +1,9 @@
+## [0.4.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.2...0.4.0-beta.3) (2026-06-25)
+
+### Added
+
+* **plugins:** guide scope for mutating verbs and guard the home==global trap ([#31](https://github.com/RbBtSn0w/adg/issues/31)) ([433d95b](https://github.com/RbBtSn0w/adg/commit/433d95b7fbfc98d05606cc9e4ec11d2ba6df8868))
+
 ## [0.4.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.1...0.4.0-beta.2) (2026-06-25)
 
 ### Fixed
