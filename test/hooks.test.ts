@@ -85,3 +85,39 @@ test("parseAdgHooks rejects a wrong schema version and malformed actions", () =>
   // A well-formed document parses through unchanged.
   assert.equal(parseAdgHooks(SUPERPOWERS), SUPERPOWERS);
 });
+
+test("parseAdgHooks rejects an unknown override target key", () => {
+  const bad = {
+    schemaVersion: "adg.hooks/v1",
+    hooks: {
+      SessionStart: [
+        { matcherByTarget: { claud: "x" }, actions: [{ type: "command", command: "${PLUGIN_ROOT}/x" }] },
+      ],
+    },
+  };
+  assert.throws(() => parseAdgHooks(bad), /unknown target "claud"/);
+  const badCmd = {
+    schemaVersion: "adg.hooks/v1",
+    hooks: { SessionStart: [{ actions: [{ type: "command", command: "${PLUGIN_ROOT}/x", commandByTarget: { gemini: "y" } }] }] },
+  };
+  assert.throws(() => parseAdgHooks(badCmd), /unknown target "gemini"/);
+});
+
+test("parseAdgHooks rejects a reserved event name (prototype-pollution guard)", () => {
+  // JSON.parse makes "__proto__" an *own* property; the parser must reject it
+  // rather than let it reach a map assignment.
+  const evil = JSON.parse(
+    '{"schemaVersion":"adg.hooks/v1","hooks":{"__proto__":[{"actions":[{"type":"command","command":"${PLUGIN_ROOT}/x"}]}]}}',
+  );
+  assert.throws(() => parseAdgHooks(evil), /reserved/);
+});
+
+test("compileHooks defensively skips a reserved event name with a warning", () => {
+  const evil = JSON.parse(
+    '{"schemaVersion":"adg.hooks/v1","hooks":{"__proto__":[{"actions":[{"type":"command","command":"${PLUGIN_ROOT}/x"}]}]}}',
+  ) as AdgHooks;
+  const { hooks, warnings } = compileHooks(evil, "codex");
+  assert.ok(!Object.prototype.hasOwnProperty.call(hooks.hooks, "__proto__"), "reserved event must not be emitted");
+  assert.equal(Object.getPrototypeOf(hooks.hooks), Object.prototype, "result prototype is intact");
+  assert.match(warnings.join("\n"), /reserved hook event name "__proto__"/);
+});

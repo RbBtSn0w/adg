@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
 import { resolveProjectedSkills } from "../skills.ts";
@@ -9,9 +9,10 @@ import type { AdapterResult } from "./index.ts";
  * Resolve the hooks config *file* Codex should reference. ADG declares `hooks` as
  * a directory, but Codex (unlike Claude) has no auto-load — it needs an explicit
  * file path. Prefer a Codex-specific variant (`hooks/hooks-codex.json`, the
- * convention upstream plugins like superpowers use), else the standard
- * `hooks/hooks.json`. An explicit `*.json` reference passes through; an
- * unresolvable directory yields undefined so the caller omits `hooks`.
+ * convention upstream plugins like superpowers use), then the standard
+ * `hooks/hooks.json`, else the directory's sole `*.json`. An explicit `*.json`
+ * reference passes through; an unresolvable/ambiguous directory yields undefined
+ * so the caller omits `hooks`.
  */
 export function resolveCodexHooksFile(pluginDir: string, hooks: string): string | undefined {
   const rel = hooks.replace(/\/+$/, "");
@@ -20,7 +21,8 @@ export function resolveCodexHooksFile(pluginDir: string, hooks: string): string 
     for (const candidate of ["hooks-codex.json", "hooks.json"]) {
       if (existsSync(join(abs, candidate))) return `${rel}/${candidate}`;
     }
-    return undefined;
+    const jsons = readdirSync(abs).filter((f) => f.endsWith(".json") && statSync(join(abs, f)).isFile());
+    return jsons.length === 1 ? `${rel}/${jsons[0]}` : undefined;
   }
   // A file (or a path missing on disk): only trust an explicit *.json reference.
   return hooks.endsWith(".json") ? hooks : undefined;

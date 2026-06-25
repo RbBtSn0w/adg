@@ -37,7 +37,7 @@ export function resolveClaudeHooksFile(pluginDir: string, hooks: string): string
   } else if (existsSync(abs) && statSync(abs).isDirectory()) {
     if (existsSync(join(abs, "hooks.json"))) file = `${rel}/hooks.json`;
     else {
-      const jsons = readdirSync(abs).filter((f) => f.endsWith(".json"));
+      const jsons = readdirSync(abs).filter((f) => f.endsWith(".json") && statSync(join(abs, f)).isFile());
       file = jsons.length === 1 ? `${rel}/${jsons[0]}` : undefined;
     }
   } else {

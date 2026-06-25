@@ -103,6 +103,10 @@ const KNOWN_EVENTS = new Set([
   "SessionEnd",
 ]);
 
+/** Reserved object keys that must never be used as event names (prototype-pollution guard). */
+const UNSAFE_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
+const isUnsafeKey = (key: string): boolean => UNSAFE_KEYS.has(key);
+
 /** Replace the canonical `${PLUGIN_ROOT}` token with the target's env variable. */
 function translateEnv(value: string, target: HookTarget): string {
   // Function replacement so `$` in the substitution is never treated specially.
@@ -119,6 +123,13 @@ export function compileHooks(src: AdgHooks, target: HookTarget): { hooks: Native
   const out: NativeHooks = { hooks: {} };
 
   for (const [event, entries] of Object.entries(src.hooks)) {
+    if (isUnsafeKey(event)) {
+      // Defensive: a reserved name (e.g. "__proto__") would mutate the map's
+      // prototype rather than add an event. parseAdgHooks rejects these at the
+      // authoring boundary; skip-with-warning covers direct callers.
+      warnings.push(`skipped reserved hook event name "${event}"`);
+      continue;
+    }
     if (!KNOWN_EVENTS.has(event)) {
       warnings.push(`unknown hook event "${event}" — emitted for ${target} but it may not fire`);
     }
@@ -155,6 +166,17 @@ export function liftHooks(natives: Partial<Record<HookTarget, NativeHooks>>): { 
   const out: AdgHooks = { schemaVersion: ADG_HOOKS_SCHEMA_VERSION, hooks: {} };
 
   for (const event of events) {
+    if (isUnsafeKey(event)) {
+      warnings.push(`skipped reserved hook event name "${event}"`);
+      continue;
+    }
+    // An event only some targets define becomes a *shared* entry after compile —
+    // so it would start firing on agents that never had it. Surface that.
+    const definedIn = present.filter((t) => natives[t]!.hooks[event]);
+    if (present.length > 1 && definedIn.length < present.length) {
+      warnings.push(`hook event "${event}" is only defined for ${definedIn.join(", ")}; it will apply to every agent after compile`);
+    }
+
     const primary: HookTarget = natives.claude?.hooks[event] ? "claude" : "codex";
     const other = present.find((t) => t !== primary && natives[t]!.hooks[event]);
     const baseEntries = natives[primary]!.hooks[event]!;
@@ -259,6 +281,17 @@ export function compileHooksToDisk(pluginDir: string, targets: readonly string[]
  * pointed message rather than letting a malformed document surface as a deep
  * runtime error during compilation.
  */
+const VALID_TARGETS: ReadonlySet<string> = new Set<HookTarget>(["claude", "codex"]);
+
+/** Reject an unknown target key in an override map — it would be silently ignored at compile time. */
+function checkTargetKeys(value: unknown, where: string): void {
+  if (value === undefined) return;
+  if (typeof value !== "object" || value === null) throw new Error(`${where} must be an object`);
+  for (const key of Object.keys(value)) {
+    if (!VALID_TARGETS.has(key)) throw new Error(`${where} has unknown target "${key}" (expected claude|codex)`);
+  }
+}
+
 export function parseAdgHooks(raw: unknown): AdgHooks {
   if (typeof raw !== "object" || raw === null) throw new Error("hooks document must be a JSON object");
   const d = raw as Record<string, unknown>;
@@ -267,14 +300,17 @@ export function parseAdgHooks(raw: unknown): AdgHooks {
   }
   if (typeof d.hooks !== "object" || d.hooks === null) throw new Error("hooks document missing `hooks` map");
   for (const [event, entries] of Object.entries(d.hooks as Record<string, unknown>)) {
+    if (isUnsafeKey(event)) throw new Error(`hook event name "${event}" is reserved and not allowed`);
     if (!Array.isArray(entries)) throw new Error(`hook event "${event}" must be an array of entries`);
     for (const entry of entries) {
       const e = entry as Record<string, unknown>;
       if (!Array.isArray(e.actions)) throw new Error(`hook event "${event}" entry missing \`actions\` array`);
+      checkTargetKeys(e.matcherByTarget, `hook event "${event}" matcherByTarget`);
       for (const action of e.actions as unknown[]) {
         const a = action as Record<string, unknown>;
         if (a.type !== "command") throw new Error(`hook action in "${event}" must have type "command"`);
         if (typeof a.command !== "string") throw new Error(`hook action in "${event}" missing string \`command\``);
+        checkTargetKeys(a.commandByTarget, `hook action in "${event}" commandByTarget`);
       }
     }
   }

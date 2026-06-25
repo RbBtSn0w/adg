@@ -36,6 +36,21 @@ test("liftHooks from a single target canonicalizes the env token (no overrides)"
   assert.equal(action.commandByTarget, undefined, "no override when only one target is lifted");
 });
 
+test("liftHooks warns when an event is only defined for one of several targets", () => {
+  // claude defines SessionStart + Stop; codex defines only SessionStart. Lifting
+  // Stop into the shared doc would make it fire on codex too — that must warn.
+  const claudeNative: NativeHooks = {
+    hooks: {
+      SessionStart: [{ hooks: [{ type: "command", command: "${PLUGIN_ROOT}/a" }] }],
+      Stop: [{ hooks: [{ type: "command", command: "${PLUGIN_ROOT}/b" }] }],
+    },
+  };
+  const codexNative: NativeHooks = { hooks: { SessionStart: [{ hooks: [{ type: "command", command: "${PLUGIN_ROOT}/a" }] }] } };
+  const { warnings } = liftHooks({ claude: claudeNative, codex: codexNative });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /hook event "Stop" is only defined for claude/);
+});
+
 test("liftHooks reports a shape mismatch instead of dropping it", () => {
   const claudeNative: NativeHooks = { hooks: { SessionStart: [{ hooks: [{ type: "command", command: "${PLUGIN_ROOT}/a" }] }] } };
   const codexNative: NativeHooks = { hooks: { SessionStart: [] } };

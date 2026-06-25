@@ -94,6 +94,17 @@ test("codex adapter prefers the codex hook variant, else the standard file", () 
   rmSync(dir, { recursive: true });
 });
 
+test("codex adapter falls back to the sole non-standard *.json file", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  // No hooks-codex.json / hooks.json, but a single config → reference it (Codex
+  // has no auto-load, so omitting would lose the hooks entirely).
+  writeFileSync(join(dir, "hooks", "custom.json"), "{}");
+  const out = toCodexManifest(dir, { ...baseManifest, hooks: "./hooks/" }).manifest;
+  assert.equal(out.hooks, "./hooks/custom.json");
+  rmSync(dir, { recursive: true });
+});
+
 test("codex adapter omits hooks for an unresolvable dir or when not selected", () => {
   const dir = tmp();
   mkdirSync(join(dir, "hooks"), { recursive: true });

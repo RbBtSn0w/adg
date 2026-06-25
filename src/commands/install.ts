@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
@@ -291,7 +291,8 @@ function discoverPlugins(root: string): { candidates: Map<string, PluginCandidat
     // hooks — so the reverse-adapt would silently drop the hooks payload. Recover
     // it from disk: a hooks/ directory means the ADG manifest must declare it, or
     // packagedRoots won't copy it and every downstream projection loses hooks.
-    if (!manifest.hooks && existsSync(join(native.dir, "hooks"))) {
+    const hooksDir = join(native.dir, "hooks");
+    if (!manifest.hooks && existsSync(hooksDir) && statSync(hooksDir).isDirectory()) {
       manifest.hooks = "./hooks/";
     }
     writeJson(join(native.dir, ADG_MANIFEST_PATH), manifest);

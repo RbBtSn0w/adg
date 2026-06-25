@@ -177,13 +177,14 @@ matcher vocabularies differ (e.g. `startup|clear|compact` vs
   `hooks/hooks.json`). Nothing is rewritten.
 
 - **Universal DSL (recommended, author once)** — add `.agents/hooks.json`
-  (`adg.hooks/v1`). Write the canonical command with `${PLUGIN_ROOT}`; capture
-  the parts that genuinely differ per agent as `matcherByTarget` /
-  `commandByTarget` overrides. On `adapt`/install ADG compiles it to each
-  target's native file (`hooks/hooks.json`, `hooks/hooks-codex.json`),
-  translating the env token and applying overrides. The compiled files ship but
-  do not count toward the content hash. An event ADG doesn't recognize is still
-  emitted, with a warning.
+  (`adg.hooks/v1`). Write the canonical command with the **braced** `${PLUGIN_ROOT}`
+  token (only `${PLUGIN_ROOT}` is translated — a bare `$PLUGIN_ROOT` is left
+  as-is); capture the parts that genuinely differ per agent as `matcherByTarget` /
+  `commandByTarget` overrides (keyed by `claude`/`codex`). On `adapt`/install ADG
+  compiles it to each target's native file (`hooks/hooks.json`,
+  `hooks/hooks-codex.json`), translating the env token and applying overrides. The
+  compiled files ship but do not count toward the content hash. An event ADG
+  doesn't recognize is still emitted, with a warning.
 
   ```json
   {
