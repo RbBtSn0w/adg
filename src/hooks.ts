@@ -276,22 +276,24 @@ export function compileHooksToDisk(pluginDir: string, targets: readonly string[]
   return written;
 }
 
-/**
- * Parse and shallowly validate a raw `.agents/hooks.json` payload. Throws with a
- * pointed message rather than letting a malformed document surface as a deep
- * runtime error during compilation.
- */
 const VALID_TARGETS: ReadonlySet<string> = new Set<HookTarget>(["claude", "codex"]);
 
 /** Reject an unknown target key in an override map — it would be silently ignored at compile time. */
 function checkTargetKeys(value: unknown, where: string): void {
   if (value === undefined) return;
-  if (typeof value !== "object" || value === null) throw new Error(`${where} must be an object`);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${where} must be an object keyed by target`);
+  }
   for (const key of Object.keys(value)) {
     if (!VALID_TARGETS.has(key)) throw new Error(`${where} has unknown target "${key}" (expected claude|codex)`);
   }
 }
 
+/**
+ * Parse and shallowly validate a raw `.agents/hooks.json` payload. Throws with a
+ * pointed message rather than letting a malformed document surface as a deep
+ * runtime error during compilation.
+ */
 export function parseAdgHooks(raw: unknown): AdgHooks {
   if (typeof raw !== "object" || raw === null) throw new Error("hooks document must be a JSON object");
   const d = raw as Record<string, unknown>;

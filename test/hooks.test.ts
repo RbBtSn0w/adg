@@ -101,6 +101,13 @@ test("parseAdgHooks rejects an unknown override target key", () => {
     hooks: { SessionStart: [{ actions: [{ type: "command", command: "${PLUGIN_ROOT}/x", commandByTarget: { gemini: "y" } }] }] },
   };
   assert.throws(() => parseAdgHooks(badCmd), /unknown target "gemini"/);
+
+  // An array override map is malformed (and would be silently ignored at compile).
+  const arrayOverride = {
+    schemaVersion: "adg.hooks/v1",
+    hooks: { SessionStart: [{ matcherByTarget: ["claude"], actions: [{ type: "command", command: "${PLUGIN_ROOT}/x" }] }] },
+  };
+  assert.throws(() => parseAdgHooks(arrayOverride), /keyed by target/);
 });
 
 test("parseAdgHooks rejects a reserved event name (prototype-pollution guard)", () => {
