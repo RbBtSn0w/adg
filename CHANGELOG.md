@@ -1,3 +1,14 @@
+## [0.4.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.1...0.4.0-beta.2) (2026-06-25)
+
+### Fixed
+
+* **release:** add release rules for refactor type to trigger patch releases ([973ccda](https://github.com/RbBtSn0w/adg/commit/973ccda44369d456c65249b22a1f1ac23c1f18fc))
+
+### Changed
+
+* decompose bin/adg.ts, memoize CLI probe, dedup agent skips, alias marketplace upgrade ([#26](https://github.com/RbBtSn0w/adg/issues/26)) ([#29](https://github.com/RbBtSn0w/adg/issues/29)) ([a93f643](https://github.com/RbBtSn0w/adg/commit/a93f6431793e1c546f396660eeb776adb007889a))
+* remove asc and github-cr plugin files and update .gitignore ([e3b0a7a](https://github.com/RbBtSn0w/adg/commit/e3b0a7a78a75ce5ced17439a73c4b70c09705a3c))
+
 ## [0.4.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.3.0...0.4.0-beta.1) (2026-06-23)
 
 ### Added
