@@ -187,6 +187,42 @@ export function liftHooks(natives: Partial<Record<HookTarget, NativeHooks>>): { 
   return { hooks: out, warnings };
 }
 
+/** Outcome of lifting a plugin's native hook files into the universal DSL. */
+export interface LiftHooksResult {
+  /** The written DSL file, plugin-relative (`.agents/hooks.json`). */
+  file: string;
+  /** Which native targets were found and lifted. */
+  sources: HookTarget[];
+  warnings: string[];
+}
+
+/**
+ * Read a plugin's native hook files (`hooks/hooks.json`, `hooks/hooks-codex.json`)
+ * and lift them into one universal `.agents/hooks.json`, the inverse of the
+ * compile step. Returns undefined when the plugin ships no native hooks (nothing
+ * to convert). The native files are left in place — a later adapt regenerates
+ * them from the DSL. Throws on a malformed native file rather than guessing.
+ */
+export function liftHooksFromDisk(pluginDir: string): LiftHooksResult | undefined {
+  const natives: Partial<Record<HookTarget, NativeHooks>> = {};
+  const sources: HookTarget[] = [];
+  for (const target of Object.keys(HOOK_OUTPUT) as HookTarget[]) {
+    const file = join(pluginDir, HOOK_OUTPUT[target]);
+    if (!existsSync(file)) continue;
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    if (typeof parsed !== "object" || parsed === null || typeof (parsed as NativeHooks).hooks !== "object") {
+      throw new Error(`${HOOK_OUTPUT[target]} is not a valid hooks file (missing \`hooks\` map)`);
+    }
+    natives[target] = parsed as NativeHooks;
+    sources.push(target);
+  }
+  if (sources.length === 0) return undefined;
+
+  const { hooks, warnings } = liftHooks(natives);
+  writeJson(join(pluginDir, ADG_HOOKS_PATH), hooks);
+  return { file: ADG_HOOKS_PATH, sources, warnings };
+}
+
 /** One compiled hook file written to disk, with any warnings from compilation. */
 export interface CompiledHookFile {
   /** Plugin-relative output path (e.g. "hooks/hooks.json"). */

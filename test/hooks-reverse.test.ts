@@ -1,12 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { liftHooks, compileHooks, type NativeHooks } from "../src/hooks.ts";
+import { liftHooks, liftHooksFromDisk, compileHooks, type AdgHooks, type NativeHooks } from "../src/hooks.ts";
+import { runPlugins } from "../src/cli/handlers.ts";
 
-const fixture = (rel: string): NativeHooks =>
-  JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/superpowers/${rel}`, import.meta.url)), "utf8"));
+const FIXTURE = fileURLToPath(new URL("./fixtures/superpowers", import.meta.url));
+const fixture = (rel: string): NativeHooks => JSON.parse(readFileSync(join(FIXTURE, rel), "utf8"));
+const tmp = (): string => mkdtempSync(join(tmpdir(), "adg-lift-"));
 
 /**
  * Reverse (lift) must be the faithful inverse of compile: lifting superpowers'
@@ -38,4 +42,59 @@ test("liftHooks reports a shape mismatch instead of dropping it", () => {
   const { warnings } = liftHooks({ claude: claudeNative, codex: codexNative });
   assert.equal(warnings.length, 1);
   assert.match(warnings[0]!, /different shape per target/);
+});
+
+// ---- liftHooksFromDisk (reads/writes a plugin dir) ----
+
+test("liftHooksFromDisk writes a .agents/hooks.json that compiles back to both natives", () => {
+  const dir = tmp();
+  try {
+    cpSync(FIXTURE, dir, { recursive: true });
+    const res = liftHooksFromDisk(dir)!;
+    assert.equal(res.file, ".agents/hooks.json");
+    assert.deepEqual(res.sources, ["claude", "codex"]);
+    assert.deepEqual(res.warnings, []);
+
+    const dsl = JSON.parse(readFileSync(join(dir, ".agents", "hooks.json"), "utf8")) as AdgHooks;
+    assert.equal(dsl.schemaVersion, "adg.hooks/v1");
+    assert.deepEqual(compileHooks(dsl, "claude").hooks, fixture("hooks/hooks.json"));
+    assert.deepEqual(compileHooks(dsl, "codex").hooks, fixture("hooks/hooks-codex.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("liftHooksFromDisk is a no-op (undefined) when the plugin ships no native hooks", () => {
+  const dir = tmp();
+  try {
+    assert.equal(liftHooksFromDisk(dir), undefined);
+    assert.ok(!existsSync(join(dir, ".agents", "hooks.json")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("liftHooksFromDisk throws on a malformed native hooks file", () => {
+  const dir = tmp();
+  try {
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(join(dir, "hooks", "hooks.json"), '{"not":"hooks"}');
+    assert.throws(() => liftHooksFromDisk(dir), /not a valid hooks file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("`plugins lift-hooks <dir>` writes the unified DSL", async () => {
+  const dir = tmp();
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    cpSync(FIXTURE, dir, { recursive: true });
+    await runPlugins("lift-hooks", [dir]);
+    assert.ok(existsSync(join(dir, ".agents", "hooks.json")), "lift-hooks must write the DSL file");
+  } finally {
+    console.log = origLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

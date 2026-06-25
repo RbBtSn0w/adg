@@ -209,6 +209,12 @@ matcher vocabularies differ (e.g. `startup|clear|compact` vs
 
   Schema: [adg-hooks.schema.json](../schemas/adg-hooks.schema.json).
 
+  **Migrating an existing plugin** — already maintain native `hooks/hooks.json` +
+  `hooks/hooks-codex.json` by hand? Run `adg plugins lift-hooks [<dir>]` to fold
+  both into one `.agents/hooks.json` (canonicalizing the env token and capturing
+  per-agent differences as overrides). The native files stay put; a later `adapt`
+  regenerates them from the DSL.
+
 ---
 
 ## Dependencies

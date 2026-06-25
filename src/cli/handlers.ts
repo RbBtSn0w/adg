@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { adaptPlugin } from "../commands/adapt.ts";
+import { liftHooksFromDisk } from "../hooks.ts";
 import { addPlugins } from "../commands/install.ts";
 import { validatePlugin } from "../commands/validate.ts";
 import { listPlugins } from "../commands/list.ts";
@@ -231,6 +232,18 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       for (const r of adaptPlugin(pluginDir, resolveTargets(values.target))) {
         console.log(`${ui.ok("adapted")} ${ui.name(r.target)} ${ui.meta(`-> ${r.file}`)}`);
       }
+      return;
+    }
+    case "lift-hooks": {
+      const { positionals } = parseVerb(verb, cmd.flags, rest);
+      const pluginDir = resolve(positionals[0] ?? process.cwd());
+      const res = liftHooksFromDisk(pluginDir);
+      if (!res) {
+        console.log(ui.meta(`no native hooks found in ${pluginDir} (looked for hooks/hooks.json, hooks/hooks-codex.json)`));
+        return;
+      }
+      console.log(`${ui.ok("lifted")} ${ui.name(res.sources.join(" + "))} ${ui.meta(`-> ${res.file}`)}`);
+      for (const w of res.warnings) console.error(ui.warn(`  ${w}`));
       return;
     }
     case "validate": {
