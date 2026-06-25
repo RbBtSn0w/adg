@@ -17,7 +17,7 @@ import {
   resolveTargets,
   scopeOf,
 } from "../src/cli/index.ts";
-import { runPlugins } from "../src/cli/handlers.ts";
+import { projectStoreIsGlobalTrap, runPlugins } from "../src/cli/handlers.ts";
 
 // `fail()` (reached by every invalid-input path) calls `process.exit(1)`, which
 // would kill the test runner. Stub it to throw so the exit path is assertable,
@@ -41,6 +41,48 @@ function expectFail(fn: () => unknown): void {
     console.error = origErr;
   }
 }
+
+// Async twin of expectFail: a mutating verb resolves its scope asynchronously,
+// so the non-interactive "needs an explicit scope" guard exits from a promise.
+async function expectFailAsync(fn: () => Promise<unknown>): Promise<void> {
+  const origExit = process.exit;
+  const origErr = console.error;
+  let exited = false;
+  process.exit = ((code?: number) => {
+    exited = true;
+    throw new Error(`process.exit(${code})`);
+  }) as never;
+  console.error = () => {};
+  try {
+    await fn();
+    assert.fail("expected the call to exit");
+  } catch (err) {
+    assert.equal(exited, true, `expected process.exit, got: ${String(err)}`);
+  } finally {
+    process.exit = origExit;
+    console.error = origErr;
+  }
+}
+
+test("projectStoreIsGlobalTrap flags only a project scope whose store is the global store", () => {
+  // The home==global trap: project scope, but the resolved dirs coincide.
+  assert.equal(projectStoreIsGlobalTrap(false, "/h/.agents/plugins", "/h/.agents/plugins"), true);
+  // Explicit global is never the trap.
+  assert.equal(projectStoreIsGlobalTrap(true, "/h/.agents/plugins", "/h/.agents/plugins"), false);
+  // A genuine project store distinct from global is fine.
+  assert.equal(projectStoreIsGlobalTrap(false, "/repo/.agents/plugins", "/h/.agents/plugins"), false);
+});
+
+test("a mutating verb without a scope flag fails in a non-interactive run", async () => {
+  const stdin = process.stdin as { isTTY?: boolean };
+  const orig = stdin.isTTY;
+  stdin.isTTY = false;
+  try {
+    await expectFailAsync(() => runPlugins("sync", ["--target", "claude"]));
+  } finally {
+    stdin.isTTY = orig;
+  }
+});
 
 test("resolveTargets maps friendly aliases to canonical ids", () => {
   assert.deepEqual(resolveTargets("agy"), ["antigravity"]);

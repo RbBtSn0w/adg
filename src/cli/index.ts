@@ -302,7 +302,11 @@ ${rows.join("\n")}
 
 Scope (most commands):  --project (default) | --global | --dir <dir>
   --global honors XDG_STATE_HOME / ADG_PLUGINS_HOME. Only the plugins/ subtree is
-  touched; AGENTS.md and skills/ are never modified.`;
+  touched; AGENTS.md and skills/ are never modified.
+  Mutating verbs ask project/global in a terminal when no scope flag is given.
+  sync/link/unlink/remove/migrate/import-skills require one in a non-interactive
+  run (rather than assuming project); add/update fall back to a safe default. A
+  project store that resolves to the global path is auto-promoted to global.`;
 }
 
 /** L2: `adg plugins <verb> -h` — just this command's region. */
