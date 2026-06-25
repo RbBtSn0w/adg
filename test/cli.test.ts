@@ -55,13 +55,16 @@ async function expectFailAsync(fn: () => Promise<unknown>): Promise<void> {
   console.error = () => {};
   try {
     await fn();
-    assert.fail("expected the call to exit");
   } catch (err) {
-    assert.equal(exited, true, `expected process.exit, got: ${String(err)}`);
+    // The stubbed process.exit throws; surface any *other* error as-is instead
+    // of masking it behind a generic "expected process.exit" assertion.
+    if (exited) return;
+    throw err;
   } finally {
     process.exit = origExit;
     console.error = origErr;
   }
+  assert.fail("expected the call to exit");
 }
 
 test("projectStoreIsGlobalTrap flags only a project scope whose store is the global store", () => {
