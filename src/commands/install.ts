@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
@@ -269,6 +269,14 @@ function discoverPlugins(root: string): { candidates: Map<string, PluginCandidat
     if (native.kind === "adg") continue;
     const raw = JSON.parse(readFileSync(native.manifestFile, "utf8"));
     const manifest = fromNativeManifest(raw, native.kind);
+    // A Claude manifest omits `hooks` (Claude auto-loads hooks/hooks.json), and
+    // `walkNative` prefers it over a sibling Codex manifest that *does* declare
+    // hooks — so the reverse-adapt would silently drop the hooks payload. Recover
+    // it from disk: a hooks/ directory means the ADG manifest must declare it, or
+    // packagedRoots won't copy it and every downstream projection loses hooks.
+    if (!manifest.hooks && existsSync(join(native.dir, "hooks"))) {
+      manifest.hooks = "./hooks/";
+    }
     writeJson(join(native.dir, ADG_MANIFEST_PATH), manifest);
     converted.push(manifest.name);
   }
