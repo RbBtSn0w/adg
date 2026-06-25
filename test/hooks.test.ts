@@ -108,6 +108,20 @@ test("parseAdgHooks rejects an unknown override target key", () => {
     hooks: { SessionStart: [{ matcherByTarget: ["claude"], actions: [{ type: "command", command: "${PLUGIN_ROOT}/x" }] }] },
   };
   assert.throws(() => parseAdgHooks(arrayOverride), /keyed by target/);
+
+  // A non-string override value would crash translateEnv (`.replaceAll`) at compile.
+  const nonStringOverride = {
+    schemaVersion: "adg.hooks/v1",
+    hooks: { SessionStart: [{ actions: [{ type: "command", command: "${PLUGIN_ROOT}/x", commandByTarget: { claude: 123 } }] }] },
+  };
+  assert.throws(() => parseAdgHooks(nonStringOverride), /value for target "claude" must be a string/);
+});
+
+test("parseAdgHooks rejects null / non-object entries and actions", () => {
+  const nullEntry = { schemaVersion: "adg.hooks/v1", hooks: { SessionStart: [null] } };
+  assert.throws(() => parseAdgHooks(nullEntry), /entry must be an object/);
+  const nullAction = { schemaVersion: "adg.hooks/v1", hooks: { SessionStart: [{ actions: [null] }] } };
+  assert.throws(() => parseAdgHooks(nullAction), /action in "SessionStart" must be an object/);
 });
 
 test("parseAdgHooks rejects a reserved event name (prototype-pollution guard)", () => {

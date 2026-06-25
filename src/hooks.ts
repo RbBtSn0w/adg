@@ -232,7 +232,9 @@ export function liftHooksFromDisk(pluginDir: string): LiftHooksResult | undefine
     const file = join(pluginDir, HOOK_OUTPUT[target]);
     if (!existsSync(file)) continue;
     const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
-    if (typeof parsed !== "object" || parsed === null || typeof (parsed as NativeHooks).hooks !== "object") {
+    const hooksMap = (parsed as NativeHooks | null)?.hooks;
+    // `typeof null === "object"`, so guard the `hooks` map against null explicitly.
+    if (typeof parsed !== "object" || parsed === null || typeof hooksMap !== "object" || hooksMap === null) {
       throw new Error(`${HOOK_OUTPUT[target]} is not a valid hooks file (missing \`hooks\` map)`);
     }
     natives[target] = parsed as NativeHooks;
@@ -284,8 +286,10 @@ function checkTargetKeys(value: unknown, where: string): void {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${where} must be an object keyed by target`);
   }
-  for (const key of Object.keys(value)) {
+  for (const [key, val] of Object.entries(value)) {
     if (!VALID_TARGETS.has(key)) throw new Error(`${where} has unknown target "${key}" (expected claude|codex)`);
+    // A non-string override would crash translateEnv (`.replaceAll` on a non-string).
+    if (typeof val !== "string") throw new Error(`${where} value for target "${key}" must be a string`);
   }
 }
 
@@ -305,10 +309,12 @@ export function parseAdgHooks(raw: unknown): AdgHooks {
     if (isUnsafeKey(event)) throw new Error(`hook event name "${event}" is reserved and not allowed`);
     if (!Array.isArray(entries)) throw new Error(`hook event "${event}" must be an array of entries`);
     for (const entry of entries) {
+      if (typeof entry !== "object" || entry === null) throw new Error(`hook event "${event}" entry must be an object`);
       const e = entry as Record<string, unknown>;
       if (!Array.isArray(e.actions)) throw new Error(`hook event "${event}" entry missing \`actions\` array`);
       checkTargetKeys(e.matcherByTarget, `hook event "${event}" matcherByTarget`);
       for (const action of e.actions as unknown[]) {
+        if (typeof action !== "object" || action === null) throw new Error(`hook action in "${event}" must be an object`);
         const a = action as Record<string, unknown>;
         if (a.type !== "command") throw new Error(`hook action in "${event}" must have type "command"`);
         if (typeof a.command !== "string") throw new Error(`hook action in "${event}" missing string \`command\``);

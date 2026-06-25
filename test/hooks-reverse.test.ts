@@ -100,6 +100,17 @@ test("liftHooksFromDisk throws on a malformed native hooks file", () => {
   }
 });
 
+test("liftHooksFromDisk throws on a null hooks map (typeof null === object)", () => {
+  const dir = tmp();
+  try {
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(join(dir, "hooks", "hooks.json"), '{"hooks":null}');
+    assert.throws(() => liftHooksFromDisk(dir), /not a valid hooks file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("`plugins lift-hooks <dir>` writes the unified DSL", async () => {
   const dir = tmp();
   const origLog = console.log;

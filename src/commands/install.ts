@@ -70,8 +70,10 @@ const HASH_IGNORE = PROJECTION_DIRS;
  */
 function contentHash(dir: string, manifest: AdgManifest): string {
   const base = packageFilter(manifest, { includeProjections: false });
+  // `GENERATED_HOOK_FILES` keys are POSIX; normalize so a backslash path (Windows)
+  // still matches and the generated files are excluded from the hash there too.
   const include = existsSync(join(dir, ADG_HOOKS_PATH))
-    ? (rel: string) => base(rel) && !GENERATED_HOOK_FILES.has(rel)
+    ? (rel: string) => base(rel) && !GENERATED_HOOK_FILES.has(toPosix(rel))
     : base;
   return folderHash(dir, HASH_IGNORE, include);
 }
