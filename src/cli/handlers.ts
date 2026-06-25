@@ -121,13 +121,19 @@ export function projectStoreIsGlobalTrap(global: boolean, projectDir: string, gl
  * resolves to the global store would pin plugins to the cwd (e.g. the home
  * directory), so warn and promote it to global. Returns the effective global
  * flag. Shared by every scope-resolving verb (add/update plus resolveActionScope)
- * so the guard can't be forgotten on one path.
+ * so the guard can't be forgotten on one path. Callers that already resolved the
+ * store dirs may pass them in to avoid recomputing the (filesystem-walking)
+ * `projectPluginsDir`. Exported for unit testing the promotion side effect.
  */
-function promoteGlobalTrap(global: boolean): boolean {
-  if (!projectStoreIsGlobalTrap(global, projectPluginsDir(), globalPluginsDir())) return global;
+export function promoteGlobalTrap(
+  global: boolean,
+  projectDir: string = projectPluginsDir(),
+  globalDir: string = globalPluginsDir(),
+): boolean {
+  if (!projectStoreIsGlobalTrap(global, projectDir, globalDir)) return global;
   console.error(
     ui.warn(
-      `note: the project store resolves to the global store (${globalPluginsDir()}); using --global so plugins aren't pinned to a project (cwd) scope.`,
+      `note: the project store resolves to the global store (${globalDir}); using --global so plugins aren't pinned to a project (cwd) scope.`,
     ),
   );
   return true;
@@ -137,6 +143,7 @@ function promoteGlobalTrap(global: boolean): boolean {
  * Resolve scope for a mutating verb (sync/link/unlink/remove/migrate/…). Unlike
  * the silent `resolveScopeDir`/`scopeOf`, this:
  *   - honors an explicit --dir/--global/--project,
+ *   - rejects a contradictory --global + --project (a single-scope projection),
  *   - prompts (project/global) in a terminal when none was given,
  *   - fails in a non-interactive run rather than silently defaulting to project,
  *   - promotes the home==global trap to global with a warning.
@@ -149,15 +156,24 @@ async function resolveActionScope(values: ParsedValues, verb: string): Promise<A
     const global = Boolean(values.global);
     return { pluginsDir: dir, global, agentScope: global ? "user" : "project", info: { label: dir, globalDir: globalPluginsDir() } };
   }
+  if (values.global && values.project) fail(`plugins ${verb} takes only one of --global / --project`);
   let global: boolean;
   if (values.global) global = true;
   else if (values.project) global = false;
   else if (process.stdin.isTTY) global = await selectScopeInteractive();
   else fail(`plugins ${verb} needs an explicit scope in a non-interactive run: pass --global or --project`);
 
-  global = promoteGlobalTrap(global);
-  const pluginsDir = global ? globalPluginsDir() : projectPluginsDir();
-  return { pluginsDir, global, agentScope: global ? "user" : "project", info: { label: global ? "global" : "project", globalDir: globalPluginsDir() } };
+  // Resolve the store dirs once (projectPluginsDir walks the filesystem) and
+  // reuse them for the trap guard, the store path, and the info label.
+  const projectDir = projectPluginsDir();
+  const globalDir = globalPluginsDir();
+  global = promoteGlobalTrap(global, projectDir, globalDir);
+  return {
+    pluginsDir: global ? globalDir : projectDir,
+    global,
+    agentScope: global ? "user" : "project",
+    info: { label: global ? "global" : "project", globalDir },
+  };
 }
 
 /**
@@ -472,23 +488,28 @@ async function runMarketplace(args: string[]): Promise<void> {
       // report) so there is no second implementation to drift.
       console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
       const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
-      const sc = await resolveActionScope(values, "marketplace upgrade");
-      // Mirror `plugins update`'s error handling: report a failed re-fetch and
-      // exit cleanly rather than throwing to the top-level catch, so the two
-      // alias paths behave identically.
-      try {
-        const result = await updatePlugins({
-          pluginsDir: sc.pluginsDir,
-          scope: sc.info,
-          activate: true,
-          agentScope: sc.agentScope,
-          source: positionals[0],
-          all: values.all,
-          targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
-        });
-        printUpdateReport(result);
-      } catch (err) {
-        console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+      // Drive the exact same scope resolution + per-scope loop as `plugins update`
+      // (project/global/both, with the home==global trap guard) so the deprecated
+      // alias can't drift from the verb it aliases. `--target` narrows the runtimes.
+      const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
+      for (const sc of await resolveUpdateScopes(values)) {
+        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+        // Mirror `plugins update`'s error handling: report a failed re-fetch and
+        // exit cleanly rather than throwing to the top-level catch.
+        try {
+          const result = await updatePlugins({
+            pluginsDir: sc.dir,
+            scope: { label: sc.label, globalDir: globalPluginsDir() },
+            activate: true,
+            agentScope: sc.agentScope,
+            source: positionals[0],
+            all: values.all,
+            targets,
+          });
+          printUpdateReport(result);
+        } catch (err) {
+          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
       return;
     }

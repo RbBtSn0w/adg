@@ -17,7 +17,7 @@ import {
   resolveTargets,
   scopeOf,
 } from "../src/cli/index.ts";
-import { projectStoreIsGlobalTrap, runPlugins } from "../src/cli/handlers.ts";
+import { projectStoreIsGlobalTrap, promoteGlobalTrap, runPlugins } from "../src/cli/handlers.ts";
 
 // `fail()` (reached by every invalid-input path) calls `process.exit(1)`, which
 // would kill the test runner. Stub it to throw so the exit path is assertable,
@@ -73,6 +73,27 @@ test("projectStoreIsGlobalTrap flags only a project scope whose store is the glo
   assert.equal(projectStoreIsGlobalTrap(false, "/repo/.agents/plugins", "/h/.agents/plugins"), false);
 });
 
+test("promoteGlobalTrap promotes a project scope whose store is the global store", () => {
+  // Pass the store dirs explicitly so the test is independent of cwd/env: a
+  // project store equal to the global store is the home==global trap.
+  const origErr = console.error;
+  let warned = false;
+  console.error = () => {
+    warned = true;
+  };
+  try {
+    assert.equal(promoteGlobalTrap(false, "/h/.agents/plugins", "/h/.agents/plugins"), true);
+    assert.equal(warned, true, "expected a promotion warning");
+    warned = false;
+    // Already global, or a distinct project store: no promotion, no warning.
+    assert.equal(promoteGlobalTrap(true, "/h/.agents/plugins", "/h/.agents/plugins"), true);
+    assert.equal(promoteGlobalTrap(false, "/repo/.agents/plugins", "/h/.agents/plugins"), false);
+    assert.equal(warned, false, "did not expect a warning when there is no trap");
+  } finally {
+    console.error = origErr;
+  }
+});
+
 test("a mutating verb without a scope flag fails in a non-interactive run", async () => {
   const stdin = process.stdin as { isTTY?: boolean };
   const orig = stdin.isTTY;
@@ -82,6 +103,10 @@ test("a mutating verb without a scope flag fails in a non-interactive run", asyn
   } finally {
     stdin.isTTY = orig;
   }
+});
+
+test("a mutating verb rejects contradictory --global and --project", async () => {
+  await expectFailAsync(() => runPlugins("sync", ["--target", "claude", "--global", "--project"]));
 });
 
 test("resolveTargets maps friendly aliases to canonical ids", () => {
