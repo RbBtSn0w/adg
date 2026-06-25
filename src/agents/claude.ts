@@ -88,7 +88,12 @@ export const claudeAgent: Agent = {
     syncMarketplace(ctx.pluginsDir);
     const affected: string[] = [];
     for (const p of ctx.plugins) {
-      if (run(["plugin", "install", `${p}@${MARKETPLACE}`, "--scope", ctx.scope]).ok) affected.push(p);
+      const r = run(["plugin", "install", `${p}@${MARKETPLACE}`, "--scope", ctx.scope]);
+      if (r.ok) affected.push(p);
+      // Surface the CLI's reason instead of silently dropping the plugin — a
+      // rejected manifest (e.g. `hooks: Invalid input`) otherwise looks like a
+      // no-op "missing" with no diagnostic.
+      else console.error(`claude: failed to install ${p}@${MARKETPLACE}: ${r.out.trim()}`);
     }
     return { agent: "claude", affected, skipped: false };
   },

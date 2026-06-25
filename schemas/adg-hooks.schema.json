@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://RbBtSn0w.dev/schemas/adg-hooks.schema.json",
+  "title": "ADG Universal Hooks",
+  "description": "Universal hooks document stored at .agents/hooks.json. Authored once with the canonical ${PLUGIN_ROOT} token and optional per-target overrides; compiled to each agent's native hook file (Claude hooks/hooks.json, Codex hooks/hooks-codex.json).",
+  "type": "object",
+  "required": ["schemaVersion", "hooks"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Hooks schema version.",
+      "const": "adg.hooks/v1"
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Map of event name (e.g. SessionStart) to its matcher/action groups.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/definitions/entry" }
+      }
+    }
+  },
+  "definitions": {
+    "target": {
+      "type": "string",
+      "enum": ["claude", "codex"]
+    },
+    "entry": {
+      "type": "object",
+      "required": ["actions"],
+      "additionalProperties": false,
+      "properties": {
+        "matcher": {
+          "type": "string",
+          "description": "Default matcher for this group."
+        },
+        "matcherByTarget": {
+          "type": "object",
+          "description": "Per-target matcher override (agents use different matcher vocabularies).",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "$ref": "#/definitions/target" }
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/action" }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["type", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "command" },
+        "command": {
+          "type": "string",
+          "description": "Canonical command line; reference the plugin root as ${PLUGIN_ROOT}."
+        },
+        "async": { "type": "boolean" },
+        "commandByTarget": {
+          "type": "object",
+          "description": "Per-target command override for genuine behavioral divergence (still using ${PLUGIN_ROOT}).",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "$ref": "#/definitions/target" }
+        }
+      }
+    }
+  }
+}

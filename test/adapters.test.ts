@@ -26,6 +26,99 @@ test("anthropic adapter projects the apps directory", () => {
   rmSync(dir, { recursive: true });
 });
 
+test("anthropic adapter omits a standard hooks/hooks.json (Claude auto-loads it)", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "hooks.json"), "{}");
+  // ADG declares `hooks` as a directory; the standard hooks/hooks.json is loaded
+  // automatically, so emitting it would "Duplicate hooks file detected".
+  const { manifest } = toAnthropicManifest(dir, { ...baseManifest, hooks: "./hooks/" });
+  assert.equal(manifest.hooks, undefined, "standard hooks file must be left to auto-load");
+  rmSync(dir, { recursive: true });
+});
+
+test("anthropic adapter resolves a hooks dir to its sole non-standard *.json file", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "config.json"), "{}");
+  // A non-standard file is not auto-loaded, so it must be referenced as a file
+  // (never a bare directory, which Claude rejects with `hooks: Invalid input`).
+  const { manifest } = toAnthropicManifest(dir, { ...baseManifest, hooks: "./hooks/" });
+  assert.equal(manifest.hooks, "./hooks/config.json");
+  rmSync(dir, { recursive: true });
+});
+
+test("anthropic adapter drops an explicit reference to the standard hooks file", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "hooks.json"), "{}");
+  const { manifest } = toAnthropicManifest(dir, { ...baseManifest, hooks: "./hooks/hooks.json" });
+  assert.equal(manifest.hooks, undefined, "explicit standard path must also be left to auto-load");
+  rmSync(dir, { recursive: true });
+});
+
+test("anthropic adapter omits hooks when the directory holds no resolvable config", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  // Ambiguous (two configs, no hooks.json) → emit nothing rather than an invalid dir.
+  writeFileSync(join(dir, "hooks", "a.json"), "{}");
+  writeFileSync(join(dir, "hooks", "b.json"), "{}");
+  const { manifest } = toAnthropicManifest(dir, { ...baseManifest, hooks: "./hooks/" });
+  assert.equal(manifest.hooks, undefined, "ambiguous/empty hooks dir must not emit a directory");
+  rmSync(dir, { recursive: true });
+});
+
+test("anthropic adapter drops hooks when not in the selection", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "hooks.json"), "{}");
+  const manifest: AdgManifest = { ...baseManifest, hooks: "./hooks/" };
+  const selection: PluginSelection = { components: ["skills"] };
+  const out = toAnthropicManifest(dir, manifest, selection).manifest;
+  assert.equal(out.hooks, undefined, "unselected hooks category must be dropped");
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter prefers the codex hook variant, else the standard file", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "hooks.json"), "{}");
+  writeFileSync(join(dir, "hooks", "hooks-codex.json"), "{}");
+  // Codex has no auto-load: it needs an explicit file, and its own variant wins.
+  const both = toCodexManifest(dir, { ...baseManifest, hooks: "./hooks/" }).manifest;
+  assert.equal(both.hooks, "./hooks/hooks-codex.json");
+
+  rmSync(join(dir, "hooks", "hooks-codex.json"));
+  const standard = toCodexManifest(dir, { ...baseManifest, hooks: "./hooks/" }).manifest;
+  assert.equal(standard.hooks, "./hooks/hooks.json", "falls back to the standard file");
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter falls back to the sole non-standard *.json file", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  // No hooks-codex.json / hooks.json, but a single config → reference it (Codex
+  // has no auto-load, so omitting would lose the hooks entirely).
+  writeFileSync(join(dir, "hooks", "custom.json"), "{}");
+  const out = toCodexManifest(dir, { ...baseManifest, hooks: "./hooks/" }).manifest;
+  assert.equal(out.hooks, "./hooks/custom.json");
+  rmSync(dir, { recursive: true });
+});
+
+test("codex adapter omits hooks for an unresolvable dir or when not selected", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  // No *.json inside → nothing to reference.
+  const empty = toCodexManifest(dir, { ...baseManifest, hooks: "./hooks/" }).manifest;
+  assert.equal(empty.hooks, undefined, "empty hooks dir must not emit a directory");
+
+  writeFileSync(join(dir, "hooks", "hooks-codex.json"), "{}");
+  const selection: PluginSelection = { components: ["skills"] };
+  const dropped = toCodexManifest(dir, { ...baseManifest, hooks: "./hooks/" }, selection).manifest;
+  assert.equal(dropped.hooks, undefined, "unselected hooks category must be dropped");
+  rmSync(dir, { recursive: true });
+});
+
 test("anthropic adapter drops apps when not in the selection", () => {
   const dir = tmp();
   const manifest: AdgManifest = { ...baseManifest, apps: "./apps/" };
