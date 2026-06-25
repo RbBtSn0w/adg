@@ -11,7 +11,7 @@ import { syncPlugins } from "../commands/sync.ts";
 import { removePlugin } from "../commands/remove.ts";
 import { migrateLayout } from "../commands/migrate.ts";
 import { pluginStatus } from "../commands/status.ts";
-import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult } from "../commands/marketplace.ts";
+import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult, type ScopeInfo } from "../commands/marketplace.ts";
 import { initScaffold, type InitType } from "../commands/init.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../commands/select-components.ts";
 import { selectPluginsInteractive } from "../commands/select-plugins.ts";
@@ -40,7 +40,6 @@ import {
   resolveComponents,
   resolveScopeDir,
   resolveTargets,
-  scopeInfo,
   scopeOf,
   wantsHelp,
   type ParsedValues,
@@ -76,6 +75,18 @@ async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTar
   else if (process.stdin.isTTY) choice = await selectUpdateScopeInteractive();
   else choice = existsSync(lockPath(projectPluginsDir())) ? "project" : "global";
 
+  // Home==global trap: a "project" (or "both") scope whose store resolves to the
+  // global store would re-pin global plugins to the cwd. Collapse to global.
+  // Reuse the dirs already resolved above instead of walking the filesystem again.
+  if (choice !== "global" && project.dir === global.dir) {
+    console.error(
+      ui.warn(
+        `note: the project store resolves to the global store (${global.dir}); updating global only so plugins aren't pinned to a project (cwd) scope.`,
+      ),
+    );
+    choice = "global";
+  }
+
   if (choice === "both") {
     return [{ ...project, heading: "Project plugins" }, { ...global, heading: "Global plugins" }];
   }
@@ -86,6 +97,84 @@ async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTar
 function printUpdateReport(result: PluginUpdateResult): void {
   for (const line of renderUpdateReport(result)) console.log(line);
   for (const line of renderAgentReport(result.agents, "re-synced")) console.log(line);
+}
+
+/** Resolved scope for a mutating verb. */
+interface ActionScope {
+  pluginsDir: string;
+  global: boolean;
+  agentScope: AgentScope;
+  info: ScopeInfo;
+}
+
+/**
+ * A "project" store that resolves to the *global* store path is a trap: running
+ * a mutating verb there reads the global plugin set but writes the agent install
+ * at project scope, pinning it to the cwd (e.g. the home directory). Promote
+ * such a case to global. Pure so it is unit-testable.
+ */
+export function projectStoreIsGlobalTrap(global: boolean, projectDir: string, globalDir: string): boolean {
+  return !global && projectDir === globalDir;
+}
+
+/**
+ * Apply the home==global guard to a chosen scope: a project scope whose store
+ * resolves to the global store would pin plugins to the cwd (e.g. the home
+ * directory), so warn and promote it to global. Returns the effective global
+ * flag. Shared by every scope-resolving verb (add/update plus resolveActionScope)
+ * so the guard can't be forgotten on one path. Callers that already resolved the
+ * store dirs may pass them in to avoid recomputing the (filesystem-walking)
+ * `projectPluginsDir`. Exported for unit testing the promotion side effect.
+ */
+export function promoteGlobalTrap(
+  global: boolean,
+  projectDir: string = projectPluginsDir(),
+  globalDir: string = globalPluginsDir(),
+): boolean {
+  if (!projectStoreIsGlobalTrap(global, projectDir, globalDir)) return global;
+  console.error(
+    ui.warn(
+      `note: the project store resolves to the global store (${globalDir}); using --global so plugins aren't pinned to a project (cwd) scope.`,
+    ),
+  );
+  return true;
+}
+
+/**
+ * Resolve scope for a mutating verb (sync/link/unlink/remove/migrate/…). Unlike
+ * the silent `resolveScopeDir`/`scopeOf`, this:
+ *   - honors an explicit --dir/--global/--project,
+ *   - rejects a contradictory --global + --project (a single-scope projection),
+ *   - prompts (project/global) in a terminal when none was given,
+ *   - fails in a non-interactive run rather than silently defaulting to project,
+ *   - promotes the home==global trap to global with a warning.
+ */
+async function resolveActionScope(values: ParsedValues, verb: string): Promise<ActionScope> {
+  if (typeof values.dir === "string") {
+    // --dir is an explicit ad-hoc store; --global still selects the user agent
+    // scope (matching the old scopeOf behavior), the trap guard doesn't apply.
+    const dir = resolve(values.dir);
+    const global = Boolean(values.global);
+    return { pluginsDir: dir, global, agentScope: global ? "user" : "project", info: { label: dir, globalDir: globalPluginsDir() } };
+  }
+  if (values.global && values.project) fail(`plugins ${verb} takes only one of --global / --project`);
+  let global: boolean;
+  if (values.global) global = true;
+  else if (values.project) global = false;
+  else if (process.stdin.isTTY) global = await selectScopeInteractive();
+  else fail(`plugins ${verb} needs an explicit scope in a non-interactive run: pass --global or --project`);
+
+  // Resolve the store dirs once (projectPluginsDir walks the filesystem) and
+  // reuse them for the trap guard, the store path, and the info label.
+  const projectDir = projectPluginsDir();
+  const globalDir = globalPluginsDir();
+  global = promoteGlobalTrap(global, projectDir, globalDir);
+  return {
+    pluginsDir: global ? globalDir : projectDir,
+    global,
+    agentScope: global ? "user" : "project",
+    info: { label: global ? "global" : "project", globalDir },
+  };
 }
 
 /**
@@ -168,6 +257,9 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       if (!values.dir && values.global === undefined && values.project === undefined && tty) {
         global = await selectScopeInteractive();
       }
+      // Guard the home==global trap: installing global plugins at project scope
+      // would pin them to the cwd. Skip for an explicit --dir store.
+      if (!values.dir) global = promoteGlobalTrap(global);
       const pluginsDir = values.dir
         ? resolve(values.dir)
         : global
@@ -216,11 +308,12 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const dir = positionals[0];
       if (!dir) fail("plugins import-skills requires a <skills-dir>");
       if (!values.as) fail("plugins import-skills requires --as <plugin-name>");
+      const sc = await resolveActionScope(values, "import-skills");
       const res = importSkills({
         skillsDir: resolve(dir),
         as: values.as,
         prefix: values.prefix,
-        pluginsDir: resolveScopeDir(values),
+        pluginsDir: sc.pluginsDir,
         description: values.description,
       });
       console.log(`${ui.ok("imported skills into")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
@@ -231,9 +324,10 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const targets = values.target === "all"
         ? resolveTargets("all")
         : [requireSingleTarget(values.target, "link")];
+      const sc = await resolveActionScope(values, "link");
       const names = positionals.length > 0 ? positionals : undefined;
       for (const target of targets) {
-        const res = linkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+        const res = linkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
         for (const a of res.actions) {
           console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
           for (const f of a.adapted) console.log(ui.meta(`  adapted: ${f}`));
@@ -249,9 +343,10 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const targets = values.target === "all"
         ? resolveTargets("all")
         : [requireSingleTarget(values.target, "unlink")];
+      const sc = await resolveActionScope(values, "unlink");
       const names = positionals.length > 0 ? positionals : undefined;
       for (const target of targets) {
-        const res = unlinkPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+        const res = unlinkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
         for (const name of res.unlinked) console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
         if (res.cliSkipped) {
           console.log(ui.warn(`note: \`${target}\` CLI not found — nothing was unlinked from ${target}.`));
@@ -268,9 +363,10 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const targets = values.target === "all"
         ? resolveTargets("all")
         : [requireSingleTarget(values.target, "sync")];
+      const sc = await resolveActionScope(values, "sync");
       const names = positionals.length > 0 ? positionals : undefined;
       for (const target of targets) {
-        const res = syncPlugins({ pluginsDir: resolveScopeDir(values), target, global: Boolean(values.global), names });
+        const res = syncPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
         for (const a of res.actions) {
           const tail = a.synced ? ui.meta(` -> ${res.target}`) : "";
           console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
@@ -306,12 +402,13 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const { values, positionals } = parseVerb(verb, cmd.flags, rest);
       const name = positionals[0];
       if (!name) fail("plugins remove requires a <name>");
+      const sc = await resolveActionScope(values, "remove");
       const res = removePlugin({
-        pluginsDir: resolveScopeDir(values),
+        pluginsDir: sc.pluginsDir,
         name,
         force: values.force,
         deactivate: true,
-        scope: scopeOf(values),
+        scope: sc.agentScope,
       });
       if (res.removedDir) console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta(`-> ${res.removedDir}`)}`);
       else console.log(`${ui.ok("removed")} ${ui.name(res.name)} ${ui.meta("(no directory on disk)")}`);
@@ -348,7 +445,8 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
     }
     case "migrate": {
       const { values } = parseVerb(verb, cmd.flags, rest);
-      const res = migrateLayout(resolveScopeDir(values));
+      const sc = await resolveActionScope(values, "migrate");
+      const res = migrateLayout(sc.pluginsDir);
       for (const m of res.moved) console.log(`${ui.ok("moved")} ${ui.name(m.name)}: ${ui.meta(`${m.from} -> ${m.to}`)}`);
       for (const m of res.missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
       if (res.moved.length === 0) console.log(ui.meta(`nothing to migrate (${res.unchanged.length} already in place)`));
@@ -391,22 +489,28 @@ async function runMarketplace(args: string[]): Promise<void> {
       // report) so there is no second implementation to drift.
       console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
       const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
-      // Mirror `plugins update`'s error handling: report a failed re-fetch and
-      // exit cleanly rather than throwing to the top-level catch, so the two
-      // alias paths behave identically.
-      try {
-        const result = await updatePlugins({
-          pluginsDir: resolveScopeDir(values),
-          scope: scopeInfo(values),
-          activate: true,
-          agentScope: scopeOf(values),
-          source: positionals[0],
-          all: values.all,
-          targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
-        });
-        printUpdateReport(result);
-      } catch (err) {
-        console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+      // Drive the exact same scope resolution + per-scope loop as `plugins update`
+      // (project/global/both, with the home==global trap guard) so the deprecated
+      // alias can't drift from the verb it aliases. `--target` narrows the runtimes.
+      const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
+      for (const sc of await resolveUpdateScopes(values)) {
+        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+        // Mirror `plugins update`'s error handling: report a failed re-fetch and
+        // exit cleanly rather than throwing to the top-level catch.
+        try {
+          const result = await updatePlugins({
+            pluginsDir: sc.dir,
+            scope: { label: sc.label, globalDir: globalPluginsDir() },
+            activate: true,
+            agentScope: sc.agentScope,
+            source: positionals[0],
+            all: values.all,
+            targets,
+          });
+          printUpdateReport(result);
+        } catch (err) {
+          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
       return;
     }
@@ -415,10 +519,11 @@ async function runMarketplace(args: string[]): Promise<void> {
       const { values, positionals } = parseVerb("marketplace", ["force", ...SCOPE], rest);
       const source = positionals[0];
       if (!source) fail("marketplace remove requires a <source>");
+      const sc = await resolveActionScope(values, "marketplace remove");
       const res = marketplaceRemove({
-        pluginsDir: resolveScopeDir(values),
-        scope: scopeInfo(values),
-        agentScope: scopeOf(values),
+        pluginsDir: sc.pluginsDir,
+        scope: sc.info,
+        agentScope: sc.agentScope,
         source,
         force: values.force,
         deactivate: true,
@@ -433,13 +538,14 @@ async function runMarketplace(args: string[]): Promise<void> {
       const targets = values.target === "all"
         ? resolveTargets("all")
         : [requireSingleTarget(values.target, "marketplace sync")];
+      const sc = await resolveActionScope(values, "marketplace sync");
       for (const target of targets) {
         const res = marketplaceSync({
-          pluginsDir: resolveScopeDir(values),
-          scope: scopeInfo(values),
+          pluginsDir: sc.pluginsDir,
+          scope: sc.info,
           source,
           target,
-          global: Boolean(values.global),
+          global: sc.global,
         });
         for (const a of res.actions) {
           console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.synced ? ui.meta(` -> ${res.target}`) : ""}`);
