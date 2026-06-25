@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "adg.plugin/v1",
+  "name": "dslhooks",
+  "version": "1.0.0",
+  "description": "DSL-authored hooks plugin for cross-agent compilation tests.",
+  "skills": "./skills/",
+  "hooks": "./hooks/",
+  "strict": true
+}

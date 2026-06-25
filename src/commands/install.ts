@@ -6,6 +6,7 @@ import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
 import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
+import { ADG_HOOKS_PATH, GENERATED_HOOK_FILES } from "../hooks.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
@@ -13,7 +14,7 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
 import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
-import { sameSource, COMPONENT_TYPES, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
+import { sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
@@ -60,6 +61,22 @@ export interface InstallResult {
 const HASH_IGNORE = PROJECTION_DIRS;
 
 /**
+ * Content hash over a plugin's packaged payload. Mirrors the projection rule for
+ * the hooks DSL: when a plugin opts in (`.agents/hooks.json` present), the
+ * compiled `hooks/*.json` outputs are generated, so they are excluded from the
+ * hash — letting an authoring source (no compiled files) and an installed copy
+ * (with them) hash identically, and keeping a compiler change from bumping the
+ * content hash.
+ */
+function contentHash(dir: string, manifest: AdgManifest): string {
+  const base = packageFilter(manifest, { includeProjections: false });
+  const include = existsSync(join(dir, ADG_HOOKS_PATH))
+    ? (rel: string) => base(rel) && !GENERATED_HOOK_FILES.has(rel)
+    : base;
+  return folderHash(dir, HASH_IGNORE, include);
+}
+
+/**
  * Install a single local plugin directory into a plugins directory: copy the
  * source, generate adapter manifests, compute the folder hash, and update both
  * .plugin-lock.json and marketplace.json (with denormalized discovery metadata
@@ -93,7 +110,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   // copy) and, when asked, short-circuit if it matches what's already recorded —
   // so an unchanged upstream source is never re-copied, re-adapted, or re-locked.
   if (opts.skipUnchanged && prev) {
-    const sourceHash = folderHash(source, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+    const sourceHash = contentHash(source, manifest);
     if (prev.folderHash === sourceHash && prev.version === manifest.version) {
       return { name, installedTo: dest, folderHash: sourceHash, adapted: [], changed: false };
     }
@@ -114,7 +131,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   const targets = opts.targets ?? [...ADAPTER_TARGETS];
   const adapted = adaptPlugin(dest, targets, selection).map((r) => r.file);
 
-  const hash = folderHash(dest, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+  const hash = contentHash(dest, manifest);
   const changed = !prev || prev.folderHash !== hash || prev.version !== manifest.version;
 
   const entry: Omit<LockEntry, "installedAt" | "updatedAt"> = {

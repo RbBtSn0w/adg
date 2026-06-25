@@ -154,10 +154,60 @@ Two ways to declare them:
 - **agents** — `"./agents/"`, a dir of sub-agent definition `.md` files.
 - **mcp** — `"./mcp/.mcp.json"`, an MCP server config file (points at a *file*,
   not a dir).
-- **hooks**, **apps** — directories, same pattern.
+- **hooks**, **apps** — directories, same pattern. For hooks, see **Hooks**
+  below — agents differ on the hook config format, so ADG can compile a single
+  universal definition into each agent's native file.
 
 Declare only what you ship. Omit a field and that component is absent from both
 the runtime projections and the installed package.
+
+---
+
+## Hooks
+
+Agents do not share a hook format. Claude **auto-loads** `hooks/hooks.json` and
+expands `${CLAUDE_PLUGIN_ROOT}`; Codex references an explicit
+`hooks/hooks-codex.json` from its manifest and expands `${PLUGIN_ROOT}`; and the
+matcher vocabularies differ (e.g. `startup|clear|compact` vs
+`startup|resume|clear`). Two ways to author:
+
+- **Hand-authored (passthrough)** — ship the native files yourself under
+  `hooks/`. ADG carries them as-is: Claude auto-loads `hooks/hooks.json`, and the
+  Codex projection references `hooks/hooks-codex.json` (falling back to
+  `hooks/hooks.json`). Nothing is rewritten.
+
+- **Universal DSL (recommended, author once)** — add `.agents/hooks.json`
+  (`adg.hooks/v1`). Write the canonical command with `${PLUGIN_ROOT}`; capture
+  the parts that genuinely differ per agent as `matcherByTarget` /
+  `commandByTarget` overrides. On `adapt`/install ADG compiles it to each
+  target's native file (`hooks/hooks.json`, `hooks/hooks-codex.json`),
+  translating the env token and applying overrides. The compiled files ship but
+  do not count toward the content hash. An event ADG doesn't recognize is still
+  emitted, with a warning.
+
+  ```json
+  {
+    "schemaVersion": "adg.hooks/v1",
+    "hooks": {
+      "SessionStart": [
+        {
+          "matcher": "startup|clear|compact",
+          "matcherByTarget": { "codex": "startup|resume|clear" },
+          "actions": [
+            {
+              "type": "command",
+              "command": "\"${PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start",
+              "commandByTarget": { "codex": "\"${PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start-codex" },
+              "async": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+
+  Schema: [adg-hooks.schema.json](../schemas/adg-hooks.schema.json).
 
 ---
 
