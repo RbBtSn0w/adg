@@ -1,3 +1,9 @@
+## [0.4.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.3...0.4.0-beta.4) (2026-06-25)
+
+### Added
+
+* **hooks:** cross-agent hooks compatibility + universal hooks DSL ([#33](https://github.com/RbBtSn0w/adg/issues/33)) ([8c0d1d1](https://github.com/RbBtSn0w/adg/commit/8c0d1d1c1e5fa50154f55a390195106281a0aa3b))
+
 ## [0.4.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.2...0.4.0-beta.3) (2026-06-25)
 
 ### Added
