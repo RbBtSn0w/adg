@@ -35,7 +35,7 @@ A finished plugin on disk — **`.agents/` only**:
 my-plugin/
 ├── .agents/.plugin.json          # ← source of truth (you edit this)
 ├── skills/<name>/SKILL.md        # payload
-├── commands/  agents/  mcp/      # payload (only if declared!)
+├── commands/  agents/  .mcp.json # payload (only if declared!)
 └── README.md  LICENSE  CHANGELOG
 ```
 

@@ -19,7 +19,7 @@ asc/                              # a plugin (authoring source)
 ├── .agents/
 │   └── .plugin.json              # canonical source manifest (source of truth)
 ├── skills/<name>/SKILL.md        # declared payload
-├── commands/  agents/  mcp/      # declared payload
+├── commands/  agents/  .mcp.json # declared payload
 └── README.md  LICENSE  CHANGELOG # canonical metadata
 # .claude-plugin/ , .codex-plugin/ are NOT authored here — they are runtime
 # projections, generated at install time (or committed only when publishing to a

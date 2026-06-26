@@ -71,7 +71,7 @@ hook handling (a small `HookTranslation` per target, near the adapter resolvers 
 2. the manifest is also **ADG's own control plane** — `dependencies`, `strict`, partial-install selection,
    and `.plugin-lock.json` integrity all key off it. Hooks carried no such ADG-internal role.
 
-Its **projection mapping** (skills/commands/agents/hooks/mcp → per-agent) shares the hooks risk and would
+Its **projection mapping** (skills/commands/agents/hooks/mcpServers → per-agent) shares the hooks risk and would
 lose value if vendors converge; its **control-plane core** does not.
 
 ## Revisit triggers
