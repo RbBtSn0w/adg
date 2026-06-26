@@ -77,6 +77,6 @@ export function pluginsStatusJson(
   return { pluginsDir, scope, targets, statuses };
 }
 
-export function printJson(value: unknown): void {
+export function printJson(value: PluginsListJson | PluginsStatusJson): void {
   console.log(JSON.stringify(value, null, 2));
 }
