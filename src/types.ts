@@ -36,7 +36,7 @@ export interface AdgManifest {
   commands?: string;
   apps?: string;
   hooks?: string;
-  mcp?: string;
+  mcpServers?: string;
   dependencies?: AdgDependency[];
   strict?: boolean;
   homepage?: string;

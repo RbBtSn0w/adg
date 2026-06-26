@@ -15,5 +15,5 @@ Vendored **verbatim** (the cross-agent-critical parts):
 
 **Trimmed:** only 3 representative skills (`using-superpowers`, `test-driven-development`,
 `systematic-debugging`) instead of the full set — enough to pin the skills contract without bloating the
-repo. The plugin's real feature surface is **skills + hooks** (no commands/agents/mcp), so this fixture is
+repo. The plugin's real feature surface is **skills + hooks** (no commands/agents/mcpServers), so this fixture is
 faithful to that surface.

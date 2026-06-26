@@ -1,4 +1,5 @@
 import type { AdgManifest } from "./types.ts";
+import { mcpConfigPath } from "./mcp.ts";
 
 /**
  * Manifest-driven packaging allowlist.
@@ -35,7 +36,7 @@ export function packagedRoots(manifest: AdgManifest): Set<string> {
     manifest.skills,
     manifest.agents,
     manifest.commands,
-    manifest.mcp,
+    mcpConfigPath(manifest),
     manifest.hooks,
     manifest.apps,
   ];

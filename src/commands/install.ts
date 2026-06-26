@@ -467,16 +467,19 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       const resolved = opts.agents ?? resolveAgents(targets);
       const scope = opts.scope ?? "project";
       const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
-      // A "changed" plugin is either brand new (no prior lock entry) or an update
-      // to an already-installed one. Only updates go through refresh — agents that
-      // cache a copy (Claude) must drop the stale one and re-pull. Brand-new
-      // plugins must use activate: refresh would issue an uninstall for something
-      // never installed, which warns/errors in those agents. On the add path
-      // (skipUnchanged off) everything is a fresh activate.
-      const activateNames = (opts.skipUnchanged ? toActivate.filter((r) => !existingPlugins.has(r.name)) : toActivate).map((r) => r.name);
-      const refreshNames = opts.skipUnchanged ? toActivate.filter((r) => existingPlugins.has(r.name)).map((r) => r.name) : [];
-
       agents = resolved.map((a) => {
+        const agentInstalled = a.listInstalled?.(ctxFor([]));
+        const alreadyInstalled = (name: string) =>
+          agentInstalled !== undefined
+            ? agentInstalled.includes(name)
+            : existingPlugins.has(name);
+        // Existing plugins must go through refresh even on an explicit `add`:
+        // agents like Claude cache an installed copy, and their plain install
+        // command is a no-op when the plugin already exists. If the agent can
+        // enumerate live installs, trust that state; otherwise fall back to the
+        // ADG lock to preserve clean-update behavior.
+        const activateNames = toActivate.filter((r) => !alreadyInstalled(r.name)).map((r) => r.name);
+        const refreshNames = toActivate.filter((r) => alreadyInstalled(r.name)).map((r) => r.name);
         // An agent may run both lifecycles (new installs + updates) in one pass;
         // merge into the existing affected/skipped contract so downstream report
         // and consolidation (renderAgentReport, mergeAgentResults) stay unchanged.

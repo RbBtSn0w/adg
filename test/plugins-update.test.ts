@@ -36,6 +36,7 @@ function recordingAgent(id: string, calls: { id: string; plugins: string[] }[]):
 function recordingAgentByMethod(
   id: string,
   calls: { id: string; method: "activate" | "refresh"; plugins: string[] }[],
+  installed?: string[],
 ): Agent {
   return {
     id,
@@ -52,6 +53,7 @@ function recordingAgentByMethod(
       calls.push({ id, method: "refresh", plugins: ctx.plugins });
       return { agent: id, affected: ctx.plugins, skipped: false };
     },
+    listInstalled: installed ? () => installed : undefined,
   };
 }
 
@@ -187,6 +189,25 @@ test("updatePlugins refreshes (not plain-activates) changed plugins, so cached a
       "fresh add uses activate",
     );
 
+    // Re-adding an already-installed plugin is also an update from an agent's
+    // perspective: Claude's install command is a no-op for existing plugins, so
+    // cached agents must be refreshed to re-pull the store copy.
+    const readdCalls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", readdCalls)],
+    });
+    assert.deepEqual(
+      readdCalls,
+      [{ id: "codex", method: "refresh", plugins: ["finance", "sales"] }],
+      "explicit re-add refreshes existing plugins so cached agents re-pull",
+    );
+
     // Bump `sales` upstream → the update path must refresh it, not plain-activate,
     // so agents that cache a copy (Claude) drop the stale one and re-pull.
     writeNativeMarket(remote, ["sales"], "2.0.0");
@@ -202,6 +223,73 @@ test("updatePlugins refreshes (not plain-activates) changed plugins, so cached a
       updateCalls,
       [{ id: "codex", method: "refresh", plugins: ["sales"] }],
       "update path refreshes only the changed plugin",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("add refreshes an agent-only stale install even when the ADG store is new", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["apple-skills"], "1.13.2");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    const calls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", calls, ["apple-skills"])],
+    });
+
+    assert.deepEqual(
+      calls,
+      [{ id: "codex", method: "refresh", plugins: ["apple-skills"] }],
+      "agent-only stale installs must refresh because install is a no-op in cached agents",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("add activates when an existing ADG plugin was manually removed from the agent", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["apple-skills"], "1.13.2");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: false,
+    });
+
+    const calls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", calls, [])],
+    });
+
+    assert.deepEqual(
+      calls,
+      [{ id: "codex", method: "activate", plugins: ["apple-skills"] }],
+      "when live agent state is available, a missing agent install should be activated",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

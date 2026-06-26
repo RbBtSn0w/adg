@@ -62,6 +62,14 @@ test("fromNativeManifest maps codex manifest to ADG", () => {
   assert.ok(!("adapters" in adg));
 });
 
+test("fromNativeManifest maps native MCP fields to ADG mcpServers", () => {
+  const adg = fromNativeManifest(
+    { name: "mcpkit", version: "1.0.0", description: "MCP.", skills: "./skills/", mcpServers: "./.mcp.json" },
+    "codex",
+  );
+  assert.equal(adg.mcpServers, "./.mcp.json");
+});
+
 test("fromNativeManifest canonicalizes Windows-style codex skill ids", () => {
   // A native manifest authored on Windows may use backslash separators.
   const adg = fromNativeManifest(
@@ -144,6 +152,28 @@ test("claude skills-root round-trips through ADG to both runtimes", () => {
   assert.equal(claude.skills, "./skills/");
   const codex = toCodexManifest(dir, adg).manifest;
   assert.equal(codex.skills, "./skills/");
+  rmSync(dir, { recursive: true });
+});
+
+test("mcp projects to each runtime's native manifest field", () => {
+  const dir = tmp();
+  seedSkills(dir, ["one"]);
+  const adg = {
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "mcpkit",
+    version: "1.0.0",
+    description: "MCP.",
+    skills: "./skills/",
+    mcpServers: "./.mcp.json",
+  } as const;
+
+  const claude = toAnthropicManifest(dir, adg).manifest;
+  assert.equal(claude.mcpServers, "./.mcp.json");
+  assert.equal(claude.mcp, undefined);
+
+  const codex = toCodexManifest(dir, adg).manifest;
+  assert.equal(codex.mcpServers, "./.mcp.json");
+  assert.equal(codex.mcp, undefined);
   rmSync(dir, { recursive: true });
 });
 

@@ -103,6 +103,30 @@ test("install packages only declared payload, not dev cruft", () => {
   rmSync(work, { recursive: true });
 });
 
+test("install resolves root ./.mcp.json from mcpServers and adapts every runtime", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "mcpkit", dir: work, description: "MCP kit." });
+  const mf = join(pluginDir, ".agents", ".plugin.json");
+  const m = JSON.parse(readFileSync(mf, "utf8"));
+  m.mcpServers = "./.mcp.json";
+  writeFileSync(mf, JSON.stringify(m));
+  writeFileSync(join(pluginDir, ".mcp.json"), JSON.stringify({ mcpServers: { idocs: { command: "idocs", args: ["mcp"] } } }));
+
+  const store = join(work, "store");
+  installPlugin({ source: pluginDir, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
+  const out = join(store, "mcpkit");
+
+  assert.ok(existsSync(join(out, ".mcp.json")), "mcpServers target ships as declared payload");
+  const codex = JSON.parse(readFileSync(join(out, ".codex-plugin", "plugin.json"), "utf8"));
+  assert.equal(codex.mcpServers, "./.mcp.json");
+  const claude = JSON.parse(readFileSync(join(out, ".claude-plugin", "plugin.json"), "utf8"));
+  assert.equal(claude.mcpServers, "./.mcp.json");
+  assert.equal(claude.mcp, undefined);
+  const antigravity = JSON.parse(readFileSync(join(out, ".antigravity-plugin", "plugin.json"), "utf8"));
+  assert.equal(antigravity.mcpServers, "./.mcp.json");
+  rmSync(work, { recursive: true });
+});
+
 test("initScaffold produces only .agents artifacts (no vendor projections)", () => {
   const work = tmp();
 
