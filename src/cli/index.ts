@@ -179,18 +179,6 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     positional: "<dir>  plugin directory (default: current directory)",
     flags: [],
   },
-  "lift-hooks": {
-    summary: "unify native hook files into a universal .agents/hooks.json",
-    synopsis: "adg plugins lift-hooks [<dir>]",
-    positional: "<dir>  plugin directory (default: current directory)",
-    blurb:
-      "The inverse of the hooks DSL compile: read a plugin's native hooks\n" +
-      "(hooks/hooks.json, hooks/hooks-codex.json), canonicalize the env token, and\n" +
-      "fold the per-agent differences (matcher/command) into one .agents/hooks.json\n" +
-      "(adg.hooks/v1) so you maintain a single source. The native files are left in\n" +
-      "place; a later `adapt` regenerates them from the DSL.",
-    flags: [],
-  },
   "import-skills": {
     summary: "wrap an existing skills/ dir as a plugin",
     synopsis: "adg plugins import-skills <skills-dir> --as <name>",
