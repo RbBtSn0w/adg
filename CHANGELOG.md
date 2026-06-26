@@ -1,3 +1,9 @@
+## [0.4.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.5...0.4.0-beta.6) (2026-06-26)
+
+### Added
+
+* adopt canonical mcpServers manifest field and deprecate mcp ([#35](https://github.com/RbBtSn0w/adg/issues/35)) ([9a4d6a4](https://github.com/RbBtSn0w/adg/commit/9a4d6a4891e5af684fc5f3b473add6075f7f3882))
+
 ## [0.4.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.4...0.4.0-beta.5) (2026-06-26)
 
 ### Changed
