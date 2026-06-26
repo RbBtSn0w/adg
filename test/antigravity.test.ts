@@ -146,6 +146,34 @@ test("writeAntigravityProjection honors a partial-install selection (components 
   }
 });
 
+test("writeAntigravityProjection cleans the configured mcpServers path when mcp is not exposed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const mcp = { mcpServers: { custom: { command: "custom-mcp" } } };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "custom-mcp",
+      version: "0.1.0",
+      description: "custom mcp path",
+      skills: "./skills/",
+      mcpServers: "./config/mcp.json",
+    });
+    mkdirSync(join(dir, "skills", "s"), { recursive: true });
+    writeFileSync(join(dir, "skills", "s", "SKILL.md"), "# s");
+    mkdirSync(join(dir, "config"), { recursive: true });
+    writeFileSync(join(dir, "config", "mcp.json"), JSON.stringify(mcp));
+
+    writeAntigravityProjection(dir);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, "config", "mcp.json"), "utf8")), mcp);
+
+    writeAntigravityProjection(dir, { components: ["skills"] });
+    assert.throws(() => readFileSync(join(dir, PROJ, "config", "mcp.json"), "utf8"));
+    assert.throws(() => readFileSync(join(dir, PROJ, "mcp_config.json"), "utf8"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("writeAntigravityProjection links every root of a multi-root skills path-list", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {

@@ -258,6 +258,44 @@ test("add refreshes an agent-only stale install even when the ADG store is new",
   }
 });
 
+test("add activates when an existing ADG plugin was manually removed from the agent", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["apple-skills"], "1.13.2");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: false,
+    });
+
+    const calls: { id: string; method: "activate" | "refresh"; plugins: string[] }[] = [];
+    await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      all: true,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgentByMethod("codex", calls, [])],
+    });
+
+    assert.deepEqual(
+      calls,
+      [{ id: "codex", method: "activate", plugins: ["apple-skills"] }],
+      "when live agent state is available, a missing agent install should be activated",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("updatePlugins --all activates brand-new plugins but refreshes updated ones", async () => {
   const root = scratch();
   try {

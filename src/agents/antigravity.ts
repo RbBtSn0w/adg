@@ -135,7 +135,7 @@ export function writeAntigravityProjection(dir: string, selection?: PluginSelect
       linkFileOrCopy(join(stage, "mcp_config.json"), projectedMcp);
     }
   } else {
-    rmSync(join(stage, ".mcp.json"), { force: true });
+    rmSync(join(stage, mcp || ".mcp.json"), { force: true });
   }
   writeJson(join(stage, "plugin.json"), pluginJson);
 

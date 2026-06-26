@@ -469,12 +469,15 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
       agents = resolved.map((a) => {
         const agentInstalled = a.listInstalled?.(ctxFor([]));
-        const alreadyInstalled = (name: string) => existingPlugins.has(name) || agentInstalled?.includes(name) === true;
+        const alreadyInstalled = (name: string) =>
+          agentInstalled !== undefined
+            ? agentInstalled.includes(name)
+            : existingPlugins.has(name);
         // Existing plugins must go through refresh even on an explicit `add`:
         // agents like Claude cache an installed copy, and their plain install
-        // command is a no-op when the plugin already exists. We check both ADG's
-        // lock and the agent's live state so stale agent-only installs get
-        // refreshed when a project/global store is recreated.
+        // command is a no-op when the plugin already exists. If the agent can
+        // enumerate live installs, trust that state; otherwise fall back to the
+        // ADG lock to preserve clean-update behavior.
         const activateNames = toActivate.filter((r) => !alreadyInstalled(r.name)).map((r) => r.name);
         const refreshNames = toActivate.filter((r) => alreadyInstalled(r.name)).map((r) => r.name);
         // An agent may run both lifecycles (new installs + updates) in one pass;
