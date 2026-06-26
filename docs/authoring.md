@@ -169,7 +169,8 @@ Agent hook formats have **converged on Claude's**: Claude Code's hook schema is 
 de-facto standard, Codex consumes the same structure (and accepts
 `${CLAUDE_PLUGIN_ROOT}`), and Antigravity uses the same shape. So ADG does **not**
 define its own hook DSL — you author hooks once in **Claude's native format** and
-ADG only routes/lints them.
+ADG only routes/lints them. (Rationale and the unify-vs-adopt decision rule:
+[docs/hooks-strategy.md](hooks-strategy.md).)
 
 - **Author** `hooks/hooks.json` in Claude's hook format (see the
   [Claude hooks reference](https://code.claude.com/docs/en/hooks)), using
