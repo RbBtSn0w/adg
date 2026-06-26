@@ -6,7 +6,6 @@ import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
 import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
-import { ADG_HOOKS_PATH, GENERATED_HOOK_FILES } from "../hooks.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
@@ -60,22 +59,9 @@ export interface InstallResult {
 // Generated runtime projections never count toward a plugin's content hash.
 const HASH_IGNORE = PROJECTION_DIRS;
 
-/**
- * Content hash over a plugin's packaged payload. Mirrors the projection rule for
- * the hooks DSL: when a plugin opts in (`.agents/hooks.json` present), the
- * compiled `hooks/*.json` outputs are generated, so they are excluded from the
- * hash — letting an authoring source (no compiled files) and an installed copy
- * (with them) hash identically, and keeping a compiler change from bumping the
- * content hash.
- */
+/** Content hash over a plugin's packaged payload (hooks files are authored content, not generated). */
 function contentHash(dir: string, manifest: AdgManifest): string {
-  const base = packageFilter(manifest, { includeProjections: false });
-  // `GENERATED_HOOK_FILES` keys are POSIX; normalize so a backslash path (Windows)
-  // still matches and the generated files are excluded from the hash there too.
-  const include = existsSync(join(dir, ADG_HOOKS_PATH))
-    ? (rel: string) => base(rel) && !GENERATED_HOOK_FILES.has(toPosix(rel))
-    : base;
-  return folderHash(dir, HASH_IGNORE, include);
+  return folderHash(dir, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
 }
 
 /**

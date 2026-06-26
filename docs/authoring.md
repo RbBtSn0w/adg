@@ -165,56 +165,40 @@ the runtime projections and the installed package.
 
 ## Hooks
 
-Agents do not share a hook format. Claude **auto-loads** `hooks/hooks.json` and
-expands `${CLAUDE_PLUGIN_ROOT}`; Codex references an explicit
-`hooks/hooks-codex.json` from its manifest and expands `${PLUGIN_ROOT}`; and the
-matcher vocabularies differ (e.g. `startup|clear|compact` vs
-`startup|resume|clear`). Two ways to author:
+Agent hook formats have **converged on Claude's**: Claude Code's hook schema is the
+de-facto standard, Codex consumes the same structure (and accepts
+`${CLAUDE_PLUGIN_ROOT}`), and Antigravity uses the same shape. So ADG does **not**
+define its own hook DSL — you author hooks once in **Claude's native format** and
+ADG only routes/lints them. (Rationale and the unify-vs-adopt decision rule:
+[docs/hooks-strategy.md](hooks-strategy.md).)
 
-- **Hand-authored (passthrough)** — ship the native files yourself under
-  `hooks/`. ADG carries them as-is: Claude auto-loads `hooks/hooks.json`, and the
-  Codex projection references `hooks/hooks-codex.json` (falling back to
-  `hooks/hooks.json`). Nothing is rewritten.
+- **Author** `hooks/hooks.json` in Claude's hook format (see the
+  [Claude hooks reference](https://code.claude.com/docs/en/hooks)), using
+  `${CLAUDE_PLUGIN_ROOT}` for the plugin root.
+- **Claude** auto-loads `hooks/hooks.json`; ADG omits the manifest `hooks` field so
+  the load isn't duplicated.
+- **Codex** consumes the same file: ADG references it from `.codex-plugin/plugin.json`.
+  Need genuinely different Codex behavior? Ship a `hooks/hooks-codex.json` and ADG
+  references that for Codex instead (per-agent override; Claude still uses
+  `hooks/hooks.json`).
+- **Lint** — at `adapt`/install ADG warns when your hooks use an event a target
+  can't fire (e.g. `UserPromptExpansion` is Claude-only, so it never fires in Codex).
+  It only warns; it never rewrites your hooks.
 
-- **Universal DSL (recommended, author once)** — add `.agents/hooks.json`
-  (`adg.hooks/v1`). Write the canonical command with the **braced** `${PLUGIN_ROOT}`
-  token (only `${PLUGIN_ROOT}` is translated — a bare `$PLUGIN_ROOT` is left
-  as-is); capture the parts that genuinely differ per agent as `matcherByTarget` /
-  `commandByTarget` overrides (keyed by `claude`/`codex`). On `adapt`/install ADG
-  compiles it to each target's native file (`hooks/hooks.json`,
-  `hooks/hooks-codex.json`), translating the env token and applying overrides. The
-  compiled files ship but do not count toward the content hash. An event ADG
-  doesn't recognize is still emitted, with a warning.
-
-  ```json
-  {
-    "schemaVersion": "adg.hooks/v1",
-    "hooks": {
-      "SessionStart": [
-        {
-          "matcher": "startup|clear|compact",
-          "matcherByTarget": { "codex": "startup|resume|clear" },
-          "actions": [
-            {
-              "type": "command",
-              "command": "\"${PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start",
-              "commandByTarget": { "codex": "\"${PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start-codex" },
-              "async": false
-            }
-          ]
-        }
-      ]
-    }
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start" }
+        ]
+      }
+    ]
   }
-  ```
-
-  Schema: [adg-hooks.schema.json](../schemas/adg-hooks.schema.json).
-
-  **Migrating an existing plugin** — already maintain native `hooks/hooks.json` +
-  `hooks/hooks-codex.json` by hand? Run `adg plugins lift-hooks [<dir>]` to fold
-  both into one `.agents/hooks.json` (canonicalizing the env token and capturing
-  per-agent differences as overrides). The native files stay put; a later `adapt`
-  regenerates them from the DSL.
+}
+```
 
 ---
 

@@ -1,326 +1,86 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { writeJson } from "./fsutil.ts";
+import { resolveCodexHooksFile } from "./adapters/codex.ts";
 
 /**
- * ADG universal hooks DSL (`adg.hooks/v1`) and its per-agent compiler.
+ * Hooks linting over the de-facto standard format.
  *
- * Agents do not share a hook format: Claude auto-loads `hooks/hooks.json` and
- * uses `${CLAUDE_PLUGIN_ROOT}`; Codex references an explicit file and uses
- * `${PLUGIN_ROOT}`; and real plugins (e.g. superpowers) genuinely diverge per
- * agent — different matcher vocabularies (`clear|compact` vs `resume|clear`) and
- * even different scripts. So the DSL is authored once with a canonical
- * `${PLUGIN_ROOT}` token, and carries *optional* per-target overrides for the
- * parts that truly differ. The compiler resolves overrides, translates the env
- * token, and warns (never silently drops) on events a target may not support.
+ * Agent hook formats have converged on Claude's: a plugin ships a single
+ * `hooks/hooks.json` in Claude's native shape (using `${CLAUDE_PLUGIN_ROOT}`),
+ * which Claude auto-loads and Codex consumes verbatim (it accepts the same
+ * structure and `${CLAUDE_PLUGIN_ROOT}`). ADG does not transform hooks — the
+ * adapters only route each agent's manifest to the right file, and an author can
+ * ship a `hooks/hooks-codex.json` to override Codex.
  *
- * The universal source lives at `.agents/hooks.json` and is opt-in: plugins that
- * still ship hand-authored `hooks/*.json` keep working unchanged.
+ * The one cross-agent gap ADG surfaces is *event support*: an event exists in
+ * Claude but not Codex (e.g. `UserPromptExpansion`), so a hook on it silently
+ * never fires there. `checkHookEvents` warns about that at adapt/install time.
  */
-
-export const ADG_HOOKS_SCHEMA_VERSION = "adg.hooks/v1";
-
-/** Canonical location of the universal hooks document inside a plugin. */
-export const ADG_HOOKS_PATH = ".agents/hooks.json";
 
 export type HookTarget = "claude" | "codex";
 
 /**
- * Where each target's compiled hook file lands (plugin-relative, POSIX). Claude
- * auto-loads `hooks/hooks.json`; Codex references `hooks/hooks-codex.json` from
- * its manifest. These are generated outputs — shipped, but excluded from the
- * content hash (see `GENERATED_HOOK_FILES`).
+ * Hook events each target fires, from the official docs (Claude
+ * code.claude.com/docs/en/hooks, Codex developers.openai.com/codex/hooks). Used
+ * only to warn — never to drop — so an event these lists haven't caught up with
+ * is reported as unknown rather than hidden. Codex is a subset of Claude's set.
  */
-export const HOOK_OUTPUT: Record<HookTarget, string> = {
-  claude: "hooks/hooks.json",
-  codex: "hooks/hooks-codex.json",
+const SUPPORTED_EVENTS: Record<HookTarget, ReadonlySet<string>> = {
+  claude: new Set([
+    "SessionStart", "Setup", "SessionEnd",
+    "UserPromptSubmit", "UserPromptExpansion", "Stop", "StopFailure",
+    "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch",
+    "PermissionRequest", "PermissionDenied",
+    "SubagentStart", "SubagentStop", "TeammateIdle",
+    "TaskCreated", "TaskCompleted",
+    "InstructionsLoaded", "ConfigChange", "FileChanged", "CwdChanged",
+    "WorktreeCreate", "WorktreeRemove",
+    "PreCompact", "PostCompact",
+    "Elicitation", "ElicitationResult", "Notification", "MessageDisplay",
+  ]),
+  codex: new Set([
+    "SessionStart", "SubagentStart", "PreToolUse", "PermissionRequest",
+    "PostToolUse", "PreCompact", "PostCompact", "UserPromptSubmit",
+    "SubagentStop", "Stop",
+  ]),
 };
 
-/** The set of generated hook files, treated like adapter projections (not hashed). */
-export const GENERATED_HOOK_FILES: ReadonlySet<string> = new Set(Object.values(HOOK_OUTPUT));
-
-/** A single action fired by a hook entry. */
-export interface AdgHookAction {
-  /** Only "command" today; kept explicit so the native shape round-trips. */
-  type: "command";
-  /** Canonical command line; references the plugin root as `${PLUGIN_ROOT}`. */
-  command: string;
-  async?: boolean;
-  /** Per-target command override for genuine behavioral divergence. */
-  commandByTarget?: Partial<Record<HookTarget, string>>;
+/** The hooks file `target` will actually load (plugin-relative), or undefined. */
+function hooksFileForTarget(pluginDir: string, target: HookTarget): string | undefined {
+  // Codex references a file from its manifest (its own variant if shipped, else
+  // the shared file) — reuse the adapter's resolution so the lint matches reality.
+  if (target === "codex") return resolveCodexHooksFile(pluginDir, "./hooks/");
+  // Claude auto-loads only the standard hooks/hooks.json.
+  return existsSync(join(pluginDir, "hooks", "hooks.json")) ? "hooks/hooks.json" : undefined;
 }
 
-/** One matcher+actions group under an event. */
-export interface AdgHookEntry {
-  matcher?: string;
-  /** Per-target matcher override (agents use different matcher vocabularies). */
-  matcherByTarget?: Partial<Record<HookTarget, string>>;
-  actions: AdgHookAction[];
-}
-
-/** The universal hooks document (`.agents/hooks.json`). */
-export interface AdgHooks {
-  schemaVersion: typeof ADG_HOOKS_SCHEMA_VERSION;
-  /** Event name (e.g. "SessionStart") → its matcher/action groups. */
-  hooks: Record<string, AdgHookEntry[]>;
-}
-
-/** The native (Claude/Codex) hooks.json shape the compiler emits. */
-export interface NativeHookAction {
-  type: string;
-  command: string;
-  async?: boolean;
-}
-export interface NativeHookEntry {
-  matcher?: string;
-  hooks: NativeHookAction[];
-}
-export interface NativeHooks {
-  hooks: Record<string, NativeHookEntry[]>;
-}
-
-/** The plugin-root env variable each target expands. */
-const ENV_TOKEN: Record<HookTarget, string> = {
-  claude: "CLAUDE_PLUGIN_ROOT",
-  codex: "PLUGIN_ROOT",
-};
-
-/**
- * Documented hook events. Used only to *warn* on an unfamiliar event — the
- * compiler still emits it, so an event this list hasn't caught up with is never
- * silently dropped. (Codex's vocabulary is not fully published; this is Claude's
- * set, treated as the canonical baseline.)
- */
-const KNOWN_EVENTS = new Set([
-  "PreToolUse",
-  "PostToolUse",
-  "UserPromptSubmit",
-  "Notification",
-  "Stop",
-  "SubagentStop",
-  "PreCompact",
-  "SessionStart",
-  "SessionEnd",
-]);
-
-/** Reserved object keys that must never be used as event names (prototype-pollution guard). */
-const UNSAFE_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
-const isUnsafeKey = (key: string): boolean => UNSAFE_KEYS.has(key);
-
-/** Replace the canonical `${PLUGIN_ROOT}` token with the target's env variable. */
-function translateEnv(value: string, target: HookTarget): string {
-  // Function replacement so `$` in the substitution is never treated specially.
-  return value.replaceAll("${PLUGIN_ROOT}", () => `\${${ENV_TOKEN[target]}}`);
+/** Event names declared in a Claude-format hooks file; tolerant (the agents validate). */
+function hookEventsOf(file: string): string[] {
+  try {
+    const doc = JSON.parse(readFileSync(file, "utf8")) as { hooks?: unknown };
+    const map = doc?.hooks;
+    return typeof map === "object" && map !== null ? Object.keys(map as Record<string, unknown>) : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Compile the universal hooks document into one target's native `hooks.json`
- * object, resolving per-target overrides and translating the env token. Returns
- * the native object plus any non-fatal warnings (unknown events).
+ * Warn when a plugin's hooks file declares an event the target agent can't fire,
+ * so a no-op hook (e.g. a Claude-only `UserPromptExpansion` projected to Codex)
+ * surfaces instead of silently doing nothing. Pure read-only lint — no transform.
  */
-export function compileHooks(src: AdgHooks, target: HookTarget): { hooks: NativeHooks; warnings: string[] } {
+export function checkHookEvents(pluginDir: string, targets: readonly string[]): string[] {
   const warnings: string[] = [];
-  const out: NativeHooks = { hooks: {} };
-
-  for (const [event, entries] of Object.entries(src.hooks)) {
-    if (isUnsafeKey(event)) {
-      // Defensive: a reserved name (e.g. "__proto__") would mutate the map's
-      // prototype rather than add an event. parseAdgHooks rejects these at the
-      // authoring boundary; skip-with-warning covers direct callers.
-      warnings.push(`skipped reserved hook event name "${event}"`);
-      continue;
-    }
-    if (!KNOWN_EVENTS.has(event)) {
-      warnings.push(`unknown hook event "${event}" — emitted for ${target} but it may not fire`);
-    }
-    out.hooks[event] = entries.map((entry) => {
-      const matcher = entry.matcherByTarget?.[target] ?? entry.matcher;
-      const actions: NativeHookAction[] = entry.actions.map((a) => {
-        const command = translateEnv(a.commandByTarget?.[target] ?? a.command, target);
-        return { type: a.type, command, ...(a.async !== undefined ? { async: a.async } : {}) };
-      });
-      return { ...(matcher !== undefined ? { matcher } : {}), hooks: actions };
-    });
-  }
-
-  return { hooks: out, warnings };
-}
-
-/** Rewrite any agent's plugin-root token back to the canonical `${PLUGIN_ROOT}`. */
-function canonicalizeEnv(value: string): string {
-  return value.replaceAll("${CLAUDE_PLUGIN_ROOT}", () => "${PLUGIN_ROOT}");
-}
-
-/**
- * Lift native hook files into one universal document — the inverse of
- * `compileHooks`. Where the targets agree, a single canonical value is emitted;
- * where they genuinely diverge (matcher or command), the difference is captured
- * as a per-target override, so recompiling reproduces each native file. Targets
- * are aligned positionally per event; a shape mismatch is reported (not dropped)
- * and the primary (Claude when present) is used as the structural base.
- */
-export function liftHooks(natives: Partial<Record<HookTarget, NativeHooks>>): { hooks: AdgHooks; warnings: string[] } {
-  const warnings: string[] = [];
-  const present = (Object.keys(natives) as HookTarget[]).filter((t) => natives[t]);
-  const events = new Set(present.flatMap((t) => Object.keys(natives[t]!.hooks)));
-  const out: AdgHooks = { schemaVersion: ADG_HOOKS_SCHEMA_VERSION, hooks: {} };
-
-  for (const event of events) {
-    if (isUnsafeKey(event)) {
-      warnings.push(`skipped reserved hook event name "${event}"`);
-      continue;
-    }
-    // An event only some targets define becomes a *shared* entry after compile —
-    // so it would start firing on agents that never had it. Surface that.
-    const definedIn = present.filter((t) => natives[t]!.hooks[event]);
-    if (present.length > 1 && definedIn.length < present.length) {
-      warnings.push(`hook event "${event}" is only defined for ${definedIn.join(", ")}; it will apply to every agent after compile`);
-    }
-
-    const primary: HookTarget = natives.claude?.hooks[event] ? "claude" : "codex";
-    const other = present.find((t) => t !== primary && natives[t]!.hooks[event]);
-    const baseEntries = natives[primary]!.hooks[event]!;
-    const otherEntries = other ? natives[other]!.hooks[event] : undefined;
-    if (other && otherEntries && otherEntries.length !== baseEntries.length) {
-      warnings.push(`hook event "${event}" has a different shape per target; lifted from ${primary}`);
-    }
-
-    out.hooks[event] = baseEntries.map((entry, i) => {
-      const oEntry = otherEntries?.[i];
-      const adg: AdgHookEntry = { actions: [] };
-      if (entry.matcher !== undefined) adg.matcher = entry.matcher;
-      if (other && oEntry && oEntry.matcher !== undefined && oEntry.matcher !== entry.matcher) {
-        adg.matcherByTarget = { [other]: oEntry.matcher };
-      }
-      adg.actions = entry.hooks.map((act, j) => {
-        const a: AdgHookAction = { type: "command" as const, command: canonicalizeEnv(act.command) };
-        if (act.async !== undefined) a.async = act.async;
-        const oAct = oEntry?.hooks[j];
-        if (other && oAct) {
-          const oCmd = canonicalizeEnv(oAct.command);
-          if (oCmd !== a.command) a.commandByTarget = { [other]: oCmd };
-        }
-        return a;
-      });
-      return adg;
-    });
-  }
-
-  return { hooks: out, warnings };
-}
-
-/** Outcome of lifting a plugin's native hook files into the universal DSL. */
-export interface LiftHooksResult {
-  /** The written DSL file, plugin-relative (`.agents/hooks.json`). */
-  file: string;
-  /** Which native targets were found and lifted. */
-  sources: HookTarget[];
-  warnings: string[];
-}
-
-/**
- * Read a plugin's native hook files (`hooks/hooks.json`, `hooks/hooks-codex.json`)
- * and lift them into one universal `.agents/hooks.json`, the inverse of the
- * compile step. Returns undefined when the plugin ships no native hooks (nothing
- * to convert). The native files are left in place — a later adapt regenerates
- * them from the DSL. Throws on a malformed native file rather than guessing.
- */
-export function liftHooksFromDisk(pluginDir: string): LiftHooksResult | undefined {
-  const natives: Partial<Record<HookTarget, NativeHooks>> = {};
-  const sources: HookTarget[] = [];
-  for (const target of Object.keys(HOOK_OUTPUT) as HookTarget[]) {
-    const file = join(pluginDir, HOOK_OUTPUT[target]);
-    if (!existsSync(file)) continue;
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
-    const hooksMap = (parsed as NativeHooks | null)?.hooks;
-    // `typeof null === "object"`, so guard the `hooks` map against null explicitly.
-    if (typeof parsed !== "object" || parsed === null || typeof hooksMap !== "object" || hooksMap === null) {
-      throw new Error(`${HOOK_OUTPUT[target]} is not a valid hooks file (missing \`hooks\` map)`);
-    }
-    natives[target] = parsed as NativeHooks;
-    sources.push(target);
-  }
-  if (sources.length === 0) return undefined;
-
-  const { hooks, warnings } = liftHooks(natives);
-  writeJson(join(pluginDir, ADG_HOOKS_PATH), hooks);
-  return { file: ADG_HOOKS_PATH, sources, warnings };
-}
-
-/** One compiled hook file written to disk, with any warnings from compilation. */
-export interface CompiledHookFile {
-  /** Plugin-relative output path (e.g. "hooks/hooks.json"). */
-  file: string;
-  warnings: string[];
-}
-
-/**
- * If `pluginDir` opts into the DSL (has `.agents/hooks.json`), compile it to each
- * requested target's native hook file and write them under `hooks/`. A no-op
- * (returns []) when the DSL source is absent — plugins shipping hand-authored
- * `hooks/*.json` are left untouched. Only claude/codex are compiled today;
- * targets without a `HOOK_OUTPUT` mapping (e.g. antigravity) are skipped.
- */
-export function compileHooksToDisk(pluginDir: string, targets: readonly string[]): CompiledHookFile[] {
-  const src = join(pluginDir, ADG_HOOKS_PATH);
-  if (!existsSync(src)) return [];
-  const doc = parseAdgHooks(JSON.parse(readFileSync(src, "utf8")));
-
-  const written: CompiledHookFile[] = [];
-  for (const target of targets) {
-    if (!(target in HOOK_OUTPUT)) continue;
-    const t = target as HookTarget;
-    const { hooks, warnings } = compileHooks(doc, t);
-    const rel = HOOK_OUTPUT[t];
-    writeJson(join(pluginDir, rel), hooks);
-    written.push({ file: rel, warnings });
-  }
-  return written;
-}
-
-const VALID_TARGETS: ReadonlySet<string> = new Set<HookTarget>(["claude", "codex"]);
-
-/** Reject an unknown target key in an override map — it would be silently ignored at compile time. */
-function checkTargetKeys(value: unknown, where: string): void {
-  if (value === undefined) return;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${where} must be an object keyed by target`);
-  }
-  for (const [key, val] of Object.entries(value)) {
-    if (!VALID_TARGETS.has(key)) throw new Error(`${where} has unknown target "${key}" (expected claude|codex)`);
-    // A non-string override would crash translateEnv (`.replaceAll` on a non-string).
-    if (typeof val !== "string") throw new Error(`${where} value for target "${key}" must be a string`);
-  }
-}
-
-/**
- * Parse and shallowly validate a raw `.agents/hooks.json` payload. Throws with a
- * pointed message rather than letting a malformed document surface as a deep
- * runtime error during compilation.
- */
-export function parseAdgHooks(raw: unknown): AdgHooks {
-  if (typeof raw !== "object" || raw === null) throw new Error("hooks document must be a JSON object");
-  const d = raw as Record<string, unknown>;
-  if (d.schemaVersion !== ADG_HOOKS_SCHEMA_VERSION) {
-    throw new Error(`hooks document must declare schemaVersion "${ADG_HOOKS_SCHEMA_VERSION}"`);
-  }
-  if (typeof d.hooks !== "object" || d.hooks === null) throw new Error("hooks document missing `hooks` map");
-  for (const [event, entries] of Object.entries(d.hooks as Record<string, unknown>)) {
-    if (isUnsafeKey(event)) throw new Error(`hook event name "${event}" is reserved and not allowed`);
-    if (!Array.isArray(entries)) throw new Error(`hook event "${event}" must be an array of entries`);
-    for (const entry of entries) {
-      if (typeof entry !== "object" || entry === null) throw new Error(`hook event "${event}" entry must be an object`);
-      const e = entry as Record<string, unknown>;
-      if (!Array.isArray(e.actions)) throw new Error(`hook event "${event}" entry missing \`actions\` array`);
-      checkTargetKeys(e.matcherByTarget, `hook event "${event}" matcherByTarget`);
-      for (const action of e.actions as unknown[]) {
-        if (typeof action !== "object" || action === null) throw new Error(`hook action in "${event}" must be an object`);
-        const a = action as Record<string, unknown>;
-        if (a.type !== "command") throw new Error(`hook action in "${event}" must have type "command"`);
-        if (typeof a.command !== "string") throw new Error(`hook action in "${event}" missing string \`command\``);
-        checkTargetKeys(a.commandByTarget, `hook action in "${event}" commandByTarget`);
+  for (const t of targets) {
+    if (t !== "claude" && t !== "codex") continue;
+    const rel = hooksFileForTarget(pluginDir, t);
+    if (!rel) continue;
+    for (const event of hookEventsOf(join(pluginDir, rel))) {
+      if (!SUPPORTED_EVENTS[t].has(event)) {
+        warnings.push(`hook event "${event}" is not a known ${t} hook event — ${t} will not fire it`);
       }
     }
   }
-  return raw as AdgHooks;
+  return warnings;
 }
