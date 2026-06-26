@@ -53,7 +53,7 @@
     "commands": { "type": "string", "description": "Slash command directory." },
     "apps": { "type": "string", "description": "Third-party app integration config." },
     "hooks": { "type": "string", "description": "Lifecycle hooks directory." },
-    "mcp": { "type": "string", "description": "MCP config file path." },
+    "mcpServers": { "type": "string", "description": "MCP config file path." },
     "dependencies": {
       "type": "array",
       "items": {

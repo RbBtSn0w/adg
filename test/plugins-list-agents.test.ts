@@ -6,8 +6,8 @@ import { agentsForComponents } from "../src/agents/index.ts";
 /**
  * `adg plugins list` derives its "Agents:" column from a plugin's exposed
  * component types: an agent is listed when its adapter can express at least one
- * of those types. Codex consumes skills and hooks, while Claude and Antigravity
- * (agy) also take agents/commands/mcp — so the derivation must split on
+ * of those types. Codex consumes skills, hooks, and mcp, while Claude and
+ * Antigravity (agy) also take agents/commands — so the derivation must split on
  * component type.
  */
 
@@ -24,7 +24,10 @@ test("hooks are adaptable to every agent (Codex references a hook file)", () => 
 test("a non-Codex component type includes Claude and Antigravity, but not Codex", () => {
   assert.deepEqual(ids(["commands"]), ["antigravity", "claude"]);
   assert.deepEqual(ids(["agents"]), ["antigravity", "claude"]);
-  assert.deepEqual(ids(["mcp"]), ["antigravity", "claude"]);
+});
+
+test("mcp is adaptable to every agent", () => {
+  assert.deepEqual(ids(["mcp"]), ["antigravity", "claude", "codex"]);
 });
 
 test("mixing skills with a Claude-only type still includes Codex", () => {

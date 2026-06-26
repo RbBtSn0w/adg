@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
 import { resolveProjectedSkills } from "../skills.ts";
 import { isExposed } from "../components.ts";
+import { mcpConfigPath } from "../mcp.ts";
 import type { AdapterResult } from "./index.ts";
 
 /**
@@ -79,7 +80,8 @@ export function toAnthropicManifest(
     const hooksFile = resolveClaudeHooksFile(pluginDir, manifest.hooks);
     if (hooksFile) out.hooks = hooksFile;
   }
-  if (manifest.mcp && isExposed(selection, "mcp")) out.mcp = manifest.mcp;
+  const mcp = mcpConfigPath(manifest);
+  if (mcp && isExposed(selection, "mcp")) out.mcpServers = mcp;
   if (manifest.apps && isExposed(selection, "apps")) out.apps = manifest.apps;
 
   // Claude's array form is already `./skills/<id>` paths, so a strict array is

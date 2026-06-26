@@ -34,7 +34,7 @@ export function validatePlugin(pluginDir: string): ValidateResult {
     ["commands", m.commands],
     ["apps", m.apps],
     ["hooks", m.hooks],
-    ["mcp", m.mcp],
+    ["mcpServers", m.mcpServers],
   ];
   for (const [field, value] of pathFields) {
     if (typeof value === "string" && !existsSync(join(pluginDir, value))) {

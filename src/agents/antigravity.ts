@@ -8,6 +8,7 @@ import { isExposed } from "../components.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { ANTIGRAVITY_PROJECTION_DIR } from "../adapters/antigravity.ts";
+import { mcpConfigPath } from "../mcp.ts";
 import { makeCli, skippedResult } from "./base.ts";
 import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
@@ -17,10 +18,9 @@ import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
  *
  * Antigravity discovers a plugin by convention relative to the directory handed
  * to `agy plugin install` — `plugin.json` plus sibling `skills/`, `agents/`,
- * `commands/`, `hooks/` dirs and a `mcp_config.json`, with no manifest path
- * indirection. We therefore project a self-contained agy plugin root under
- * `<store>/.antigravity-plugin/`: generated `plugin.json` + `mcp_config.json`
- * (the ADG `mcp/.mcp.json` shape is exactly agy's, so it passes through) and
+ * `commands/`, `hooks/` dirs plus plugin.json path pointers. We therefore
+ * project a self-contained agy plugin root under `<store>/.antigravity-plugin/`:
+ * generated `plugin.json` + copied MCP config (when selected) and
  * *symlinks* to the real component dirs one level up, so nothing is duplicated
  * on disk. agy follows these symlinks; where the platform forbids them (e.g.
  * Windows without privilege) we fall back to a copy. We then drive
@@ -91,11 +91,23 @@ function linkOrCopy(linkPath: string, absTarget: string): void {
   }
 }
 
+/** Link a file with a relative symlink, copying instead when symlinks fail. */
+function linkFileOrCopy(linkPath: string, absTarget: string): void {
+  rmSync(linkPath, { force: true });
+  ensureDir(dirname(linkPath));
+  try {
+    symlinkSync(relative(dirname(linkPath), absTarget), linkPath, "file");
+  } catch {
+    cpSync(absTarget, linkPath);
+  }
+}
+
 /**
  * Build the agy-native projection under `<dir>/.antigravity-plugin/`: a
- * `plugin.json` (name only), a `mcp_config.json` copied verbatim from the
- * manifest's mcp file when present, and relative symlinks (copy fallback) to the
- * declared component dirs named for agy's convention.
+ * `plugin.json`, an MCP config file copied verbatim from the manifest's
+ * `mcpServers` pointer when present, an agy-conventional `mcp_config.json` link
+ * to that file, and relative symlinks (copy fallback) to the declared component
+ * dirs named for agy's convention.
  *
  * An optional `selection` (the plugin's partial install) narrows what is
  * projected: component categories outside it are dropped, and `skills` is pinned
@@ -107,17 +119,25 @@ export function writeAntigravityProjection(dir: string, selection?: PluginSelect
   const manifest = readManifest(dir);
   const stage = join(dir, ANTIGRAVITY_PROJECTION_DIR);
   ensureDir(stage);
+  rmSync(join(stage, "mcp_config.json"), { force: true });
 
-  writeJson(join(stage, "plugin.json"), { name: manifest.name });
-
-  const mcpConfig = join(stage, "mcp_config.json");
-  rmSync(mcpConfig, { force: true });
-  if (manifest.mcp && isExposed(selection, "mcp")) {
-    const mcpFile = join(dir, manifest.mcp);
-    // The ADG mcp file shape is exactly agy's `mcp_config.json`, so copy it
-    // verbatim — preserving formatting and avoiding a parse/re-serialize round-trip.
-    if (existsSync(mcpFile)) cpSync(mcpFile, mcpConfig);
+  const mcp = mcpConfigPath(manifest);
+  const pluginJson: Record<string, unknown> = { name: manifest.name };
+  if (mcp && isExposed(selection, "mcp")) {
+    pluginJson.mcpServers = mcp;
+    const mcpFile = join(dir, mcp);
+    const projectedMcp = join(stage, mcp);
+    rmSync(projectedMcp, { force: true });
+    ensureDir(dirname(projectedMcp));
+    // Copy verbatim — preserving formatting and avoiding a parse/re-serialize round-trip.
+    if (existsSync(mcpFile)) {
+      cpSync(mcpFile, projectedMcp);
+      linkFileOrCopy(join(stage, "mcp_config.json"), projectedMcp);
+    }
+  } else {
+    rmSync(join(stage, ".mcp.json"), { force: true });
   }
+  writeJson(join(stage, "plugin.json"), pluginJson);
 
   const skillsDir = join(stage, "skills");
   rmSync(skillsDir, { recursive: true, force: true });

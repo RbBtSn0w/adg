@@ -10,8 +10,8 @@ import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 
 /**
  * Antigravity (`agy`, Google's agent CLI) is a third runtime target. It discovers
- * a plugin by convention relative to the install dir (a minimal `plugin.json`
- * plus sibling component dirs and a `mcp_config.json`), so ADG projects a
+ * a plugin by convention relative to the install dir (a `plugin.json` with
+ * path pointers plus sibling component dirs), so ADG projects a
  * self-contained agy plugin root under `.antigravity-plugin/`: generated
  * manifests + symlinks to the real component dirs. These guard the adapter
  * output, that projection (mcp passthrough + component links), and detection.
@@ -31,20 +31,20 @@ test("antigravity is a registered adapter target with the Claude component super
   assert.deepEqual(ADAPTER_COMPONENTS.antigravity, ["skills", "agents", "commands", "hooks", "mcp"]);
 });
 
-test("toAntigravityManifest emits .antigravity-plugin/plugin.json carrying only the name", () => {
+test("toAntigravityManifest emits .antigravity-plugin/plugin.json with shared mcpServers", () => {
   const m = {
     schemaVersion: ADG_SCHEMA_VERSION,
     name: "asc",
     version: "0.1.0",
     description: "x",
-    mcp: "./mcp/.mcp.json",
+    mcpServers: "./.mcp.json",
   } as const;
   const out = toAntigravityManifest("/tmp/asc", m, undefined);
   assert.equal(out.defaultPath, join(PROJ, "plugin.json"));
-  assert.deepEqual(out.manifest, { name: "asc" });
+  assert.deepEqual(out.manifest, { name: "asc", mcpServers: "./.mcp.json" });
 });
 
-test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp passthrough, and component links", () => {
+test("writeAntigravityProjection builds a self-contained agy root: manifest, mcpServers files, and component links", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
     const mcp = { mcpServers: { asc: { command: "asc", args: ["mcp", "serve"] } } };
@@ -55,10 +55,9 @@ test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp
       description: "App Store Connect",
       skills: "./skills/",
       agents: "./agents/",
-      mcp: "./mcp/.mcp.json",
+      mcpServers: "./.mcp.json",
     });
-    mkdirSync(join(dir, "mcp"), { recursive: true });
-    writeFileSync(join(dir, "mcp", ".mcp.json"), JSON.stringify(mcp));
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
     mkdirSync(join(dir, "skills", "metadata-sync"), { recursive: true });
     writeFileSync(join(dir, "skills", "metadata-sync", "SKILL.md"), "# skill");
     mkdirSync(join(dir, "agents"), { recursive: true });
@@ -67,8 +66,8 @@ test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp
     writeAntigravityProjection(dir);
 
     const stage = join(dir, PROJ);
-    assert.deepEqual(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")), { name: "asc" });
-    // The ADG mcp shape is exactly agy's, so it passes through unchanged.
+    assert.deepEqual(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")), { name: "asc", mcpServers: "./.mcp.json" });
+    assert.deepEqual(JSON.parse(readFileSync(join(stage, ".mcp.json"), "utf8")), mcp);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "mcp_config.json"), "utf8")), mcp);
     // Skills are projected per-skill into a real `skills/` dir, each entry
     // resolving to its real source dir (symlink, or copy fallback).
@@ -85,6 +84,32 @@ test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp
   }
 });
 
+test("writeAntigravityProjection accepts the mcpServers manifest alias", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const mcp = { mcpServers: { idocs: { command: "idocs", args: ["mcp"] } } };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "apple-skills",
+      version: "1.13.0",
+      description: "Apple skills",
+      skills: "./skills/",
+      mcpServers: "./.mcp.json",
+    });
+    mkdirSync(join(dir, "skills", "xcode-build"), { recursive: true });
+    writeFileSync(join(dir, "skills", "xcode-build", "SKILL.md"), "# skill");
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
+
+    writeAntigravityProjection(dir);
+
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, "plugin.json"), "utf8")).mcpServers, "./.mcp.json");
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, ".mcp.json"), "utf8")), mcp);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, "mcp_config.json"), "utf8")), mcp);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("writeAntigravityProjection honors a partial-install selection (components + skill subset)", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
@@ -96,10 +121,9 @@ test("writeAntigravityProjection honors a partial-install selection (components 
       description: "App Store Connect",
       skills: "./skills/",
       agents: "./agents/",
-      mcp: "./mcp/.mcp.json",
+      mcpServers: "./.mcp.json",
     });
-    mkdirSync(join(dir, "mcp"), { recursive: true });
-    writeFileSync(join(dir, "mcp", ".mcp.json"), JSON.stringify(mcp));
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
     for (const s of ["keep", "drop"]) {
       mkdirSync(join(dir, "skills", s), { recursive: true });
       writeFileSync(join(dir, "skills", s, "SKILL.md"), `# ${s}`);
@@ -114,6 +138,8 @@ test("writeAntigravityProjection honors a partial-install selection (components 
     assert.equal(readFileSync(join(stage, "skills", "keep", "SKILL.md"), "utf8"), "# keep");
     assert.throws(() => realpathSync(join(stage, "skills", "drop")));
     assert.throws(() => realpathSync(join(stage, "agents")));
+    assert.equal(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")).mcpServers, undefined);
+    assert.throws(() => readFileSync(join(stage, ".mcp.json"), "utf8"));
     assert.throws(() => readFileSync(join(stage, "mcp_config.json"), "utf8"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -146,7 +172,7 @@ test("writeAntigravityProjection links every root of a multi-root skills path-li
   }
 });
 
-test("writeAntigravityProjection omits mcp_config.json when the plugin declares no mcp", () => {
+test("writeAntigravityProjection omits mcpServers when the plugin declares no mcp", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
     writePlugin(dir, {
@@ -163,6 +189,7 @@ test("writeAntigravityProjection omits mcp_config.json when the plugin declares 
 
     const stage = join(dir, PROJ);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")), { name: "skills-only" });
+    assert.throws(() => readFileSync(join(stage, ".mcp.json"), "utf8"));
     assert.throws(() => readFileSync(join(stage, "mcp_config.json"), "utf8"));
   } finally {
     rmSync(dir, { recursive: true, force: true });

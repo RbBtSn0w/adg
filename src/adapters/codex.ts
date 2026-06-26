@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
 import { resolveProjectedSkills } from "../skills.ts";
 import { isExposed } from "../components.ts";
+import { mcpConfigPath } from "../mcp.ts";
 import type { AdapterResult } from "./index.ts";
 
 /**
@@ -40,7 +41,9 @@ export function resolveCodexHooksFile(pluginDir: string, hooks: string): string 
  * declared as *paths* (`./skills/foo`), so they are resolved to identifiers
  * rather than passed through. Beyond skills, Codex also consumes `hooks` — but as
  * an explicit config *file* (no auto-load), so a declared hooks directory is
- * resolved to its Codex-variant file via `resolveCodexHooksFile`.
+ * resolved to its Codex-variant file via `resolveCodexHooksFile`. ADG uses
+ * Codex's `mcpServers` key as the canonical MCP config pointer, so that field
+ * passes through under the same runtime key.
  */
 export function toCodexManifest(
   pluginDir: string,
@@ -65,6 +68,8 @@ export function toCodexManifest(
     const hooksFile = resolveCodexHooksFile(pluginDir, manifest.hooks);
     if (hooksFile) out.hooks = hooksFile;
   }
+  const mcp = mcpConfigPath(manifest);
+  if (mcp && isExposed(selection, "mcp")) out.mcpServers = mcp;
 
   return { defaultPath: join(".codex-plugin", "plugin.json"), manifest: out };
 }

@@ -82,7 +82,7 @@ authoring artifact:
   "agents":   "./agents/",                     // string (dir)
   "hooks":    "./hooks/",                      // string (dir)
   "apps":     "./apps/",                       // string (dir)
-  "mcp":      "./mcp/.mcp.json",               // string (file)
+  "mcpServers": "./.mcp.json",                // string (file)
 
   "dependencies": [{ "name": "github-cr", "version": "^0.2.0" }],
   "strict": true,                              // default true (see Skills)
@@ -114,7 +114,7 @@ authoring artifact:
 | `agents` | string | | Directory of sub-agent `.md` files. |
 | `hooks` | string | | Directory of lifecycle hooks. |
 | `apps` | string | | Directory of third-party app integration config. |
-| `mcp` | string | | Path to an MCP config file (e.g. `./mcp/.mcp.json`). |
+| `mcpServers` | string | | Path to an MCP config file (e.g. `./.mcp.json`). |
 | `dependencies` | `[{ name, version }]` | | Other plugins required; `version` is a semver range. |
 | `strict` | boolean | | Default `true`. See **Skills**. |
 | `homepage`, `changelog` | string | | |
@@ -152,7 +152,7 @@ Two ways to declare them:
 
 - **commands** — `"./commands/"`, a dir of slash-command markdown files.
 - **agents** — `"./agents/"`, a dir of sub-agent definition `.md` files.
-- **mcp** — `"./mcp/.mcp.json"`, an MCP server config file (points at a *file*,
+- **mcpServers** — `"./.mcp.json"`, an MCP server config file (points at a *file*,
   not a dir).
 - **hooks**, **apps** — directories, same pattern. For hooks, see **Hooks**
   below — agents differ on the hook config format, so ADG can compile a single
@@ -345,8 +345,9 @@ files.
 
 1. `.agents/.plugin.json` exists and is valid JSON;
 2. structural validity (required fields, kebab `name`, semver `version`, types);
-3. **every declared path exists** (`agents`/`commands`/`apps`/`hooks`/`mcp` dirs
-   or files; the `skills` root, or each explicit skill path).
+3. **every declared path exists** (`agents`/`commands`/`apps`/`hooks` dirs
+   or files; the `mcpServers` file; the `skills` root, or each explicit skill
+   path).
 
 Typical failures:
 
