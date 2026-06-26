@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { ADAPTER_TARGETS } from "../src/adapters/index.ts";
+import { installPlugin } from "../src/commands/install.ts";
+import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import {
   MARKETPLACE_USAGE,
   PLUGIN_COMMANDS,
@@ -168,6 +170,12 @@ test("parseVerb splits declared flags from positionals", () => {
   assert.equal(values.target, "codex");
 });
 
+test("parseVerb accepts --json only for commands that declare it", () => {
+  assert.equal(parseVerb("list", PLUGIN_COMMANDS.list!.flags, ["--json"]).values.json, true);
+  assert.equal(parseVerb("status", PLUGIN_COMMANDS.status!.flags, ["--json"]).values.json, true);
+  expectFail(() => parseVerb("add", PLUGIN_COMMANDS.add!.flags, ["owner/repo", "--json"]));
+});
+
 test("renderPluginsHelp lists every command and tags the start verb", () => {
   const help = renderPluginsHelp();
   for (const name of Object.keys(PLUGIN_COMMANDS)) assert.ok(help.includes(name), `missing ${name}`);
@@ -194,6 +202,28 @@ async function captureLog(fn: () => Promise<void>): Promise<string> {
   return lines.join("\n");
 }
 
+function seedPlugin(store: string, name: string): void {
+  const src = mkdtempSync(join(tmpdir(), "adg-cli-json-src-"));
+  try {
+    mkdirSync(join(src, ".agents"), { recursive: true });
+    writeFileSync(
+      join(src, ".agents", ".plugin.json"),
+      JSON.stringify({
+        schemaVersion: ADG_SCHEMA_VERSION,
+        name,
+        version: "1.0.0",
+        description: `${name}.`,
+        skills: "./skills/",
+      }),
+    );
+    mkdirSync(join(src, "skills", "hello"), { recursive: true });
+    writeFileSync(join(src, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: hi.\n---\n");
+    installPlugin({ source: src, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
+  } finally {
+    rmSync(src, { recursive: true, force: true });
+  }
+}
+
 test("runPlugins with no verb prints the L1 overview", async () => {
   const out = await captureLog(() => runPlugins(undefined, []));
   assert.equal(out, renderPluginsHelp());
@@ -202,6 +232,38 @@ test("runPlugins with no verb prints the L1 overview", async () => {
 test("runPlugins <verb> -h prints that verb's help", async () => {
   const out = await captureLog(() => runPlugins("add", ["-h"]));
   assert.equal(out, renderVerbHelp("add"));
+});
+
+test("runPlugins list --json prints parseable JSON only", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-json-store-"));
+  try {
+    seedPlugin(dir, "alpha");
+    const out = await captureLog(() => runPlugins("list", ["--dir", dir, "--json"]));
+    const parsed = JSON.parse(out) as { pluginsDir: string; plugins: { name: string; counts: { skills: number } }[] };
+    assert.equal(parsed.pluginsDir, dir);
+    assert.equal(parsed.plugins.length, 1);
+    assert.equal(parsed.plugins[0]!.name, "alpha");
+    assert.equal(parsed.plugins[0]!.counts.skills, 1);
+    assert.ok(!out.includes("Agents:"), "human list columns must not appear in JSON mode");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins status --json prints parseable JSON only", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-json-store-"));
+  try {
+    const out = await captureLog(() => runPlugins("status", ["--dir", dir, "--target", "codex", "--json"]));
+    const parsed = JSON.parse(out) as { pluginsDir: string; scope: string; targets: string[]; statuses: { id: string }[] };
+    assert.equal(parsed.pluginsDir, dir);
+    assert.equal(parsed.scope, "project");
+    assert.deepEqual(parsed.targets, ["codex"]);
+    assert.equal(parsed.statuses.length, 1);
+    assert.equal(parsed.statuses[0]!.id, "codex");
+    assert.ok(!out.includes("name-level only"), "human status note must not appear in JSON mode");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Regression: a delegated verb (marketplace) with `<sub> -h` must show the

@@ -5,8 +5,10 @@ import { join, sep } from "node:path";
 
 import { formatColumns, abbrevHome, ellipsizeStart } from "../src/render/ui.ts";
 import { renderContents, renderPluginList, renderMarketplaceList } from "../src/render/plugins.ts";
+import { pluginsListJson, pluginsStatusJson } from "../src/render/json.ts";
 import type { ListedPlugin } from "../src/commands/list.ts";
 import type { MarketplaceGroup } from "../src/commands/marketplace.ts";
+import type { AgentStatus } from "../src/commands/status.ts";
 
 // The render layer (extracted in TD-2) is pure data -> lines, so it is tested
 // here without spawning the CLI. picocolors enables ANSI codes when CI=true
@@ -79,6 +81,35 @@ test("renderPluginList --verbose drills into members", () => {
   const verbose = renderPluginList([listed("alpha", { skills: ["s1"] })], "/store", { verbose: true });
   assert.ok(verbose.length > plain.length, "verbose adds member lines");
   assert.ok(verbose.join("\n").includes("s1"), "member name listed");
+});
+
+test("pluginsListJson emits stable machine fields without human formatting", () => {
+  const out = pluginsListJson([listed("alpha", { skills: ["s1"], mcp: ["xcode"] })], "/store");
+  assert.equal(out.pluginsDir, "/store");
+  assert.equal(out.plugins[0]!.name, "alpha");
+  assert.equal(out.plugins[0]!.source.type, "local");
+  assert.equal(out.plugins[0]!.path, join("/store", "alpha"));
+  assert.deepEqual(out.plugins[0]!.contents.skills, ["s1"]);
+  assert.equal(out.plugins[0]!.counts.skills, 1);
+  assert.equal(out.plugins[0]!.counts.mcp, 1);
+  assert.deepEqual(out.plugins[0]!.agents.sort(), ["antigravity", "claude", "codex"]);
+  assert.equal(out.plugins[0]!.partial, false);
+});
+
+test("pluginsListJson represents an empty store as an empty array", () => {
+  assert.deepEqual(pluginsListJson([], "/store"), { pluginsDir: "/store", plugins: [] });
+});
+
+test("pluginsStatusJson preserves status arrays and scope metadata", () => {
+  const statuses: AgentStatus[] = [
+    { id: "claude", displayName: "Claude Code", queryable: true, inSync: ["alpha"], missing: [], agentOnly: ["beta"] },
+  ];
+  assert.deepEqual(pluginsStatusJson(statuses, "/store", "user", ["claude"]), {
+    pluginsDir: "/store",
+    scope: "user",
+    targets: ["claude"],
+    statuses,
+  });
 });
 
 test("renderMarketplaceList groups by source and tags local sources", () => {

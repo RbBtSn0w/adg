@@ -48,6 +48,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   as: { type: "string", hint: "<name>", help: "plugin name to wrap the skills as" },
   prefix: { type: "string", hint: "<p>", help: "prefix imported skill names" },
   verbose: { type: "boolean", short: "v", help: "expand each component to its member names" },
+  json: { type: "boolean", help: "print stable machine-readable JSON" },
 };
 
 export type FlagName = keyof typeof FLAGS;
@@ -75,6 +76,7 @@ export type ParsedValues = {
   prefix?: string;
   verbose?: boolean;
   only?: string;
+  json?: boolean;
 };
 
 // Scope flags recur on almost every command; name the group once.
@@ -128,13 +130,13 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     summary: "list installed plugins",
     synopsis: "adg plugins list",
     blurb: "Each plugin shows a one-line summary of what it contains. Add --verbose\nto expand every component (skills, agents, commands, …) to its member names.",
-    flags: ["verbose", ...SCOPE],
+    flags: ["verbose", "json", ...SCOPE],
   },
   status: {
     summary: "show store-vs-agent drift per runtime",
     synopsis: "adg plugins status [--target claude|codex|antigravity]",
     blurb: "Query each agent's CLI live and diff it against the store: what's in\nsync, missing (needs `link`/`sync`), or present in the agent only. Each drift\nrow carries the command that repairs it. Inspects the active scope (--global →\nuser, else project). Name-level only — run `sync` if unsure.",
-    flags: ["target", ...SCOPE],
+    flags: ["target", "json", ...SCOPE],
   },
   update: {
     summary: "pull upstream changes for installed plugins",

@@ -27,6 +27,7 @@ import {
   renderStatus,
   renderUpdateReport,
 } from "../render/plugins.ts";
+import { pluginsListJson, pluginsStatusJson, printJson } from "../render/json.ts";
 import {
   MARKETPLACE_USAGE,
   PLUGIN_ALIASES,
@@ -431,6 +432,10 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const { values } = parseVerb(verb, cmd.flags, rest);
       const pluginsDir = resolveScopeDir(values);
       const plugins = listPlugins(pluginsDir);
+      if (values.json) {
+        printJson(pluginsListJson(plugins, pluginsDir));
+        return;
+      }
       for (const line of renderPluginList(plugins, pluginsDir, { verbose: values.verbose })) {
         console.log(line);
       }
@@ -438,8 +443,14 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
     }
     case "status": {
       const { values } = parseVerb(verb, cmd.flags, rest);
-      const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
-      const statuses = pluginStatus({ pluginsDir: resolveScopeDir(values), scope: scopeOf(values), targets });
+      const targets = resolveTargets(values.target);
+      const pluginsDir = resolveScopeDir(values);
+      const scope = scopeOf(values);
+      const statuses = pluginStatus({ pluginsDir, scope, targets });
+      if (values.json) {
+        printJson(pluginsStatusJson(statuses, pluginsDir, scope, targets));
+        return;
+      }
       for (const line of renderStatus(statuses)) console.log(line);
       return;
     }
