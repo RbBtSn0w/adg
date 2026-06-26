@@ -384,8 +384,11 @@ here, at consumption time:
 └── .claude-plugin/marketplace.json  # Claude-facing discovery export
 ```
 
-The runtimes (Claude, Codex) discover the plugin through their respective
-`marketplace.json`; you do not need to configure them by hand.
+After `add`, run `link` or `sync` for the runtimes that should see the plugin.
+Claude keeps its own registry/cache, so local directory-source plugins are not
+fully visible there until ADG links or syncs them. See
+[local-plugin-registration.md](local-plugin-registration.md) for the supported
+integrator flow and the Claude registration boundary.
 
 ### Legacy note
 

@@ -64,6 +64,10 @@ adg plugins update --global
 adg plugins list --global
 ```
 
+Machine consumers can use `adg plugins list --json` and
+`adg plugins status --json`; see [docs/cli-json.md](docs/cli-json.md) for the
+stable output and exit-code contract.
+
 `adg` is the only command you invoke — no Node build step beyond the global
 install. To hack on the CLI itself, see [Developing from source](#developing-from-source).
 
@@ -246,6 +250,9 @@ record; **agents are projections** of it (`link` / `unlink` toggle one agent;
 `sync` forces an agent to match the store). `remove` deletes from the store and
 every agent at once — for per-agent control use `unlink`. When something looks
 off, `status` shows the drift and `sync` repairs it.
+
+For the local-directory-source flow into Claude's registry/cache, see
+[docs/local-plugin-registration.md](docs/local-plugin-registration.md).
 
 #### On-disk layout
 
