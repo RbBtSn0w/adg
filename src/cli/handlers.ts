@@ -273,7 +273,7 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const only = resolveComponents(values.only);
       const skillsSubset = values.skill && values.skill.length > 0 ? values.skill : undefined;
       const narrowed = only !== undefined || skillsSubset !== undefined;
-      const { order, installed, converted, agents } = await addPlugins({
+      const { order, installed, removed, converted, agents } = await addPlugins({
         spec,
         pluginsDir,
         ref: values.ref,
@@ -295,6 +295,7 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
         scope: global ? "user" : "project",
       });
       for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
+      for (const name of removed) console.log(`${ui.warn("removed")} ${ui.name(name)}`);
       if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
       for (const res of installed) {
         console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);

@@ -175,6 +175,8 @@ export async function updatePlugins(
     agentScope?: AgentScope;
     /** Injection seam for tests; forwarded to the install + local-rescan steps. */
     agents?: Agent[];
+    /** Injection seam for removed remote entries; defaults to every registered agent. */
+    deactivationAgents?: Agent[];
   },
 ): Promise<PluginUpdateResult> {
   const allGroups = marketplaceList({ pluginsDir: opts.pluginsDir });
@@ -209,6 +211,7 @@ export async function updatePlugins(
         activate: opts.activate,
         scope: opts.agentScope,
         agents: opts.agents,
+        deactivationAgents: opts.deactivationAgents,
         now,
       });
       if (agents) remoteAgents.push(...agents);

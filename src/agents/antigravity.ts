@@ -174,12 +174,12 @@ export const antigravityAgent: Agent = {
   available,
 
   activate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return skippedResult(ID);
+    const cliAvailable = available();
     // Query agy once up front so the pre-install uninstall below is issued only
     // for plugins that are actually present (a brand-new plugin has no residual
     // to clear). `undefined` (couldn't enumerate) falls back to always
     // uninstalling, preserving the clean-replace guarantee.
-    const installed = antigravityInstalled();
+    const installed = cliAvailable ? antigravityInstalled() : undefined;
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       // Isolate each plugin: a malformed manifest or a filesystem error must not
@@ -188,6 +188,7 @@ export const antigravityAgent: Agent = {
         const store = pluginStore(ctx.pluginsDir, p);
         if (!store) continue;
         writeAntigravityProjection(store.dir, store.selection);
+        if (!cliAvailable) continue;
         // `agy plugin install` *merges* into an existing `<store>/plugins/<name>`
         // rather than replacing it, so components dropped since the last sync (a
         // narrowed selection, or a skill removed upstream) would linger as
@@ -201,6 +202,7 @@ export const antigravityAgent: Agent = {
         console.error(`failed to enable "${p}" in Antigravity:`, err);
       }
     }
+    if (!cliAvailable) return skippedResult(ID);
     return { agent: ID, affected, skipped: false };
   },
 

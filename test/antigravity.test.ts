@@ -6,6 +6,8 @@ import { join } from "node:path";
 
 import { ADAPTERS, ADAPTER_TARGETS, ADAPTER_COMPONENTS, toAntigravityManifest } from "../src/adapters/index.ts";
 import { antigravityAgent, antigravityHome, writeAntigravityProjection } from "../src/agents/antigravity.ts";
+import { writeLock } from "../src/lock.ts";
+import { lockPath } from "../src/paths.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 
 /**
@@ -221,6 +223,50 @@ test("writeAntigravityProjection omits mcpServers when the plugin declares no mc
     assert.throws(() => readFileSync(join(stage, "mcp_config.json"), "utf8"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("activate writes the local Antigravity projection even when agy is unavailable", () => {
+  const pluginsDir = mkdtempSync(join(tmpdir(), "adg-agy-store-"));
+  const oldPath = process.env.PATH;
+  try {
+    const dir = join(pluginsDir, "xcode");
+    const mcp = { mcpServers: { "xcode-mcp": { command: "xcrun", args: ["mcpbridge"] } } };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "xcode",
+      version: "1.0.0",
+      description: "Xcode MCP",
+      skills: "./skills/",
+      mcpServers: "./.mcp.json",
+    });
+    mkdirSync(join(dir, "skills", "xcode-build"), { recursive: true });
+    writeFileSync(join(dir, "skills", "xcode-build", "SKILL.md"), "# skill");
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
+    writeLock(lockPath(pluginsDir), {
+      version: 2,
+      plugins: {
+        xcode: {
+          origin: { type: "local", path: "./xcode" },
+          version: "1.0.0",
+          folderHash: "sha256-test",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    process.env.PATH = "";
+    const res = antigravityAgent.activate({ pluginsDir, plugins: ["xcode"], scope: "project" });
+
+    assert.equal(res.skipped, true);
+    assert.deepEqual(res.affected, []);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, "plugin.json"), "utf8")), { name: "xcode", mcpServers: "./.mcp.json" });
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, ".mcp.json"), "utf8")), mcp);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, PROJ, "mcp_config.json"), "utf8")), mcp);
+  } finally {
+    process.env.PATH = oldPath;
+    rmSync(pluginsDir, { recursive: true, force: true });
   }
 });
 
