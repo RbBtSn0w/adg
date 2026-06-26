@@ -1,3 +1,9 @@
+## [0.4.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.6...0.4.0-beta.7) (2026-06-26)
+
+### Added
+
+* add --json flag to plugins list and status commands ([#38](https://github.com/RbBtSn0w/adg/issues/38)) ([6707415](https://github.com/RbBtSn0w/adg/commit/6707415e81ea44a57c0368e9b296342c663e2176))
+
 ## [0.4.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.5...0.4.0-beta.6) (2026-06-26)
 
 ### Added
