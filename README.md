@@ -251,6 +251,9 @@ record; **agents are projections** of it (`link` / `unlink` toggle one agent;
 every agent at once — for per-agent control use `unlink`. When something looks
 off, `status` shows the drift and `sync` repairs it.
 
+For the local-directory-source flow into Claude's registry/cache, see
+[docs/local-plugin-registration.md](docs/local-plugin-registration.md).
+
 #### On-disk layout
 
 Plugins are grouped on disk by the source they came from. Remote installs nest
