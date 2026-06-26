@@ -1,3 +1,9 @@
+## [0.4.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.4...0.4.0-beta.5) (2026-06-26)
+
+### Changed
+
+* **hooks:** retire adg.hooks/v1 DSL; converge on Claude's hook format ([#34](https://github.com/RbBtSn0w/adg/issues/34)) ([1997041](https://github.com/RbBtSn0w/adg/commit/19970418d6ffe6616f05f0cd214ba98bd2e4f331)), closes [#32](https://github.com/RbBtSn0w/adg/issues/32)
+
 ## [0.4.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.3...0.4.0-beta.4) (2026-06-25)
 
 ### Added
