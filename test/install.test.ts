@@ -122,7 +122,7 @@ test("install resolves root ./.mcp.json from mcpServers and adapts every runtime
   const claude = JSON.parse(readFileSync(join(out, ".claude-plugin", "plugin.json"), "utf8"));
   assert.equal(claude.mcpServers, "./.mcp.json");
   assert.equal(claude.mcp, undefined);
-  const antigravity = JSON.parse(readFileSync(join(out, ".antigravity-plugin", "plugin.json"), "utf8"));
+  const antigravity = JSON.parse(readFileSync(join(out, "plugin.json"), "utf8"));
   assert.equal(antigravity.mcpServers, "./.mcp.json");
   rmSync(work, { recursive: true });
 });

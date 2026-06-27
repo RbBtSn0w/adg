@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 
 import { parseClaudePluginList } from "../src/agents/claude.ts";
 import { parseCodexPluginList } from "../src/agents/codex.ts";
-import { parseAntigravityPluginList } from "../src/agents/antigravity.ts";
 
 /**
  * The `listInstalled` parsers are the only place ADG reads each agent CLI's
@@ -77,19 +76,4 @@ test("parseCodexPluginList keeps only installed+enabled rows of the given market
 test("parseCodexPluginList skips the header, banner, and path lines (no false matches)", () => {
   // "PLUGIN", the marketplace banner, and absolute paths have no `name@mp` token.
   assert.deepEqual(parseCodexPluginList(CODEX_OUT, "othermp"), ["foo"]);
-});
-
-// ---- Antigravity: `{ imports: [{ name }] }` JSON ----
-
-test("parseAntigravityPluginList extracts and dedupes import names", () => {
-  const out = JSON.stringify({ imports: [{ name: "asc" }, { name: "asc" }, { name: "design" }, { name: 123 }] });
-  assert.deepEqual(parseAntigravityPluginList(out), ["asc", "design"]);
-});
-
-test("parseAntigravityPluginList returns undefined for non-JSON output", () => {
-  assert.equal(parseAntigravityPluginList("agy: command failed"), undefined);
-});
-
-test("parseAntigravityPluginList tolerates a missing imports array", () => {
-  assert.deepEqual(parseAntigravityPluginList("{}"), []);
 });
