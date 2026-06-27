@@ -1,17 +1,19 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { marketplacePath } from "../paths.ts";
-import { readMarketplace } from "../marketplace.ts";
+import { join, resolve } from "node:path";
+import { codexMarketplaceRoot, globalPluginsDir, marketplacePath } from "../paths.ts";
+import { readMarketplace, writeMarketplace } from "../marketplace.ts";
 import { makeCli, skippedResult } from "./base.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
 /**
  * Codex agent.
  *
- * Codex natively discovers the `.agents/plugins/marketplace.json` ADG writes, so
- * plugins show up as *available* — but aren't usable until installed with
- * `codex plugin add`. We drive that via the `codex` CLI (which owns ~/.codex).
+ * Codex consumes configured marketplace roots. For a project store at
+ * `<root>/.agents/plugins`, the configured root is `<root>`; the marketplace file
+ * remains at `.agents/plugins/marketplace.json`. Plugins are usable only after
+ * `codex plugin add`, so activation registers the root then installs the plugin.
  */
 
 function codexHome(env: NodeJS.ProcessEnv): string {
@@ -20,9 +22,35 @@ function codexHome(env: NodeJS.ProcessEnv): string {
 
 const { available, run } = makeCli("codex", { probeArgs: ["plugin", "--help"] });
 
-/** The marketplace name Codex sees, read from the generated marketplace.json. */
-function marketplaceName(pluginsDir: string): string {
-  return readMarketplace(marketplacePath(pluginsDir), "").name;
+/**
+ * Codex's default global marketplace is historically named `plugins`. Project
+ * and explicit stores get a store-scoped name to avoid colliding with a global
+ * or another project's configured marketplace.
+ */
+export function codexMarketplaceName(pluginsDir: string): string {
+  const normalized = resolve(pluginsDir);
+  if (normalized === resolve(globalPluginsDir())) return "plugins";
+  const hash = createHash("sha1").update(normalized.split("\\").join("/")).digest("hex").slice(0, 8);
+  return `adg-${hash}`;
+}
+
+/** Ensure the generated Codex marketplace export uses this store's scoped name. */
+export function writeCodexMarketplaceName(pluginsDir: string): string {
+  const file = marketplacePath(pluginsDir);
+  const marketplace = readMarketplace(file, codexMarketplaceName(pluginsDir));
+  const name = codexMarketplaceName(pluginsDir);
+  if (marketplace.name !== name) {
+    marketplace.name = name;
+    writeMarketplace(file, marketplace);
+  }
+  return name;
+}
+
+/** Register the local marketplace root Codex expects for this store. */
+function syncMarketplace(pluginsDir: string, marketplace: string): void {
+  const root = codexMarketplaceRoot(pluginsDir);
+  const add = run(["plugin", "marketplace", "add", root]);
+  if (!add.ok) run(["plugin", "marketplace", "upgrade", marketplace]);
 }
 
 export const codexAgent: Agent = {
@@ -33,8 +61,9 @@ export const codexAgent: Agent = {
   available,
 
   activate(ctx: AgentContext): AgentSyncResult {
-    const mp = marketplaceName(ctx.pluginsDir);
+    const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!available()) return skippedResult("codex");
+    syncMarketplace(ctx.pluginsDir, mp);
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       if (run(["plugin", "add", `${p}@${mp}`]).ok) affected.push(p);
@@ -43,7 +72,7 @@ export const codexAgent: Agent = {
   },
 
   deactivate(ctx: AgentContext): AgentSyncResult {
-    const mp = marketplaceName(ctx.pluginsDir);
+    const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!available()) return skippedResult("codex");
     const affected: string[] = [];
     for (const p of ctx.plugins) {
@@ -65,7 +94,7 @@ export const codexAgent: Agent = {
   // quiet `undefined` ("unknown").
   listInstalled(ctx: AgentContext): string[] | undefined {
     if (!available()) return undefined;
-    const mp = marketplaceName(ctx.pluginsDir);
+    const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!mp) return undefined; // no generated marketplace → can't scope the query
     const res = run(["plugin", "list"]);
     if (!res.ok) return undefined;

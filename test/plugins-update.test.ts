@@ -388,7 +388,7 @@ test("updatePlugins reports updated when upstream content changed", async () => 
   }
 });
 
-test("updatePlugins reports a plugin deleted upstream and leaves it installed", async () => {
+test("updatePlugins removes a plugin deleted upstream from the same source", async () => {
   const root = scratch();
   try {
     const remote = join(root, "remote");
@@ -402,8 +402,73 @@ test("updatePlugins reports a plugin deleted upstream and leaves it installed", 
     const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
     assert.deepEqual(results[0]!.deleted, ["finance"]);
     assert.deepEqual(results[0]!.unchanged, ["sales"]);
-    // Reporting only: the locally installed copy is not auto-removed.
-    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
+    assert.deepEqual(lockNames(pluginsDir), ["sales"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins deactivates upstream-deleted plugins from every mapped agent", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    deleteFromMarket(remote, "finance");
+
+    const calls: { id: string; plugins: string[] }[] = [];
+    const fake = (id: string): Agent => ({
+      id,
+      displayName: id,
+      adaptTarget: "codex",
+      detect: () => true,
+      available: () => true,
+      activate: () => ({ agent: id, affected: [], skipped: false }),
+      refresh: () => ({ agent: id, affected: [], skipped: false }),
+      deactivate: (ctx) => {
+        calls.push({ id, plugins: ctx.plugins });
+        return { agent: id, affected: ctx.plugins, skipped: false };
+      },
+    });
+
+    await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [fake("codex")],
+      deactivationAgents: [fake("claude"), fake("codex"), fake("antigravity")],
+    });
+
+    assert.deepEqual(calls.map((c) => [c.id, c.plugins]), [
+      ["claude", ["finance"]],
+      ["codex", ["finance"]],
+      ["antigravity", ["finance"]],
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("addPlugins prunes stale names when a remote source changes from one plugin to a marketplace", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["apple-skills"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "RbBtSn0w/apple-skills", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    assert.deepEqual(lockNames(pluginsDir), ["apple-skills"]);
+
+    deleteFromMarket(remote, "apple-skills");
+    writeNativeMarket(remote, ["app-develop", "xcode"]);
+
+    const result = await addPlugins({ spec: "RbBtSn0w/apple-skills", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    assert.deepEqual(result.removed, ["apple-skills"]);
+    assert.deepEqual(result.order, ["app-develop", "xcode"]);
+    assert.deepEqual(lockNames(pluginsDir), ["app-develop", "xcode"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

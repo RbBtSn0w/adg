@@ -10,8 +10,9 @@ import { toCodexManifest } from "../src/adapters/codex.ts";
 import { importSkills } from "../src/commands/import.ts";
 import { addPlugins, installPlugin } from "../src/commands/install.ts";
 import { linkPlugins } from "../src/commands/link.ts";
-import { writeClaudeCatalog, type Agent, type AgentContext, type AgentSyncResult } from "../src/agents/index.ts";
+import { claudeMarketplaceName, codexMarketplaceName, writeClaudeCatalog, writeCodexMarketplaceName, type Agent, type AgentContext, type AgentSyncResult } from "../src/agents/index.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { globalPluginsDir } from "../src/paths.ts";
 
 /** A fake agent that records activation calls (keeps tests off the real CLIs). */
 function fakeAgent(id: string, calls: AgentContext[]): Agent {
@@ -269,4 +270,51 @@ test("writeClaudeCatalog lists installed plugins with relative sources", () => {
   assert.equal(catalog.plugins[0].name, "demo");
   assert.equal(catalog.plugins[0].source, "./demo");
   rmSync(work, { recursive: true });
+});
+
+test("writeClaudeCatalog defaults project stores to a store-scoped marketplace name", () => {
+  const work = tmp();
+  const store = join(work, "project", ".agents", "plugins");
+  seedInstalled(store);
+  const { file, name } = writeClaudeCatalog(store);
+  const catalog = JSON.parse(readFileSync(file, "utf8"));
+
+  assert.match(name, /^adg-[0-9a-f]{8}$/);
+  assert.equal(catalog.name, name);
+  assert.equal(claudeMarketplaceName(store), name);
+  rmSync(work, { recursive: true });
+});
+
+test("claudeMarketplaceName preserves the historical global marketplace name", () => {
+  assert.equal(claudeMarketplaceName(globalPluginsDir()), "adg");
+});
+
+test("codex marketplace naming preserves global and scopes project stores", () => {
+  const work = tmp();
+  try {
+    const store = join(work, "project", ".agents", "plugins");
+    assert.equal(codexMarketplaceName(globalPluginsDir()), "plugins");
+    assert.match(codexMarketplaceName(store), /^adg-[0-9a-f]{8}$/);
+  } finally {
+    rmSync(work, { recursive: true });
+  }
+});
+
+test("writeCodexMarketplaceName rewrites project marketplace exports to the scoped name", () => {
+  const work = tmp();
+  try {
+    const store = join(work, "project", ".agents", "plugins");
+    seedInstalled(store);
+    const before = JSON.parse(readFileSync(join(store, "marketplace.json"), "utf8"));
+    assert.equal(before.name, "plugins");
+
+    const name = writeCodexMarketplaceName(store);
+    const after = JSON.parse(readFileSync(join(store, "marketplace.json"), "utf8"));
+
+    assert.match(name, /^adg-[0-9a-f]{8}$/);
+    assert.equal(after.name, name);
+    assert.equal(after.plugins[0].source.path, "./.agents/plugins/demo");
+  } finally {
+    rmSync(work, { recursive: true });
+  }
 });

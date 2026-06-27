@@ -15,7 +15,12 @@ import { mcpConfigPath } from "./mcp.ts";
 /** Top-level metadata files always shipped with a plugin, matched case-insensitively. */
 const META_RE = /^(README|LICEN[CS]E|CHANGELOG|NOTICE)(\..+)?$/i;
 
-/** Generated runtime projections — shipped, but excluded from the content hash. */
+/**
+ * Generated runtime projections — shipped, but excluded from the content hash.
+ * `.antigravity-plugin` is legacy: Antigravity now projects a root `plugin.json`
+ * (auto-scan model), but the entry is kept so any pre-migration projection dir
+ * stays hash-ignored rather than registering as spurious drift.
+ */
 export const PROJECTION_DIRS = [".claude-plugin", ".codex-plugin", ".antigravity-plugin"];
 
 /** Extract the first path segment of a manifest component value (e.g. "./skills/" -> "skills"). */

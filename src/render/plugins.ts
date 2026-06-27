@@ -114,7 +114,7 @@ export function renderUpdateReport(result: PluginUpdateResult): string[] {
     else out.push(`${head}: ${ui.meta(`up to date (${r.unchanged.length})`)}`);
 
     if (r.deleted.length > 0) {
-      out.push(ui.warn(`  deleted upstream: ${r.deleted.join(", ")} — remove with \`adg plugins remove <name>\``));
+      out.push(ui.warn(`  removed stale upstream entries: ${r.deleted.join(", ")}`));
     }
     if (r.available.length > 0) {
       out.push(ui.meta(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`));

@@ -11,4 +11,5 @@ registerAgent(antigravityAgent);
 
 export * from "./types.ts";
 export { registerAgent, getAgent, allAgents, detectedAgents, resolveAgents, agentsForComponents } from "./registry.ts";
-export { writeClaudeCatalog } from "./claude.ts";
+export { claudeMarketplaceName, writeClaudeCatalog } from "./claude.ts";
+export { codexMarketplaceName, writeCodexMarketplaceName } from "./codex.ts";

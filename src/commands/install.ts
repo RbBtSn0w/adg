@@ -4,6 +4,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
+import { removePlugin } from "./remove.ts";
 import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
@@ -250,11 +251,15 @@ export interface AddOptions {
   scope?: AgentScope;
   /** Injection seam for tests; defaults to the agents matching `targets`. */
   agents?: Agent[];
+  /** Injection seam for removed store entries; defaults to every registered agent. */
+  deactivationAgents?: Agent[];
 }
 
 export interface AddResult {
   order: string[];
   installed: InstallResult[];
+  /** Installed plugins from the same remote source that no longer exist upstream. */
+  removed: string[];
   /** Plugins reverse-adapted from a native manifest during discovery. */
   converted: string[];
   /** Every plugin name discovered in the source (installed or not). */
@@ -368,6 +373,58 @@ async function resolveSelections(
   return selections;
 }
 
+/** True when a locked plugin belongs to the same remote checkout currently being reconciled. */
+function sameRemoteSource(entry: PluginSource, parsed: ReturnType<typeof parseSource>, ref: string | undefined): boolean {
+  if (parsed.kind === "local") return false;
+  if (entry.type !== "github") return false;
+  return entry.repo === parsed.source && entry.ref === ref;
+}
+
+/**
+ * Remove plugins from the same remote source that disappeared from the latest
+ * desired set. This handles both source layout changes (one plugin splitting
+ * into several differently named plugins) and an explicit narrowed reinstall
+ * (`--plugin one` after previously installing `--all`) without leaving stale
+ * runtime exports behind.
+ */
+function reconcileRemotePlugins(
+  opts: AddOptions,
+  parsed: ReturnType<typeof parseSource>,
+  ref: string | undefined,
+  desired: Set<string>,
+): string[] {
+  if (parsed.kind === "local") return [];
+  // A path/sparse install does not prove the full source shape, so it must not
+  // prune sibling plugins from the same repo that were intentionally excluded
+  // from the checkout/selection window.
+  if (opts.path || opts.sparse?.length) return [];
+
+  const lock = readLock(lockPath(opts.pluginsDir));
+  const stale = Object.entries(lock.plugins)
+    .filter(([name, entry]) => sameRemoteSource(entry.origin, parsed, ref) && !desired.has(name))
+    .map(([name]) => name)
+    .sort();
+
+  if (stale.length === 0) return [];
+
+  // Removing from the ADG store is target-agnostic: once a plugin is no longer
+  // desired, every agent that may have cached it must be asked to drop it. The
+  // install/refresh pass below still honors `targets`; this broader deactivation
+  // only applies to removed store entries.
+  const agents = opts.activate ? (opts.deactivationAgents ?? resolveAgents()) : undefined;
+  for (const name of stale) {
+    removePlugin({
+      pluginsDir: opts.pluginsDir,
+      name,
+      force: true,
+      deactivate: opts.activate,
+      scope: opts.scope,
+      agents,
+    });
+  }
+  return stale;
+}
+
 /**
  * The unified install entrypoint. Treats any source as a marketplace: clone or
  * read it, discover every plugin (ADG plus reverse-adapted native), choose a
@@ -376,6 +433,7 @@ async function resolveSelections(
  */
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   const parsed = parseSource(opts.spec);
+  const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
   let cleanup: (() => void) | undefined;
@@ -384,15 +442,14 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     workRoot = resolve(parsed.dir);
     buildOrigin = (dir) => ({ type: "local", path: `./${toPosix(relative(workRoot, dir)) || basename(dir)}` });
   } else {
-    const ref = opts.ref ?? parsed.ref;
     const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
-    cloneGitHub({ ...parsed, ref }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
+    cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
     workRoot = tmp;
     buildOrigin = (dir) => ({
       type: "github",
       repo: parsed.source,
-      ...(ref ? { ref } : {}),
+      ...(sourceRef ? { ref: sourceRef } : {}),
       path: toPosix(relative(tmp, dir)) || ".",
     });
   }
@@ -406,19 +463,22 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     }
 
     const selected = await selectPluginNames(opts, candidates, workRoot, converted);
+
+    // Resolve adapter targets after the plugin choice (lets a CLI agent picker
+    // run once we know what's being installed). undefined → installPlugin's all.
+    const targets = opts.targets ?? (opts.selectTargets ? await opts.selectTargets() : undefined);
+    const available = [...candidates.keys()];
+
     if (selected.length === 0) {
       // Under "skip" (the update path) every requested plugin was deleted
       // upstream: don't abort — return what the source still offers so the
       // caller can report the deletions.
       if (opts.missingPlugins === "skip") {
-        return { order: [], installed: [], converted, available: [...candidates.keys()] };
+        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(selected));
+        return { order: [], installed: [], removed, converted, available };
       }
       throw new Error("no plugins selected");
     }
-
-    // Resolve adapter targets after the plugin choice (lets a CLI agent picker
-    // run once we know what's being installed). undefined → installPlugin's all.
-    const targets = opts.targets ?? (opts.selectTargets ? await opts.selectTargets() : undefined);
 
     // Partial-install selection per user-chosen plugin (auto-deps install full).
     const selections = await resolveSelections(opts, selected, candidates);
@@ -435,6 +495,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         }
       }
     }
+    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
 
     // Snapshot which plugins already existed before this call mutates the lock,
     // so the activation step below can tell brand-new installs from updates.
@@ -493,7 +554,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       });
     }
 
-    return { order, installed, converted, available: [...candidates.keys()], agents };
+    return { order, installed, removed, converted, available, agents };
   } finally {
     cleanup?.();
   }

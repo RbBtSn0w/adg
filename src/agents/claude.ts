@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
-import { installedPluginDir, lockPath } from "../paths.ts";
+import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { makeCli, skippedResult } from "./base.ts";
 import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
@@ -26,10 +27,23 @@ function claudeHome(env: NodeJS.ProcessEnv): string {
 const { available, run } = makeCli("claude", { probeArgs: ["plugin", "--help"] });
 
 /**
+ * Claude's marketplace registry is keyed only by marketplace name. Keep the
+ * historical global marketplace name stable, but give project/explicit stores a
+ * store-scoped name so a project install never updates or queries a stale global
+ * `adg` marketplace.
+ */
+export function claudeMarketplaceName(pluginsDir: string): string {
+  const normalized = resolve(pluginsDir);
+  if (normalized === resolve(globalPluginsDir())) return MARKETPLACE;
+  const hash = createHash("sha1").update(toPosix(normalized)).digest("hex").slice(0, 8);
+  return `${MARKETPLACE}-${hash}`;
+}
+
+/**
  * Write a Claude marketplace catalog listing every installed plugin, each
  * `source` pointing at its on-disk directory (relative to the catalog).
  */
-export function writeClaudeCatalog(pluginsDir: string, name: string = MARKETPLACE): { file: string; name: string } {
+export function writeClaudeCatalog(pluginsDir: string, name: string = claudeMarketplaceName(pluginsDir)): { file: string; name: string } {
   const lock = readLock(lockPath(pluginsDir));
   const plugins: Record<string, unknown>[] = [];
 
@@ -69,10 +83,9 @@ export function writeClaudeCatalog(pluginsDir: string, name: string = MARKETPLAC
 }
 
 /** Register the ADG store as a Claude marketplace (add, or update if present). */
-function syncMarketplace(pluginsDir: string): void {
-  const list = run(["plugin", "marketplace", "list"]);
-  if (list.ok && list.out.includes(MARKETPLACE)) run(["plugin", "marketplace", "update", MARKETPLACE]);
-  else run(["plugin", "marketplace", "add", pluginsDir]);
+function syncMarketplace(pluginsDir: string, name: string): void {
+  const update = run(["plugin", "marketplace", "update", name]);
+  if (!update.ok) run(["plugin", "marketplace", "add", pluginsDir]);
 }
 
 export const claudeAgent: Agent = {
@@ -84,16 +97,16 @@ export const claudeAgent: Agent = {
 
   activate(ctx: AgentContext): AgentSyncResult {
     if (!available()) return skippedResult("claude");
-    writeClaudeCatalog(ctx.pluginsDir);
-    syncMarketplace(ctx.pluginsDir);
+    const { name: marketplace } = writeClaudeCatalog(ctx.pluginsDir);
+    syncMarketplace(ctx.pluginsDir, marketplace);
     const affected: string[] = [];
     for (const p of ctx.plugins) {
-      const r = run(["plugin", "install", `${p}@${MARKETPLACE}`, "--scope", ctx.scope]);
+      const r = run(["plugin", "install", `${p}@${marketplace}`, "--scope", ctx.scope]);
       if (r.ok) affected.push(p);
       // Surface the CLI's reason instead of silently dropping the plugin — a
       // rejected manifest (e.g. `hooks: Invalid input`) otherwise looks like a
       // no-op "missing" with no diagnostic.
-      else console.error(`claude: failed to install ${p}@${MARKETPLACE}: ${r.out.trim()}`);
+      else console.error(`claude: failed to install ${p}@${marketplace}: ${r.out.trim()}`);
     }
     return { agent: "claude", affected, skipped: false };
   },
@@ -123,7 +136,7 @@ export const claudeAgent: Agent = {
     if (!available()) return undefined;
     const res = run(["plugin", "list"]);
     if (!res.ok) return undefined;
-    return parseClaudePluginList(res.out, MARKETPLACE, ctx.scope);
+    return parseClaudePluginList(res.out, claudeMarketplaceName(ctx.pluginsDir), ctx.scope);
   },
 };
 
