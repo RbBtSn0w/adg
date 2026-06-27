@@ -1,3 +1,9 @@
+## [0.4.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.7...0.4.0-beta.8) (2026-06-27)
+
+### Added
+
+* **antigravity:** project plugins directly on disk without agy CLI ([#39](https://github.com/RbBtSn0w/adg/issues/39)) ([8886554](https://github.com/RbBtSn0w/adg/commit/8886554be8834447d08a2694eeec4eaab90e8f80))
+
 ## [0.4.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.6...0.4.0-beta.7) (2026-06-26)
 
 ### Added
