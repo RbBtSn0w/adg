@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { ensureDir, writeJson } from "../fsutil.ts";
@@ -101,9 +101,12 @@ function linkOrCopy(linkPath: string, absTarget: string): void {
 }
 
 /**
- * Remove `path` when it is a symlink — including a *broken* one. `lstatSync` in a
- * `try` is used rather than `existsSync` (which follows the link and reports false
- * for a dangling alias, leaving it on disk); a real file/dir is left untouched.
+ * Remove `path` when it is a symlink — including a *broken* one. `lstatSync` (in a
+ * `try`) is used rather than `existsSync`, which follows the link and reports false
+ * for a dangling alias, leaving it on disk. Removal uses `unlinkSync`, not
+ * `rmSync(..., { force: true })`: on Node < 24 the latter follows the link, hits
+ * `ENOENT`, and the `force` flag then swallows it without unlinking the symlink.
+ * A real file/dir is left untouched.
  */
 function rmIfSymlink(path: string): void {
   let st: ReturnType<typeof lstatSync> | undefined;
@@ -112,7 +115,7 @@ function rmIfSymlink(path: string): void {
   } catch {
     return; // absent
   }
-  if (st.isSymbolicLink()) rmSync(path, { force: true });
+  if (st.isSymbolicLink()) unlinkSync(path);
 }
 
 /** First on-disk top segment of a declared component path (e.g. "./agents/" -> "agents"). */
