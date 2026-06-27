@@ -100,6 +100,21 @@ function linkOrCopy(linkPath: string, absTarget: string): void {
   }
 }
 
+/**
+ * Remove `path` when it is a symlink — including a *broken* one. `lstatSync` in a
+ * `try` is used rather than `existsSync` (which follows the link and reports false
+ * for a dangling alias, leaving it on disk); a real file/dir is left untouched.
+ */
+function rmIfSymlink(path: string): void {
+  let st: ReturnType<typeof lstatSync> | undefined;
+  try {
+    st = lstatSync(path);
+  } catch {
+    return; // absent
+  }
+  if (st.isSymbolicLink()) rmSync(path, { force: true });
+}
+
 /** First on-disk top segment of a declared component path (e.g. "./agents/" -> "agents"). */
 function componentSegment(value: AdgManifest[keyof AdgManifest]): string | undefined {
   const first = Array.isArray(value) ? value[0] : value;
@@ -121,8 +136,7 @@ export function ensureAntigravityRoot(dir: string, selection?: PluginSelection):
 
   for (const field of CONVENTION_FIELDS) {
     const link = join(dir, field);
-    // Clear a stale alias we created before; leave a real source dir untouched.
-    if (existsSync(link) && lstatSync(link).isSymbolicLink()) rmSync(link, { force: true });
+    rmIfSymlink(link); // clear a stale alias (incl. a broken one); a real source dir is left untouched
     if (!isExposed(selection, field)) continue;
     const seg = componentSegment(manifest[field]);
     if (!seg || seg === field) continue; // absent, or already convention-named in place
@@ -177,10 +191,7 @@ function removeProjection(scanDir: string, name: string, realDir?: string): void
   if (realDir) {
     // The real store dir is known: drop the in-place manifest + convention aliases.
     rmSync(join(realDir, ANTIGRAVITY_MANIFEST), { force: true });
-    for (const field of CONVENTION_FIELDS) {
-      const link = join(realDir, field);
-      if (existsSync(link) && lstatSync(link).isSymbolicLink()) rmSync(link, { force: true });
-    }
+    for (const field of CONVENTION_FIELDS) rmIfSymlink(join(realDir, field));
     if (resolve(target) === resolve(realDir)) return; // in-place: target IS the store folder — never delete it
     // Aliased exposure we created (symlink, or a copy-fallback dir): safe to drop wholesale.
     if (st) rmSync(target, { recursive: true, force: true });

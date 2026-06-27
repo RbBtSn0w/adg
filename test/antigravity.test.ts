@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, existsSync, lstatSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
@@ -152,6 +152,32 @@ test("ensureAntigravityRoot drops mcpServers when mcp is not exposed (dirs stay 
     // In-place model: dir-level pruning is NOT honored — both skills remain on disk.
     assert.ok(existsSync(join(dir, "skills", "keep", "SKILL.md")));
     assert.ok(existsSync(join(dir, "skills", "drop", "SKILL.md")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot clears a stale convention alias even when it is a broken symlink", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "demo",
+      version: "0.1.0",
+      description: "broken alias",
+      skills: "./skills/",
+    });
+    mkdirSync(join(dir, "skills", "s"), { recursive: true });
+    writeFileSync(join(dir, "skills", "s", "SKILL.md"), "# s");
+    // A dangling alias left by a prior run (its target no longer exists). `existsSync`
+    // reports false for this, so it must be cleared via lstat, not existsSync.
+    symlinkSync(join(dir, "gone"), join(dir, "agents"), "dir");
+    assert.ok(!existsSync(join(dir, "agents"))); // broken: follows to a missing target
+    assert.ok(lstatSync(join(dir, "agents")).isSymbolicLink());
+
+    ensureAntigravityRoot(dir);
+
+    assert.throws(() => lstatSync(join(dir, "agents"))); // the dangling alias is gone
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
