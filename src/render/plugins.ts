@@ -141,7 +141,13 @@ export function renderStatus(statuses: AgentStatus[]): string[] {
   for (const s of statuses) {
     out.push(ui.name(s.displayName));
     if (!s.queryable) {
-      out.push(ui.meta("  live state unknown — agent CLI not available or not queryable"));
+      if (s.queryError) {
+        out.push(ui.meta("  live state unknown — agent CLI query failed"));
+        for (const line of s.queryError.split("\n")) out.push(ui.warn(`  ${line}`));
+        if (s.recoveryCommand) out.push(ui.meta(`     → ${s.recoveryCommand}`));
+      } else {
+        out.push(ui.meta("  live state unknown — agent CLI not available or not queryable"));
+      }
       continue;
     }
     out.push(ui.meta(`  in sync (${s.inSync.length})${s.inSync.length ? ": " + s.inSync.join(", ") : ""}`));

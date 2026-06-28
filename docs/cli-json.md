@@ -101,7 +101,10 @@ Field notes:
 - `targets` contains the resolved target ids requested by `--target`; omitted
   `--target` resolves to all registered targets.
 - `queryable: false` means the agent CLI could not be queried; the arrays are
-  then empty because live state is unknown.
+  then empty because live state is unknown. When the CLI ran but rejected the
+  query, `queryError` contains its diagnostic and `recoveryCommand` contains a
+  safe repair command when ADG recognizes the failure. Both fields are omitted
+  when unavailable.
 - `inSync`, `missing`, and `agentOnly` are name-level comparisons. Content drift
   is not represented; use `adg plugins sync` when a full runtime refresh is
   required.

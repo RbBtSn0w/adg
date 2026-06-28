@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
 import { formatColumns, abbrevHome, ellipsizeStart } from "../src/render/ui.ts";
-import { renderContents, renderPluginList, renderMarketplaceList } from "../src/render/plugins.ts";
+import { renderContents, renderPluginList, renderMarketplaceList, renderStatus } from "../src/render/plugins.ts";
 import { pluginsListJson, pluginsStatusJson } from "../src/render/json.ts";
 import type { ListedPlugin } from "../src/commands/list.ts";
 import type { MarketplaceGroup } from "../src/commands/marketplace.ts";
@@ -110,6 +110,24 @@ test("pluginsStatusJson preserves status arrays and scope metadata", () => {
     targets: ["claude"],
     statuses,
   });
+});
+
+test("renderStatus explains a failed live query and shows its recovery command", () => {
+  const statuses: AgentStatus[] = [{
+    id: "codex",
+    displayName: "Codex",
+    queryable: false,
+    queryError: "failed to load marketplace adg-deadbeef",
+    recoveryCommand: "codex plugin marketplace remove adg-deadbeef",
+    inSync: [],
+    missing: [],
+    agentOnly: [],
+  }];
+
+  const text = renderStatus(statuses).map(stripAnsi).join("\n");
+  assert.match(text, /failed to load marketplace adg-deadbeef/);
+  assert.match(text, /codex plugin marketplace remove adg-deadbeef/);
+  assert.doesNotMatch(text, /agent CLI not available/);
 });
 
 test("renderMarketplaceList groups by source and tags local sources", () => {
