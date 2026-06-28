@@ -65,7 +65,7 @@ test("antigravity is a registered adapter target with the Claude component super
   assert.deepEqual(ADAPTER_COMPONENTS.antigravity, ["skills", "agents", "commands", "hooks", "mcp"]);
 });
 
-test("toAntigravityManifest emits a root plugin.json with shared mcpServers", () => {
+test("toAntigravityManifest emits a name-only root plugin.json", () => {
   const m = {
     schemaVersion: ADG_SCHEMA_VERSION,
     name: "asc",
@@ -75,12 +75,13 @@ test("toAntigravityManifest emits a root plugin.json with shared mcpServers", ()
   } as const;
   const out = toAntigravityManifest("/tmp/asc", m, undefined);
   assert.equal(out.defaultPath, "plugin.json");
-  assert.deepEqual(out.manifest, { name: "asc", mcpServers: "./.mcp.json" });
+  assert.deepEqual(out.manifest, { name: "asc" });
 });
 
-test("ensureAntigravityRoot writes the agy manifest at the folder root, in place", () => {
+test("ensureAntigravityRoot writes the manifest and conventional MCP config in place", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
+    const mcp = { mcpServers: { asc: { command: "asc", args: ["mcp", "serve"] } } };
     writePlugin(dir, {
       schemaVersion: ADG_SCHEMA_VERSION,
       name: "asc",
@@ -90,6 +91,7 @@ test("ensureAntigravityRoot writes the agy manifest at the folder root, in place
       agents: "./agents/",
       mcpServers: "./.mcp.json",
     });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
     mkdirSync(join(dir, "skills", "metadata-sync"), { recursive: true });
     writeFileSync(join(dir, "skills", "metadata-sync", "SKILL.md"), "# skill");
     mkdirSync(join(dir, "agents"), { recursive: true });
@@ -97,7 +99,8 @@ test("ensureAntigravityRoot writes the agy manifest at the folder root, in place
 
     ensureAntigravityRoot(dir);
 
-    assert.deepEqual(JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")), { name: "asc", mcpServers: "./.mcp.json" });
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")), { name: "asc" });
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), mcp);
     // Convention-named component dirs are read in place (no alias, no copy).
     assert.equal(readFileSync(join(dir, "skills", "metadata-sync", "SKILL.md"), "utf8"), "# skill");
     assert.equal(readFileSync(join(dir, "agents", "release-captain.md"), "utf8"), "# agent");
@@ -129,7 +132,7 @@ test("ensureAntigravityRoot aliases a non-convention component dir to its conven
   }
 });
 
-test("ensureAntigravityRoot drops mcpServers when mcp is not exposed (dirs stay full: in-place tradeoff)", () => {
+test("ensureAntigravityRoot removes the generated MCP config when mcp is not exposed", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
     writePlugin(dir, {
@@ -140,15 +143,19 @@ test("ensureAntigravityRoot drops mcpServers when mcp is not exposed (dirs stay 
       skills: "./skills/",
       mcpServers: "./.mcp.json",
     });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { asc: { command: "asc" } } }));
     for (const s of ["keep", "drop"]) {
       mkdirSync(join(dir, "skills", s), { recursive: true });
       writeFileSync(join(dir, "skills", s, "SKILL.md"), `# ${s}`);
     }
 
+    ensureAntigravityRoot(dir);
+    assert.ok(existsSync(join(dir, "mcp_config.json")));
+
     // Narrowed selection: mcp off, only skill "keep" selected.
     ensureAntigravityRoot(dir, { components: ["skills"], skills: ["keep"] });
 
-    assert.equal(JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")).mcpServers, undefined);
+    assert.ok(!existsSync(join(dir, "mcp_config.json")));
     // In-place model: dir-level pruning is NOT honored — both skills remain on disk.
     assert.ok(existsSync(join(dir, "skills", "keep", "SKILL.md")));
     assert.ok(existsSync(join(dir, "skills", "drop", "SKILL.md")));
@@ -294,19 +301,23 @@ test("activate refuses to overwrite a non-ADG real directory in the global scan 
 test("deactivate removes the projection so the plugin is no longer discovered", () => {
   const store = mkdtempSync(join(tmpdir(), "adg-agy-deact-"));
   try {
-    seedStore(store, "demo", {
+    const dir = seedStore(store, "demo", {
       schemaVersion: ADG_SCHEMA_VERSION,
       name: "demo",
       version: "1.0.0",
       description: "Demo",
       skills: "./skills/",
+      mcpServers: "./.mcp.json",
     });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { demo: { command: "demo" } } }));
     withGemini(() => {
       antigravityAgent.activate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
       assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), ["demo"]);
+      assert.ok(existsSync(join(dir, "mcp_config.json")));
 
       antigravityAgent.deactivate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
       assert.ok(!existsSync(join(store, "demo", "plugin.json")));
+      assert.ok(!existsSync(join(dir, "mcp_config.json")));
       assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), []);
     });
   } finally {

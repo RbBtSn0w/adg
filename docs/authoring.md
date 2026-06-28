@@ -153,7 +153,8 @@ Two ways to declare them:
 - **commands** — `"./commands/"`, a dir of slash-command markdown files.
 - **agents** — `"./agents/"`, a dir of sub-agent definition `.md` files.
 - **mcpServers** — `"./.mcp.json"`, an MCP server config file (points at a *file*,
-  not a dir).
+  not a dir). ADG keeps that pointer for Claude and Codex; Antigravity instead
+  materializes the referenced file as the required sibling `mcp_config.json`.
 - **hooks**, **apps** — directories, same pattern. For hooks, see **Hooks**
   below — agents differ on the hook config format, so ADG can compile a single
   universal definition into each agent's native file.

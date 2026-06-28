@@ -3,6 +3,7 @@ import { ADAPTERS, type AdapterTarget } from "../adapters/index.ts";
 import { readManifest } from "../manifest.ts";
 import { writeJson } from "../fsutil.ts";
 import { checkHookEvents } from "../hooks.ts";
+import { writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
 import type { PluginSelection } from "../types.ts";
 
 export interface AdaptResult {
@@ -35,6 +36,7 @@ export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selecti
     const file = join(pluginDir, defaultPath);
 
     writeJson(file, out);
+    if (target === "antigravity") writeAntigravityMcpConfig(pluginDir, manifest, selection);
     results.push({ target, file });
   }
 

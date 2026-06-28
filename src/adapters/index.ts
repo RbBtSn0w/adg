@@ -32,7 +32,7 @@ export type AdapterTarget = (typeof ADAPTER_TARGETS)[number];
  * the adapters emit: the Claude manifest carries skills/agents/commands/hooks/mcp
  * plus apps (`toAnthropicManifest`), while Codex consumes skills/hooks/mcp
  * (`toCodexManifest`). Antigravity (`agy`) discovers components by convention
- * (skills/agents/commands/hooks dirs + plugin.json pointers) and does not surface
+ * (skills/agents/commands/hooks dirs + `mcp_config.json`) and does not surface
  * apps, so apps maps only to the Claude target. Used to derive which agents a
  * plugin is adaptable to from its exposed component types.
  */
