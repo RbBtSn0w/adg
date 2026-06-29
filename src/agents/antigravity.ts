@@ -196,11 +196,13 @@ function removeProjection(scanDir: string, name: string, realDir?: string): void
   }
 
   if (realDir) {
-    // The real store dir is known: drop the in-place manifest + convention aliases.
-    rmSync(join(realDir, ANTIGRAVITY_MANIFEST), { force: true });
-    writeAntigravityMcpConfig(realDir, readManifest(realDir), { components: [] });
-    writeAntigravityHooks(realDir, readManifest(realDir), { components: [] });
-    for (const field of CONVENTION_FIELDS) rmIfSymlink(join(realDir, field));
+    if (existsSync(realDir)) {
+      // The real store dir is known: drop the in-place manifest + convention aliases.
+      rmSync(join(realDir, ANTIGRAVITY_MANIFEST), { force: true });
+      writeAntigravityMcpConfig(realDir, readManifest(realDir), { components: [] });
+      writeAntigravityHooks(realDir, readManifest(realDir), { components: [] });
+      for (const field of CONVENTION_FIELDS) rmIfSymlink(join(realDir, field));
+    }
     if (resolve(target) === resolve(realDir)) return; // in-place: target IS the store folder — never delete it
     // Aliased exposure we created (symlink, or a copy-fallback dir): safe to drop wholesale.
     if (st) rmSync(target, { recursive: true, force: true });
