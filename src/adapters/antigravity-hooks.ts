@@ -450,7 +450,8 @@ function parseOutput(hookEvent, stdout) {
   const text = stdout.trim();
   if (!text) return {};
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    return (typeof parsed === "object" && parsed !== null) ? parsed : {};
   } catch (error) {
     if (hookEvent === "SessionStart") return { additionalContext: text };
     fail("hook command returned invalid JSON", error);
