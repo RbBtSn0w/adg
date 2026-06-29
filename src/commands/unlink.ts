@@ -39,7 +39,8 @@ export function unlinkPlugins(opts: UnlinkOptions): UnlinkResult {
   if (!agent) return { target: opts.target, unlinked: [] };
 
   const scope = opts.global ? "user" : "project";
-  const installedInAgent = agent.listInstalled?.({ pluginsDir: opts.pluginsDir, plugins: [], scope });
+  const queryResult = agent.listInstalled?.({ pluginsDir: opts.pluginsDir, plugins: [], scope });
+  const installedInAgent = Array.isArray(queryResult) ? queryResult : undefined;
   const installedInStore = listPlugins(opts.pluginsDir).map((p) => p.name);
 
   // A name is valid if it is installed in either the store OR the agent (if queryable).
@@ -73,4 +74,3 @@ export function unlinkPlugins(opts: UnlinkOptions): UnlinkResult {
   });
   return { target: opts.target, unlinked: res.affected, cliSkipped: res.skipped };
 }
-

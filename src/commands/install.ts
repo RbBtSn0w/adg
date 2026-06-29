@@ -529,7 +529,8 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       const scope = opts.scope ?? "project";
       const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
       agents = resolved.map((a) => {
-        const agentInstalled = a.listInstalled?.(ctxFor([]));
+        const queryResult = a.listInstalled?.(ctxFor([]));
+        const agentInstalled = Array.isArray(queryResult) ? queryResult : undefined;
         const alreadyInstalled = (name: string) =>
           agentInstalled !== undefined
             ? agentInstalled.includes(name)

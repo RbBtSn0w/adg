@@ -6,7 +6,8 @@ import { readManifest } from "../manifest.ts";
 import { isExposed } from "../components.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { toAntigravityManifest } from "../adapters/antigravity.ts";
+import { toAntigravityManifest, writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
+import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
 import { skippedResult } from "./base.ts";
 import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
@@ -34,10 +35,11 @@ import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
  * project query can't surface globally-installed plugins (and vice versa).
  *
  * Tradeoff (in-place): partial installs are best-effort, and a `skills` value is
- * read from the single convention dir `<plugin>/skills/`. `plugin.json` reflects
- * the selection's MCP pointer, but agy discovers component dirs by convention
- * name, so the auto-scan model does NOT honor: dir-level pruning (a narrowed skill
- * subset, a dropped category), nor a multi-root skills path-list (e.g.
+ * read from the single convention dir `<plugin>/skills/`. Generated
+ * `mcp_config.json` honors the MCP selection, but an authored file already using
+ * that conventional name cannot be hidden without deleting canonical payload.
+ * The auto-scan model also does NOT honor: dir-level pruning (a narrowed skill
+ * subset, a dropped directory category), nor a multi-root skills path-list (e.g.
  * `["./skills/one","./extra/two"]` — only the `skills/` root is exposed; `extra/`
  * is not). These would require a separate self-contained projection dir, which the
  * in-place model deliberately avoids; the full canonical dirs are read in place.
@@ -136,6 +138,8 @@ export function ensureAntigravityRoot(dir: string, selection?: PluginSelection):
   const manifest = readManifest(dir);
   const { manifest: pluginJson } = toAntigravityManifest(dir, manifest, selection);
   writeJson(join(dir, ANTIGRAVITY_MANIFEST), pluginJson);
+  writeAntigravityMcpConfig(dir, manifest, selection);
+  writeAntigravityHooks(dir, manifest, selection);
 
   for (const field of CONVENTION_FIELDS) {
     const link = join(dir, field);
@@ -194,6 +198,8 @@ function removeProjection(scanDir: string, name: string, realDir?: string): void
   if (realDir) {
     // The real store dir is known: drop the in-place manifest + convention aliases.
     rmSync(join(realDir, ANTIGRAVITY_MANIFEST), { force: true });
+    writeAntigravityMcpConfig(realDir, readManifest(realDir), { components: [] });
+    writeAntigravityHooks(realDir, readManifest(realDir), { components: [] });
     for (const field of CONVENTION_FIELDS) rmIfSymlink(join(realDir, field));
     if (resolve(target) === resolve(realDir)) return; // in-place: target IS the store folder — never delete it
     // Aliased exposure we created (symlink, or a copy-fallback dir): safe to drop wholesale.

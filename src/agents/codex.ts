@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { codexMarketplaceRoot, globalPluginsDir, marketplacePath } from "../paths.ts";
 import { readMarketplace, writeMarketplace } from "../marketplace.ts";
 import { makeCli, skippedResult } from "./base.ts";
-import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
+import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentSyncResult } from "./types.ts";
 
 /**
  * Codex agent.
@@ -92,15 +92,25 @@ export const codexAgent: Agent = {
   // Query Codex's live plugin state for `adg plugins status`, scoped to our
   // generated marketplace. `available()` gates the query so an absent CLI is a
   // quiet `undefined` ("unknown").
-  listInstalled(ctx: AgentContext): string[] | undefined {
+  listInstalled(ctx: AgentContext): AgentListResult {
     if (!available()) return undefined;
     const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!mp) return undefined; // no generated marketplace → can't scope the query
     const res = run(["plugin", "list"]);
-    if (!res.ok) return undefined;
+    if (!res.ok) return codexListFailure(res.out);
     return parseCodexPluginList(res.out, mp);
   },
 };
+
+/** Preserve Codex's diagnostic and offer cleanup for a stale ADG project marketplace. */
+export function codexListFailure(out: string): AgentListFailure {
+  const detail = out.trim() || "codex plugin list failed without an error message";
+  const staleMarketplace = detail.match(/- `(adg-[0-9a-f]{8})` at .*marketplace root does not contain a supported manifest/);
+  return {
+    error: detail,
+    ...(staleMarketplace ? { recoveryCommand: `codex plugin marketplace remove ${staleMarketplace[1]}` } : {}),
+  };
+}
 
 /**
  * Parse `codex plugin list` output into the *installed and enabled* plugin names

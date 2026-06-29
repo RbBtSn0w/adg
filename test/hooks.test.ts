@@ -29,6 +29,18 @@ test("checkHookEvents warns per target: a Claude-only event is a no-op in Codex"
   }
 });
 
+test("checkHookEvents warns when a canonical Claude event cannot be projected to Antigravity", () => {
+  const dir = tmp();
+  try {
+    writeHooks(dir, "hooks.json", ["UserPromptExpansion"]);
+    const warnings = checkHookEvents(dir, ["antigravity"]);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /"UserPromptExpansion" is not a supported antigravity hook mapping/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("checkHookEvents is silent when every event is supported by the target", () => {
   const dir = tmp();
   try {

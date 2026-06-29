@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { parseClaudePluginList } from "../src/agents/claude.ts";
-import { parseCodexPluginList } from "../src/agents/codex.ts";
+import { codexListFailure, parseCodexPluginList } from "../src/agents/codex.ts";
 
 /**
  * The `listInstalled` parsers are the only place ADG reads each agent CLI's
@@ -76,4 +76,18 @@ test("parseCodexPluginList keeps only installed+enabled rows of the given market
 test("parseCodexPluginList skips the header, banner, and path lines (no false matches)", () => {
   // "PLUGIN", the marketplace banner, and absolute paths have no `name@mp` token.
   assert.deepEqual(parseCodexPluginList(CODEX_OUT, "othermp"), ["foo"]);
+});
+
+test("codexListFailure offers cleanup for a stale ADG project marketplace", () => {
+  const failure = codexListFailure(`Error: failed to load configured marketplace snapshot(s):
+- \`adg-86bf8e7a\` at /tmp/project: marketplace root does not contain a supported manifest`);
+
+  assert.match(failure.error, /adg-86bf8e7a/);
+  assert.equal(failure.recoveryCommand, "codex plugin marketplace remove adg-86bf8e7a");
+});
+
+test("codexListFailure does not suggest deleting an unrecognized marketplace", () => {
+  const failure = codexListFailure("Error: authentication failed");
+  assert.equal(failure.error, "Error: authentication failed");
+  assert.equal(failure.recoveryCommand, undefined);
 });

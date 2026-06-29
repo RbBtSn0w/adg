@@ -123,7 +123,11 @@ test("install resolves root ./.mcp.json from mcpServers and adapts every runtime
   assert.equal(claude.mcpServers, "./.mcp.json");
   assert.equal(claude.mcp, undefined);
   const antigravity = JSON.parse(readFileSync(join(out, "plugin.json"), "utf8"));
-  assert.equal(antigravity.mcpServers, "./.mcp.json");
+  assert.deepEqual(antigravity, { name: "mcpkit" });
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(out, "mcp_config.json"), "utf8")),
+    { mcpServers: { idocs: { command: "idocs", args: ["mcp"] } } },
+  );
   rmSync(work, { recursive: true });
 });
 

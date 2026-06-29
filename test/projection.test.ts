@@ -10,7 +10,7 @@ import { unlinkPlugins } from "../src/commands/unlink.ts";
 import { syncPlugins } from "../src/commands/sync.ts";
 import { marketplaceSync } from "../src/commands/marketplace.ts";
 import { pluginStatus } from "../src/commands/status.ts";
-import type { Agent, AgentContext, AgentSyncResult } from "../src/agents/index.ts";
+import type { Agent, AgentContext, AgentListResult, AgentSyncResult } from "../src/agents/index.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 
 /**
@@ -29,7 +29,7 @@ interface Recorder {
 function fakeAgent(
   id: string,
   rec: Recorder,
-  opts: { installed?: string[]; available?: boolean } = {},
+  opts: { installed?: AgentListResult; available?: boolean } = {},
 ): Agent {
   const available = opts.available ?? true;
   const result = (ctx: AgentContext): AgentSyncResult => ({ agent: id, affected: available ? ctx.plugins : [], skipped: !available });
@@ -213,5 +213,24 @@ test("status marks an agent unqueryable when listInstalled returns undefined", (
   const [s] = pluginStatus({ pluginsDir: store, scope: "project", agents: [agent] });
   assert.equal(s!.queryable, false);
   assert.deepEqual(s!.missing, []);
+  rmSync(work, { recursive: true });
+});
+
+test("status preserves an agent query failure and its recovery command", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+
+  const agent = fakeAgent("codex", recorder(), {
+    installed: {
+      error: "failed to load marketplace adg-deadbeef",
+      recoveryCommand: "codex plugin marketplace remove adg-deadbeef",
+    },
+  });
+  const [s] = pluginStatus({ pluginsDir: store, scope: "project", agents: [agent] });
+
+  assert.equal(s!.queryable, false);
+  assert.equal(s!.queryError, "failed to load marketplace adg-deadbeef");
+  assert.equal(s!.recoveryCommand, "codex plugin marketplace remove adg-deadbeef");
   rmSync(work, { recursive: true });
 });

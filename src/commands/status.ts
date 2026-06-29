@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { listPlugins } from "./list.ts";
-import { allAgents, resolveAgents, type Agent, type AgentScope } from "../agents/index.ts";
+import { allAgents, isAgentListFailure, resolveAgents, type Agent, type AgentScope } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { lockPath } from "../paths.ts";
 
@@ -20,6 +20,10 @@ export interface AgentStatus {
   displayName: string;
   /** False when the agent's CLI couldn't be queried — state is unknown. */
   queryable: boolean;
+  /** Agent CLI diagnostic when the query ran but failed. */
+  queryError?: string;
+  /** Safe recovery command for a recognized query failure. */
+  recoveryCommand?: string;
   /** In the store and enabled in the agent. */
   inSync: string[];
   /** In the store but not enabled in the agent → needs `link`/`sync`. */
@@ -53,6 +57,18 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
     if (installed === undefined) {
       return { id: a.id, displayName: a.displayName, queryable: false, inSync: [], missing: [], agentOnly: [] };
     }
+    if (isAgentListFailure(installed)) {
+      return {
+        id: a.id,
+        displayName: a.displayName,
+        queryable: false,
+        queryError: installed.error,
+        recoveryCommand: installed.recoveryCommand,
+        inSync: [],
+        missing: [],
+        agentOnly: [],
+      };
+    }
     const agentSet = new Set(installed);
 
     // If we're in project scope and the project doesn't have an ADG lock file,
@@ -72,4 +88,3 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
     };
   });
 }
-
