@@ -2,6 +2,9 @@ import { join } from "node:path";
 import { ADAPTERS, type AdapterTarget } from "../adapters/index.ts";
 import { readManifest } from "../manifest.ts";
 import { writeJson } from "../fsutil.ts";
+import { checkHookEvents } from "../hooks.ts";
+import { writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
+import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
 import type { PluginSelection } from "../types.ts";
 
 export interface AdaptResult {
@@ -19,6 +22,10 @@ export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selecti
   const manifest = readManifest(pluginDir);
   const results: AdaptResult[] = [];
 
+  // Surface target event gaps before they become silent no-ops. Antigravity's
+  // adapter may add more mechanical-translation diagnostics below.
+  const hookWarnings = new Set(checkHookEvents(pluginDir, targets));
+
   for (const target of targets) {
     const adapter = ADAPTERS[target];
     if (!adapter) throw new Error(`unknown adapter target: ${target}`);
@@ -29,8 +36,14 @@ export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selecti
     const file = join(pluginDir, defaultPath);
 
     writeJson(file, out);
+    if (target === "antigravity") {
+      writeAntigravityMcpConfig(pluginDir, manifest, selection);
+      for (const warning of writeAntigravityHooks(pluginDir, manifest, selection)) hookWarnings.add(warning);
+    }
     results.push({ target, file });
   }
+
+  for (const warning of hookWarnings) console.error(`hooks: ${warning}`);
 
   return results;
 }

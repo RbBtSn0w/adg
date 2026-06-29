@@ -39,7 +39,7 @@ export function fromNativeManifest(raw: unknown, kind: NativeKind): AdgManifest 
   copyIfString(n, out, "commands");
   copyIfString(n, out, "agents");
   copyIfString(n, out, "hooks");
-  copyIfString(n, out, "mcp");
+  copyIfString(n, out, "mcpServers");
   copyIfString(n, out, "apps");
 
   if (typeof n.author === "object" && n.author !== null) {

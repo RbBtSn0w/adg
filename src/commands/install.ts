@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
+import { removePlugin } from "./remove.ts";
 import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
@@ -13,7 +14,7 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
 import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
-import { sameSource, COMPONENT_TYPES, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
+import { sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
@@ -59,6 +60,11 @@ export interface InstallResult {
 // Generated runtime projections never count toward a plugin's content hash.
 const HASH_IGNORE = PROJECTION_DIRS;
 
+/** Content hash over a plugin's packaged payload (hooks files are authored content, not generated). */
+function contentHash(dir: string, manifest: AdgManifest): string {
+  return folderHash(dir, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+}
+
 /**
  * Install a single local plugin directory into a plugins directory: copy the
  * source, generate adapter manifests, compute the folder hash, and update both
@@ -93,7 +99,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   // copy) and, when asked, short-circuit if it matches what's already recorded —
   // so an unchanged upstream source is never re-copied, re-adapted, or re-locked.
   if (opts.skipUnchanged && prev) {
-    const sourceHash = folderHash(source, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+    const sourceHash = contentHash(source, manifest);
     if (prev.folderHash === sourceHash && prev.version === manifest.version) {
       return { name, installedTo: dest, folderHash: sourceHash, adapted: [], changed: false };
     }
@@ -114,7 +120,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   const targets = opts.targets ?? [...ADAPTER_TARGETS];
   const adapted = adaptPlugin(dest, targets, selection).map((r) => r.file);
 
-  const hash = folderHash(dest, HASH_IGNORE, packageFilter(manifest, { includeProjections: false }));
+  const hash = contentHash(dest, manifest);
   const changed = !prev || prev.folderHash !== hash || prev.version !== manifest.version;
 
   const entry: Omit<LockEntry, "installedAt" | "updatedAt"> = {
@@ -245,11 +251,15 @@ export interface AddOptions {
   scope?: AgentScope;
   /** Injection seam for tests; defaults to the agents matching `targets`. */
   agents?: Agent[];
+  /** Injection seam for removed store entries; defaults to every registered agent. */
+  deactivationAgents?: Agent[];
 }
 
 export interface AddResult {
   order: string[];
   installed: InstallResult[];
+  /** Installed plugins from the same remote source that no longer exist upstream. */
+  removed: string[];
   /** Plugins reverse-adapted from a native manifest during discovery. */
   converted: string[];
   /** Every plugin name discovered in the source (installed or not). */
@@ -269,6 +279,15 @@ function discoverPlugins(root: string): { candidates: Map<string, PluginCandidat
     if (native.kind === "adg") continue;
     const raw = JSON.parse(readFileSync(native.manifestFile, "utf8"));
     const manifest = fromNativeManifest(raw, native.kind);
+    // A Claude manifest omits `hooks` (Claude auto-loads hooks/hooks.json), and
+    // `walkNative` prefers it over a sibling Codex manifest that *does* declare
+    // hooks — so the reverse-adapt would silently drop the hooks payload. Recover
+    // it from disk: a hooks/ directory means the ADG manifest must declare it, or
+    // packagedRoots won't copy it and every downstream projection loses hooks.
+    const hooksDir = join(native.dir, "hooks");
+    if (!manifest.hooks && existsSync(hooksDir) && statSync(hooksDir).isDirectory()) {
+      manifest.hooks = "./hooks/";
+    }
     writeJson(join(native.dir, ADG_MANIFEST_PATH), manifest);
     converted.push(manifest.name);
   }
@@ -354,6 +373,58 @@ async function resolveSelections(
   return selections;
 }
 
+/** True when a locked plugin belongs to the same remote checkout currently being reconciled. */
+function sameRemoteSource(entry: PluginSource, parsed: ReturnType<typeof parseSource>, ref: string | undefined): boolean {
+  if (parsed.kind === "local") return false;
+  if (entry.type !== "github") return false;
+  return entry.repo === parsed.source && entry.ref === ref;
+}
+
+/**
+ * Remove plugins from the same remote source that disappeared from the latest
+ * desired set. This handles both source layout changes (one plugin splitting
+ * into several differently named plugins) and an explicit narrowed reinstall
+ * (`--plugin one` after previously installing `--all`) without leaving stale
+ * runtime exports behind.
+ */
+function reconcileRemotePlugins(
+  opts: AddOptions,
+  parsed: ReturnType<typeof parseSource>,
+  ref: string | undefined,
+  desired: Set<string>,
+): string[] {
+  if (parsed.kind === "local") return [];
+  // A path/sparse install does not prove the full source shape, so it must not
+  // prune sibling plugins from the same repo that were intentionally excluded
+  // from the checkout/selection window.
+  if (opts.path || opts.sparse?.length) return [];
+
+  const lock = readLock(lockPath(opts.pluginsDir));
+  const stale = Object.entries(lock.plugins)
+    .filter(([name, entry]) => sameRemoteSource(entry.origin, parsed, ref) && !desired.has(name))
+    .map(([name]) => name)
+    .sort();
+
+  if (stale.length === 0) return [];
+
+  // Removing from the ADG store is target-agnostic: once a plugin is no longer
+  // desired, every agent that may have cached it must be asked to drop it. The
+  // install/refresh pass below still honors `targets`; this broader deactivation
+  // only applies to removed store entries.
+  const agents = opts.activate ? (opts.deactivationAgents ?? resolveAgents()) : undefined;
+  for (const name of stale) {
+    removePlugin({
+      pluginsDir: opts.pluginsDir,
+      name,
+      force: true,
+      deactivate: opts.activate,
+      scope: opts.scope,
+      agents,
+    });
+  }
+  return stale;
+}
+
 /**
  * The unified install entrypoint. Treats any source as a marketplace: clone or
  * read it, discover every plugin (ADG plus reverse-adapted native), choose a
@@ -362,6 +433,7 @@ async function resolveSelections(
  */
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   const parsed = parseSource(opts.spec);
+  const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
   let cleanup: (() => void) | undefined;
@@ -370,15 +442,14 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     workRoot = resolve(parsed.dir);
     buildOrigin = (dir) => ({ type: "local", path: `./${toPosix(relative(workRoot, dir)) || basename(dir)}` });
   } else {
-    const ref = opts.ref ?? parsed.ref;
     const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
-    cloneGitHub({ ...parsed, ref }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
+    cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
     workRoot = tmp;
     buildOrigin = (dir) => ({
       type: "github",
       repo: parsed.source,
-      ...(ref ? { ref } : {}),
+      ...(sourceRef ? { ref: sourceRef } : {}),
       path: toPosix(relative(tmp, dir)) || ".",
     });
   }
@@ -392,19 +463,22 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     }
 
     const selected = await selectPluginNames(opts, candidates, workRoot, converted);
+
+    // Resolve adapter targets after the plugin choice (lets a CLI agent picker
+    // run once we know what's being installed). undefined → installPlugin's all.
+    const targets = opts.targets ?? (opts.selectTargets ? await opts.selectTargets() : undefined);
+    const available = [...candidates.keys()];
+
     if (selected.length === 0) {
       // Under "skip" (the update path) every requested plugin was deleted
       // upstream: don't abort — return what the source still offers so the
       // caller can report the deletions.
       if (opts.missingPlugins === "skip") {
-        return { order: [], installed: [], converted, available: [...candidates.keys()] };
+        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(selected));
+        return { order: [], installed: [], removed, converted, available };
       }
       throw new Error("no plugins selected");
     }
-
-    // Resolve adapter targets after the plugin choice (lets a CLI agent picker
-    // run once we know what's being installed). undefined → installPlugin's all.
-    const targets = opts.targets ?? (opts.selectTargets ? await opts.selectTargets() : undefined);
 
     // Partial-install selection per user-chosen plugin (auto-deps install full).
     const selections = await resolveSelections(opts, selected, candidates);
@@ -421,6 +495,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         }
       }
     }
+    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
 
     // Snapshot which plugins already existed before this call mutates the lock,
     // so the activation step below can tell brand-new installs from updates.
@@ -453,16 +528,20 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       const resolved = opts.agents ?? resolveAgents(targets);
       const scope = opts.scope ?? "project";
       const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
-      // A "changed" plugin is either brand new (no prior lock entry) or an update
-      // to an already-installed one. Only updates go through refresh — agents that
-      // cache a copy (Claude) must drop the stale one and re-pull. Brand-new
-      // plugins must use activate: refresh would issue an uninstall for something
-      // never installed, which warns/errors in those agents. On the add path
-      // (skipUnchanged off) everything is a fresh activate.
-      const activateNames = (opts.skipUnchanged ? toActivate.filter((r) => !existingPlugins.has(r.name)) : toActivate).map((r) => r.name);
-      const refreshNames = opts.skipUnchanged ? toActivate.filter((r) => existingPlugins.has(r.name)).map((r) => r.name) : [];
-
       agents = resolved.map((a) => {
+        const queryResult = a.listInstalled?.(ctxFor([]));
+        const agentInstalled = Array.isArray(queryResult) ? queryResult : undefined;
+        const alreadyInstalled = (name: string) =>
+          agentInstalled !== undefined
+            ? agentInstalled.includes(name)
+            : existingPlugins.has(name);
+        // Existing plugins must go through refresh even on an explicit `add`:
+        // agents like Claude cache an installed copy, and their plain install
+        // command is a no-op when the plugin already exists. If the agent can
+        // enumerate live installs, trust that state; otherwise fall back to the
+        // ADG lock to preserve clean-update behavior.
+        const activateNames = toActivate.filter((r) => !alreadyInstalled(r.name)).map((r) => r.name);
+        const refreshNames = toActivate.filter((r) => alreadyInstalled(r.name)).map((r) => r.name);
         // An agent may run both lifecycles (new installs + updates) in one pass;
         // merge into the existing affected/skipped contract so downstream report
         // and consolidation (renderAgentReport, mergeAgentResults) stay unchanged.
@@ -476,7 +555,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       });
     }
 
-    return { order, installed, converted, available: [...candidates.keys()], agents };
+    return { order, installed, removed, converted, available, agents };
   } finally {
     cleanup?.();
   }

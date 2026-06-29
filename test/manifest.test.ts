@@ -16,6 +16,11 @@ test("collectIssues flags bad name, version, schemaVersion", () => {
   assert.ok(issues.some((i) => i.includes("description")));
 });
 
+test("collectIssues rejects the removed mcp manifest field", () => {
+  const issues = collectIssues({ ...baseManifest, mcp: "./.mcp.json" });
+  assert.ok(issues.some((i) => i.includes("use mcpServers")));
+});
+
 test("validateManifest throws ManifestError with issues", () => {
   assert.throws(() => validateManifest({}), (err: unknown) => err instanceof ManifestError);
 });

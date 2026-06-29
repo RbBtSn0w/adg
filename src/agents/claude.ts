@@ -1,12 +1,13 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
-import { installedPluginDir, lockPath } from "../paths.ts";
+import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { makeCli } from "./base.ts";
-import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
+import { makeCli, skippedResult } from "./base.ts";
+import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
 
 /**
  * Claude Code agent.
@@ -26,10 +27,23 @@ function claudeHome(env: NodeJS.ProcessEnv): string {
 const { available, run } = makeCli("claude", { probeArgs: ["plugin", "--help"] });
 
 /**
+ * Claude's marketplace registry is keyed only by marketplace name. Keep the
+ * historical global marketplace name stable, but give project/explicit stores a
+ * store-scoped name so a project install never updates or queries a stale global
+ * `adg` marketplace.
+ */
+export function claudeMarketplaceName(pluginsDir: string): string {
+  const normalized = resolve(pluginsDir);
+  if (normalized === resolve(globalPluginsDir())) return MARKETPLACE;
+  const hash = createHash("sha1").update(toPosix(normalized)).digest("hex").slice(0, 8);
+  return `${MARKETPLACE}-${hash}`;
+}
+
+/**
  * Write a Claude marketplace catalog listing every installed plugin, each
  * `source` pointing at its on-disk directory (relative to the catalog).
  */
-export function writeClaudeCatalog(pluginsDir: string, name: string = MARKETPLACE): { file: string; name: string } {
+export function writeClaudeCatalog(pluginsDir: string, name: string = claudeMarketplaceName(pluginsDir)): { file: string; name: string } {
   const lock = readLock(lockPath(pluginsDir));
   const plugins: Record<string, unknown>[] = [];
 
@@ -69,10 +83,9 @@ export function writeClaudeCatalog(pluginsDir: string, name: string = MARKETPLAC
 }
 
 /** Register the ADG store as a Claude marketplace (add, or update if present). */
-function syncMarketplace(pluginsDir: string): void {
-  const list = run(["plugin", "marketplace", "list"]);
-  if (list.ok && list.out.includes(MARKETPLACE)) run(["plugin", "marketplace", "update", MARKETPLACE]);
-  else run(["plugin", "marketplace", "add", pluginsDir]);
+function syncMarketplace(pluginsDir: string, name: string): void {
+  const update = run(["plugin", "marketplace", "update", name]);
+  if (!update.ok) run(["plugin", "marketplace", "add", pluginsDir]);
 }
 
 export const claudeAgent: Agent = {
@@ -83,18 +96,23 @@ export const claudeAgent: Agent = {
   available,
 
   activate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: "claude", affected: [], skipped: true };
-    writeClaudeCatalog(ctx.pluginsDir);
-    syncMarketplace(ctx.pluginsDir);
+    if (!available()) return skippedResult("claude");
+    const { name: marketplace } = writeClaudeCatalog(ctx.pluginsDir);
+    syncMarketplace(ctx.pluginsDir, marketplace);
     const affected: string[] = [];
     for (const p of ctx.plugins) {
-      if (run(["plugin", "install", `${p}@${MARKETPLACE}`, "--scope", ctx.scope]).ok) affected.push(p);
+      const r = run(["plugin", "install", `${p}@${marketplace}`, "--scope", ctx.scope]);
+      if (r.ok) affected.push(p);
+      // Surface the CLI's reason instead of silently dropping the plugin — a
+      // rejected manifest (e.g. `hooks: Invalid input`) otherwise looks like a
+      // no-op "missing" with no diagnostic.
+      else console.error(`claude: failed to install ${p}@${marketplace}: ${r.out.trim()}`);
     }
     return { agent: "claude", affected, skipped: false };
   },
 
   deactivate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: "claude", affected: [], skipped: true };
+    if (!available()) return skippedResult("claude");
     const affected: string[] = [];
     for (const p of ctx.plugins) {
       if (run(["plugin", "uninstall", p, "--scope", ctx.scope]).ok) affected.push(p);
@@ -103,11 +121,62 @@ export const claudeAgent: Agent = {
   },
 
   refresh(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return { agent: "claude", affected: [], skipped: true };
+    if (!available()) return skippedResult("claude");
     // Claude caches a copy on install and won't re-pull from a local marketplace,
     // so uninstall (keeping data) then re-install to force a fresh copy.
     for (const p of ctx.plugins) run(["plugin", "uninstall", p, "--scope", ctx.scope, "--keep-data"]);
     const act = claudeAgent.activate(ctx);
     return { agent: "claude", affected: act.affected, skipped: act.skipped };
   },
+
+  // Query Claude's live plugin state for `adg plugins status`, scoped to the
+  // ADG marketplace and the requested install scope. `available()` gates the
+  // query so an absent CLI is a quiet `undefined` ("unknown").
+  listInstalled(ctx: AgentContext): string[] | undefined {
+    if (!available()) return undefined;
+    const res = run(["plugin", "list"]);
+    if (!res.ok) return undefined;
+    return parseClaudePluginList(res.out, claudeMarketplaceName(ctx.pluginsDir), ctx.scope);
+  },
 };
+
+/**
+ * Parse `claude plugin list` output into the *enabled* plugin names from a given
+ * marketplace and install scope. The listing groups each plugin as a
+ * `❯ <name>@<marketplace>` header followed by indented `Scope:` / `Status:`
+ * lines; we pair them so a plugin enabled only in another scope, disabled, or
+ * from a different marketplace is excluded. Pure (no CLI) so it is unit-testable
+ * against captured output.
+ */
+export function parseClaudePluginList(out: string, marketplace: string, scope: AgentScope): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let cur: { name: string; mp: string; scope?: string; enabled?: boolean } | undefined;
+  const flush = (): void => {
+    if (cur && cur.mp === marketplace && cur.scope === scope && cur.enabled && !seen.has(cur.name)) {
+      seen.add(cur.name);
+      names.push(cur.name);
+    }
+  };
+  for (const line of out.split("\n")) {
+    const head = line.match(/^\s*❯\s*(\S+?)@([\w.-]+)\s*$/);
+    if (head) {
+      flush();
+      cur = { name: head[1]!, mp: head[2]! };
+      continue;
+    }
+    if (!cur) continue;
+    const sc = line.match(/^\s*Scope:\s*(\S+)/);
+    if (sc) {
+      // Normalize case so a future `Scope: Project` still matches "project".
+      cur.scope = sc[1]!.toLowerCase();
+      continue;
+    }
+    const st = line.match(/^\s*Status:\s*(.+)$/);
+    // "disabled" does not contain "enabled", so a substring test cleanly
+    // distinguishes the two states.
+    if (st) cur.enabled = /enabled/i.test(st[1]!);
+  }
+  flush();
+  return names;
+}

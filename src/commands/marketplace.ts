@@ -3,8 +3,9 @@ import type { GitRunner } from "../sources.ts";
 import type { PluginSource } from "../types.ts";
 import { lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { addPlugins, type InstallResult } from "./install.ts";
+import { addPlugins } from "./install.ts";
 import { removePlugin } from "./remove.ts";
+import { syncPlugins, type SyncResult } from "./sync.ts";
 import { updateLock, type UpdateLockResult } from "./update.ts";
 import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
 
@@ -107,73 +108,6 @@ function requireGroup(pluginsDir: string, source: string, scope?: ScopeInfo): Ma
   throw new Error(msg);
 }
 
-export interface MarketplaceUpgradeResult {
-  source: string;
-  /** Plugins re-installed/updated from the source. */
-  updated: InstallResult[];
-  converted: string[];
-  /** Discovered in the source but not installed (offered for `--all`). */
-  available: string[];
-}
-
-/**
- * Re-fetch a source and update the plugins installed from it. By default only
- * already-installed plugins are refreshed; `all` also installs everything new
- * the source now offers. With no `source`, every remote source is upgraded.
- */
-export async function marketplaceUpgrade(
-  opts: MarketplaceScope & {
-    source?: string;
-    all?: boolean;
-    targets?: AdapterTarget[];
-    gitRunner?: GitRunner;
-    /** Re-activate the agents after upgrade (set by the CLI; off by default). */
-    activate?: boolean;
-    /** Install scope for re-activation after upgrade. */
-    agentScope?: AgentScope;
-  },
-): Promise<MarketplaceUpgradeResult[]> {
-  const groups = opts.source
-    ? [requireGroup(opts.pluginsDir, opts.source, opts.scope)]
-    : marketplaceList({ pluginsDir: opts.pluginsDir }).filter((g) => g.remote);
-
-  if (opts.source && !groups[0]!.remote) {
-    throw new Error(`source "${opts.source}" is local and cannot be re-synced; re-run \`adg plugins add\`.`);
-  }
-  if (groups.length === 0) {
-    throw new Error(`no remote sources installed in ${opts.pluginsDir}`);
-  }
-
-  const now = opts.now ?? new Date().toISOString();
-  const results: MarketplaceUpgradeResult[] = [];
-
-  for (const group of groups) {
-    const { installed, converted, available } = await addPlugins({
-      spec: group.source,
-      pluginsDir: opts.pluginsDir,
-      ref: group.ref,
-      // Default: refresh what's installed. --all: install everything too.
-      ...(opts.all ? { all: true } : { plugins: group.installed }),
-      targets: opts.targets,
-      marketplaceName: group.source,
-      gitRunner: opts.gitRunner,
-      // Re-activate so the agents pick up the upgraded content, not just the store.
-      activate: opts.activate,
-      scope: opts.agentScope,
-      now,
-    });
-    const installedSet = new Set(group.installed);
-    results.push({
-      source: group.source,
-      updated: installed,
-      converted,
-      available: available.filter((n) => !installedSet.has(n)),
-    });
-  }
-
-  return results;
-}
-
 /** Per-source outcome of `updatePlugins` (the network "check + update" pass). */
 export interface PluginUpdateSourceResult {
   source: string;
@@ -241,6 +175,8 @@ export async function updatePlugins(
     agentScope?: AgentScope;
     /** Injection seam for tests; forwarded to the install + local-rescan steps. */
     agents?: Agent[];
+    /** Injection seam for removed remote entries; defaults to every registered agent. */
+    deactivationAgents?: Agent[];
   },
 ): Promise<PluginUpdateResult> {
   const allGroups = marketplaceList({ pluginsDir: opts.pluginsDir });
@@ -275,6 +211,7 @@ export async function updatePlugins(
         activate: opts.activate,
         scope: opts.agentScope,
         agents: opts.agents,
+        deactivationAgents: opts.deactivationAgents,
         now,
       });
       if (agents) remoteAgents.push(...agents);
@@ -335,4 +272,23 @@ export function marketplaceRemove(
     removed.push(name);
   }
   return { source: opts.source, removed };
+}
+
+/**
+ * Reconcile one agent's copy of every plugin from a given source to the store —
+ * the source-scoped twin of `adg plugins sync`. Resolves the source's installed
+ * plugins from the lock, then drives `syncPlugins` for just that set, so a whole
+ * marketplace can be repaired in one call without naming each plugin.
+ */
+export function marketplaceSync(
+  opts: MarketplaceScope & { source: string; target: AdapterTarget; global?: boolean; agent?: Agent },
+): SyncResult {
+  const group = requireGroup(opts.pluginsDir, opts.source, opts.scope);
+  return syncPlugins({
+    pluginsDir: opts.pluginsDir,
+    target: opts.target,
+    global: opts.global,
+    names: group.installed,
+    agent: opts.agent,
+  });
 }

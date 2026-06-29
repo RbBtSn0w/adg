@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { resolveSkills } from "./skills.ts";
 import { COMPONENT_TYPES, type AdgManifest, type ComponentType, type PluginSelection } from "./types.ts";
+import { mcpConfigPath } from "./mcp.ts";
 
 export { COMPONENT_TYPES };
 
@@ -53,13 +54,14 @@ function mcpServers(file: string): string[] {
 
 /** Enumerate what a plugin contains, by reading its manifest's component paths. */
 export function pluginContents(dir: string, manifest: AdgManifest): PluginContents {
+  const mcp = mcpConfigPath(manifest);
   return {
     skills: resolveSkills(dir, manifest),
     agents: membersOf(dir, manifest.agents),
     commands: membersOf(dir, manifest.commands),
     apps: membersOf(dir, manifest.apps),
     hooks: membersOf(dir, manifest.hooks),
-    mcp: manifest.mcp ? mcpServers(join(dir, manifest.mcp)) : [],
+    mcp: mcp ? mcpServers(join(dir, mcp)) : [],
   };
 }
 

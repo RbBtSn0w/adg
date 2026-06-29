@@ -4,8 +4,10 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { folderHash } from "../src/hash.ts";
-import { packageFilter } from "../src/package.ts";
+import { packageFilter, PROJECTION_DIRS } from "../src/package.ts";
 import { installPlugin } from "../src/commands/install.ts";
+import { ensureAntigravityRoot } from "../src/agents/antigravity.ts";
+import { ADG_SCHEMA_VERSION, type AdgManifest } from "../src/types.ts";
 import { tmp, scaffoldSource } from "./helpers.ts";
 
 test("folderHash is deterministic and order-independent", () => {
@@ -52,4 +54,29 @@ test("packaged folderHash agrees between source-with-cruft and copied install", 
   writeFileSync(join(dir, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: changed.\n---\n");
   assert.notEqual(hashSource(), res.folderHash);
   rmSync(work, { recursive: true });
+});
+
+test("Antigravity root projections do not change the authored plugin hash", () => {
+  const dir = tmp();
+  const manifest: AdgManifest = {
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "hooked",
+    version: "1.0.0",
+    description: "Hook hash fixture",
+    hooks: "./hooks/",
+  };
+  mkdirSync(join(dir, ".agents"));
+  writeFileSync(join(dir, ".agents", ".plugin.json"), JSON.stringify(manifest));
+  mkdirSync(join(dir, "hooks"));
+  writeFileSync(
+    join(dir, "hooks", "hooks.json"),
+    JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf '{}'" }] }] } }),
+  );
+  const hash = () => folderHash(dir, PROJECTION_DIRS, packageFilter(manifest, { includeProjections: false }));
+  const before = hash();
+
+  ensureAntigravityRoot(dir);
+
+  assert.equal(hash(), before);
+  rmSync(dir, { recursive: true });
 });

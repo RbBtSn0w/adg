@@ -1,27 +1,61 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, existsSync, lstatSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
 import { ADAPTERS, ADAPTER_TARGETS, ADAPTER_COMPONENTS, toAntigravityManifest } from "../src/adapters/index.ts";
-import { antigravityAgent, antigravityHome, writeAntigravityProjection } from "../src/agents/antigravity.ts";
+import { antigravityAgent, antigravityGlobalPluginsDir, ensureAntigravityRoot } from "../src/agents/antigravity.ts";
+import { writeLock } from "../src/lock.ts";
+import { lockPath } from "../src/paths.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 
 /**
- * Antigravity (`agy`, Google's agent CLI) is a third runtime target. It discovers
- * a plugin by convention relative to the install dir (a minimal `plugin.json`
- * plus sibling component dirs and a `mcp_config.json`), so ADG projects a
- * self-contained agy plugin root under `.antigravity-plugin/`: generated
- * manifests + symlinks to the real component dirs. These guard the adapter
- * output, that projection (mcp passthrough + component links), and detection.
+ * Antigravity (`agy`) is discovered by *scanning* directories — the directory is
+ * the scope/provenance, there is no agy CLI, lock, or marketplace. ADG makes a
+ * plugin folder a valid agy root in place (root `plugin.json` + sibling component
+ * dirs) and, for global / remote-nested plugins, exposes it via a symlink into
+ * the scan dir. These guard the adapter output, the in-place projection, scope
+ * isolation (no cross-scope leak), and detection.
  */
-
-const PROJ = ".antigravity-plugin";
 
 function writePlugin(dir: string, manifest: Record<string, unknown>): void {
   mkdirSync(join(dir, ".agents"), { recursive: true });
   writeFileSync(join(dir, ".agents", ".plugin.json"), JSON.stringify(manifest));
+}
+
+/** Seed a store dir with one local plugin folder + a lock entry for it. */
+function seedStore(store: string, name: string, manifest: Record<string, unknown>): string {
+  const dir = join(store, name);
+  writePlugin(dir, manifest);
+  writeLock(lockPath(store), {
+    version: 2,
+    plugins: {
+      [name]: {
+        origin: { type: "local", path: `./${name}` },
+        version: "1.0.0",
+        folderHash: "sha256-test",
+        installedAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    },
+  });
+  return dir;
+}
+
+/** Run `fn` with GEMINI_HOME pointed at a real tmp dir so the agent detects Antigravity. */
+function withGemini<T>(fn: (gemini: string) => T): T {
+  const prev = process.env.GEMINI_HOME;
+  const gemini = mkdtempSync(join(tmpdir(), "adg-gemini-"));
+  mkdirSync(join(gemini, "antigravity")); // the Antigravity-specific detection marker
+  process.env.GEMINI_HOME = gemini;
+  try {
+    return fn(gemini);
+  } finally {
+    if (prev === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prev;
+    rmSync(gemini, { recursive: true, force: true });
+  }
 }
 
 test("antigravity is a registered adapter target with the Claude component superset", () => {
@@ -31,20 +65,20 @@ test("antigravity is a registered adapter target with the Claude component super
   assert.deepEqual(ADAPTER_COMPONENTS.antigravity, ["skills", "agents", "commands", "hooks", "mcp"]);
 });
 
-test("toAntigravityManifest emits .antigravity-plugin/plugin.json carrying only the name", () => {
+test("toAntigravityManifest emits a name-only root plugin.json", () => {
   const m = {
     schemaVersion: ADG_SCHEMA_VERSION,
     name: "asc",
     version: "0.1.0",
     description: "x",
-    mcp: "./mcp/.mcp.json",
+    mcpServers: "./.mcp.json",
   } as const;
   const out = toAntigravityManifest("/tmp/asc", m, undefined);
-  assert.equal(out.defaultPath, join(PROJ, "plugin.json"));
+  assert.equal(out.defaultPath, "plugin.json");
   assert.deepEqual(out.manifest, { name: "asc" });
 });
 
-test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp passthrough, and component links", () => {
+test("ensureAntigravityRoot writes the manifest and conventional MCP config in place", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
     const mcp = { mcpServers: { asc: { command: "asc", args: ["mcp", "serve"] } } };
@@ -55,136 +89,272 @@ test("writeAntigravityProjection builds a self-contained agy root: manifest, mcp
       description: "App Store Connect",
       skills: "./skills/",
       agents: "./agents/",
-      mcp: "./mcp/.mcp.json",
+      mcpServers: "./.mcp.json",
     });
-    mkdirSync(join(dir, "mcp"), { recursive: true });
-    writeFileSync(join(dir, "mcp", ".mcp.json"), JSON.stringify(mcp));
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
     mkdirSync(join(dir, "skills", "metadata-sync"), { recursive: true });
     writeFileSync(join(dir, "skills", "metadata-sync", "SKILL.md"), "# skill");
     mkdirSync(join(dir, "agents"), { recursive: true });
     writeFileSync(join(dir, "agents", "release-captain.md"), "# agent");
 
-    writeAntigravityProjection(dir);
+    ensureAntigravityRoot(dir);
 
-    const stage = join(dir, PROJ);
-    assert.deepEqual(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")), { name: "asc" });
-    // The ADG mcp shape is exactly agy's, so it passes through unchanged.
-    assert.deepEqual(JSON.parse(readFileSync(join(stage, "mcp_config.json"), "utf8")), mcp);
-    // Skills are projected per-skill into a real `skills/` dir, each entry
-    // resolving to its real source dir (symlink, or copy fallback).
-    assert.equal(
-      realpathSync(join(stage, "skills", "metadata-sync")),
-      realpathSync(join(dir, "skills", "metadata-sync")),
-    );
-    assert.equal(readFileSync(join(stage, "skills", "metadata-sync", "SKILL.md"), "utf8"), "# skill");
-    // Single-dir components are linked wholesale under their agy-convention name.
-    assert.equal(realpathSync(join(stage, "agents")), realpathSync(join(dir, "agents")));
-    assert.equal(readFileSync(join(stage, "agents", "release-captain.md"), "utf8"), "# agent");
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")), { name: "asc" });
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), mcp);
+    // Convention-named component dirs are read in place (no alias, no copy).
+    assert.equal(readFileSync(join(dir, "skills", "metadata-sync", "SKILL.md"), "utf8"), "# skill");
+    assert.equal(readFileSync(join(dir, "agents", "release-captain.md"), "utf8"), "# agent");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("writeAntigravityProjection honors a partial-install selection (components + skill subset)", () => {
+test("ensureAntigravityRoot aliases a non-convention component dir to its convention name", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
-    const mcp = { mcpServers: { asc: { command: "asc" } } };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "bots",
+      version: "0.1.0",
+      description: "non-convention agents dir",
+      agents: "./bots/",
+    });
+    mkdirSync(join(dir, "bots"), { recursive: true });
+    writeFileSync(join(dir, "bots", "a.md"), "# a");
+
+    ensureAntigravityRoot(dir);
+
+    // agy reads `<dir>/agents`; it must resolve to the real `bots/` source.
+    assert.equal(realpathSync(join(dir, "agents")), realpathSync(join(dir, "bots")));
+    assert.equal(readFileSync(join(dir, "agents", "a.md"), "utf8"), "# a");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot removes the generated MCP config when mcp is not exposed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
     writePlugin(dir, {
       schemaVersion: ADG_SCHEMA_VERSION,
       name: "asc",
       version: "0.1.0",
       description: "App Store Connect",
       skills: "./skills/",
-      agents: "./agents/",
-      mcp: "./mcp/.mcp.json",
+      mcpServers: "./.mcp.json",
     });
-    mkdirSync(join(dir, "mcp"), { recursive: true });
-    writeFileSync(join(dir, "mcp", ".mcp.json"), JSON.stringify(mcp));
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { asc: { command: "asc" } } }));
     for (const s of ["keep", "drop"]) {
       mkdirSync(join(dir, "skills", s), { recursive: true });
       writeFileSync(join(dir, "skills", s, "SKILL.md"), `# ${s}`);
     }
-    mkdirSync(join(dir, "agents"), { recursive: true });
-    writeFileSync(join(dir, "agents", "a.md"), "# a");
 
-    // Expose only skills (subset "keep") — agents and mcp are not selected.
-    writeAntigravityProjection(dir, { components: ["skills"], skills: ["keep"] });
+    ensureAntigravityRoot(dir);
+    assert.ok(existsSync(join(dir, "mcp_config.json")));
 
-    const stage = join(dir, PROJ);
-    assert.equal(readFileSync(join(stage, "skills", "keep", "SKILL.md"), "utf8"), "# keep");
-    assert.throws(() => realpathSync(join(stage, "skills", "drop")));
-    assert.throws(() => realpathSync(join(stage, "agents")));
-    assert.throws(() => readFileSync(join(stage, "mcp_config.json"), "utf8"));
+    // Narrowed selection: mcp off, only skill "keep" selected.
+    ensureAntigravityRoot(dir, { components: ["skills"], skills: ["keep"] });
+
+    assert.ok(!existsSync(join(dir, "mcp_config.json")));
+    // In-place model: dir-level pruning is NOT honored — both skills remain on disk.
+    assert.ok(existsSync(join(dir, "skills", "keep", "SKILL.md")));
+    assert.ok(existsSync(join(dir, "skills", "drop", "SKILL.md")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("writeAntigravityProjection links every root of a multi-root skills path-list", () => {
+test("ensureAntigravityRoot clears a stale convention alias even when it is a broken symlink", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
     writePlugin(dir, {
       schemaVersion: ADG_SCHEMA_VERSION,
-      name: "multi",
+      name: "demo",
       version: "0.1.0",
-      description: "multi-root skills",
-      skills: ["./skills/one", "./extra/two"],
-    });
-    mkdirSync(join(dir, "skills", "one"), { recursive: true });
-    writeFileSync(join(dir, "skills", "one", "SKILL.md"), "# one");
-    mkdirSync(join(dir, "extra", "two"), { recursive: true });
-    writeFileSync(join(dir, "extra", "two", "SKILL.md"), "# two");
-
-    writeAntigravityProjection(dir);
-
-    const stage = join(dir, PROJ);
-    // The second root must not be silently dropped.
-    assert.equal(readFileSync(join(stage, "skills", "one", "SKILL.md"), "utf8"), "# one");
-    assert.equal(readFileSync(join(stage, "skills", "two", "SKILL.md"), "utf8"), "# two");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("writeAntigravityProjection omits mcp_config.json when the plugin declares no mcp", () => {
-  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
-  try {
-    writePlugin(dir, {
-      schemaVersion: ADG_SCHEMA_VERSION,
-      name: "skills-only",
-      version: "0.1.0",
-      description: "no mcp",
+      description: "broken alias",
       skills: "./skills/",
     });
     mkdirSync(join(dir, "skills", "s"), { recursive: true });
     writeFileSync(join(dir, "skills", "s", "SKILL.md"), "# s");
+    // A dangling alias left by a prior run (its target no longer exists). `existsSync`
+    // reports false for this, so it must be cleared via lstat, not existsSync.
+    symlinkSync(join(dir, "gone"), join(dir, "agents"), "dir");
+    assert.ok(!existsSync(join(dir, "agents"))); // broken: follows to a missing target
+    assert.ok(lstatSync(join(dir, "agents")).isSymbolicLink());
 
-    writeAntigravityProjection(dir);
+    ensureAntigravityRoot(dir);
 
-    const stage = join(dir, PROJ);
-    assert.deepEqual(JSON.parse(readFileSync(join(stage, "plugin.json"), "utf8")), { name: "skills-only" });
-    assert.throws(() => readFileSync(join(stage, "mcp_config.json"), "utf8"));
+    assert.throws(() => lstatSync(join(dir, "agents"))); // the dangling alias is gone
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("antigravityHome resolves <GEMINI_HOME>/antigravity-cli, defaulting to ~/.gemini", () => {
-  // Exercise the production resolver directly (no filesystem state needed).
-  assert.equal(antigravityHome({ GEMINI_HOME: "/tmp/g" } as NodeJS.ProcessEnv), join("/tmp/g", "antigravity-cli"));
-  assert.equal(antigravityHome({} as NodeJS.ProcessEnv), join(homedir(), ".gemini", "antigravity-cli"));
+test("antigravityGlobalPluginsDir resolves <GEMINI_HOME>/config/plugins, defaulting to ~/.gemini", () => {
+  assert.equal(antigravityGlobalPluginsDir({ GEMINI_HOME: "/tmp/g" } as NodeJS.ProcessEnv), join("/tmp/g", "config", "plugins"));
+  assert.equal(antigravityGlobalPluginsDir({} as NodeJS.ProcessEnv), join(homedir(), ".gemini", "config", "plugins"));
 });
 
-test("detect keys off <GEMINI_HOME>/antigravity-cli", () => {
+test("detect keys off an antigravity* marker under the Gemini home, not bare ~/.gemini", () => {
   const tmp = mkdtempSync(join(tmpdir(), "adg-agy-home-"));
   try {
     const gemini = join(tmp, "gemini");
     mkdirSync(gemini);
+    // A bare Gemini home (plain Gemini CLI) must NOT register Antigravity.
     assert.equal(antigravityAgent.detect({ GEMINI_HOME: gemini } as NodeJS.ProcessEnv), false);
-
     mkdirSync(join(gemini, "antigravity-cli"));
     assert.equal(antigravityAgent.detect({ GEMINI_HOME: gemini } as NodeJS.ProcessEnv), true);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("activate (project) writes the manifest in place; listInstalled scopes to the project store", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-proj-"));
+  try {
+    const dir = seedStore(store, "xcode", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "xcode",
+      version: "1.0.0",
+      description: "Xcode",
+      skills: "./skills/",
+    });
+    mkdirSync(join(dir, "skills", "build"), { recursive: true });
+    writeFileSync(join(dir, "skills", "build", "SKILL.md"), "# build");
+
+    withGemini(() => {
+      const res = antigravityAgent.activate({ pluginsDir: store, plugins: ["xcode"], scope: "project" });
+      assert.equal(res.skipped, false);
+      assert.deepEqual(res.affected, ["xcode"]);
+      // In place: the agy manifest sits at the store folder root, no extra dir.
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")), { name: "xcode" });
+
+      assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), ["xcode"]);
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test("activate (user) exposes into the global scan dir; a project query never surfaces it (no leak)", () => {
+  const globalStore = mkdtempSync(join(tmpdir(), "adg-agy-global-"));
+  const projectStore = mkdtempSync(join(tmpdir(), "adg-agy-empty-proj-"));
+  try {
+    const gdir = seedStore(globalStore, "asc", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "asc",
+      version: "1.0.0",
+      description: "ASC",
+      skills: "./skills/",
+    });
+    mkdirSync(join(gdir, "skills", "s"), { recursive: true });
+    writeFileSync(join(gdir, "skills", "s", "SKILL.md"), "# s");
+    // Mirror the real bug: a project store whose lock exists but manages nothing.
+    writeLock(lockPath(projectStore), { version: 2, plugins: {} });
+
+    withGemini((gemini) => {
+      antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
+
+      // Exposed under the official global scan dir, linking back to the store folder.
+      const exposed = join(gemini, "config", "plugins", "asc");
+      assert.equal(realpathSync(exposed), realpathSync(gdir));
+      assert.ok(existsSync(join(exposed, "plugin.json")));
+
+      // Global query sees it; the empty project query does NOT (provenance fixed).
+      assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: globalStore, plugins: [], scope: "user" }), ["asc"]);
+      assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: projectStore, plugins: [], scope: "project" }), []);
+    });
+  } finally {
+    rmSync(globalStore, { recursive: true, force: true });
+    rmSync(projectStore, { recursive: true, force: true });
+  }
+});
+
+test("activate refuses to overwrite a non-ADG real directory in the global scan dir", () => {
+  const globalStore = mkdtempSync(join(tmpdir(), "adg-agy-guard-"));
+  try {
+    seedStore(globalStore, "asc", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "asc",
+      version: "1.0.0",
+      description: "ASC",
+      skills: "./skills/",
+    });
+
+    withGemini((gemini) => {
+      // A user-owned plugin already sits at the global scan slot, with no agy manifest.
+      const slot = join(gemini, "config", "plugins", "asc");
+      mkdirSync(slot, { recursive: true });
+      writeFileSync(join(slot, "user-data.txt"), "do not delete");
+
+      const res = antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
+
+      // The foreign dir is left intact and the plugin is not reported as enabled.
+      assert.ok(existsSync(join(slot, "user-data.txt")));
+      assert.deepEqual(res.affected, []);
+    });
+  } finally {
+    rmSync(globalStore, { recursive: true, force: true });
+  }
+});
+
+test("deactivate removes the projection so the plugin is no longer discovered", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-deact-"));
+  try {
+    const dir = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "demo",
+      version: "1.0.0",
+      description: "Demo",
+      skills: "./skills/",
+      hooks: "./hooks/",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { demo: { command: "demo" } } }));
+    mkdirSync(join(dir, "hooks"));
+    writeFileSync(
+      join(dir, "hooks", "hooks.json"),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf '{}'" }] }] } }),
+    );
+    withGemini(() => {
+      antigravityAgent.activate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+      assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), ["demo"]);
+      assert.ok(existsSync(join(dir, "mcp_config.json")));
+      assert.ok(existsSync(join(dir, "hooks.json")));
+
+      antigravityAgent.deactivate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+      assert.ok(!existsSync(join(store, "demo", "plugin.json")));
+      assert.ok(!existsSync(join(dir, "mcp_config.json")));
+      assert.ok(!existsSync(join(dir, "hooks.json")));
+      assert.ok(!existsSync(join(dir, ".antigravity-plugin", "hook-runner.mjs")));
+      assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), []);
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test("activate and listInstalled are no-ops when Antigravity is absent", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-absent-"));
+  const prev = process.env.GEMINI_HOME;
+  try {
+    const dir = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "demo",
+      version: "1.0.0",
+      description: "Demo",
+      skills: "./skills/",
+    });
+    // Point GEMINI_HOME at a non-existent dir so detect() is false.
+    process.env.GEMINI_HOME = join(store, "no-gemini-here");
+
+    const res = antigravityAgent.activate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+    assert.equal(res.skipped, true);
+    assert.ok(!existsSync(join(dir, "plugin.json")));
+    assert.equal(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), undefined);
+  } finally {
+    if (prev === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prev;
+    rmSync(store, { recursive: true, force: true });
   }
 });

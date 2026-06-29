@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { adaptPlugin } from "./adapt.ts";
-import { listPlugins } from "./list.ts";
+import { selectInstalled } from "./projection.ts";
 import { installedPluginDir } from "../paths.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
@@ -14,6 +14,8 @@ export interface LinkOptions {
   target: LinkTarget;
   /** Use the user (global) scope instead of project scope. */
   global?: boolean;
+  /** Limit to these plugin names; omitted = every installed plugin. */
+  names?: string[];
   /** Injection seam for tests; defaults to the registered agent for `target`. */
   agent?: Agent;
 }
@@ -44,7 +46,7 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
   const adaptTarget = agent?.adaptTarget ?? opts.target;
 
   const actions: LinkAction[] = [];
-  for (const p of listPlugins(opts.pluginsDir)) {
+  for (const p of selectInstalled(opts.pluginsDir, opts.names)) {
     const dir = installedPluginDir(opts.pluginsDir, p.name, p.origin);
     if (!existsSync(dir)) continue;
     const adapted = adaptPlugin(dir, [adaptTarget], p.selection).map((r) => r.file);

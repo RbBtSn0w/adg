@@ -30,19 +30,21 @@ test("detectedAgents reflects CLAUDE_CONFIG_DIR / CODEX_HOME / GEMINI_HOME prese
     const codex = join(tmp, "codex");
     const gemini = join(tmp, "gemini");
     mkdirSync(claude);
-    // codex dir and gemini/antigravity-cli intentionally absent
+    // codex and gemini dirs intentionally absent
 
     const env = { CLAUDE_CONFIG_DIR: claude, CODEX_HOME: codex, GEMINI_HOME: gemini } as NodeJS.ProcessEnv;
 
     assert.deepEqual(detectedAgents(env).map((a) => a.id), ["claude"]);
 
     mkdirSync(codex);
-    // Antigravity detects its `antigravity-cli` subdir under GEMINI_HOME, not the
-    // bare Gemini home — so creating only `gemini/` must not register it yet.
+    // A bare Gemini home is shared with the plain Gemini CLI, so it must NOT
+    // register Antigravity on its own.
     mkdirSync(gemini);
     assert.deepEqual(detectedAgents(env).map((a) => a.id).sort(), ["claude", "codex"]);
 
-    mkdirSync(join(gemini, "antigravity-cli"));
+    // Antigravity is directory-scanned (no CLI); an `antigravity*` marker under
+    // the Gemini home is the signal that it is installed.
+    mkdirSync(join(gemini, "antigravity"));
     assert.deepEqual(detectedAgents(env).map((a) => a.id).sort(), ["antigravity", "claude", "codex"]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });

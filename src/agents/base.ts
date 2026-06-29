@@ -1,9 +1,20 @@
 import { spawnSync } from "node:child_process";
+import type { AgentId, AgentSyncResult } from "./types.ts";
 
 /** Outcome of a CLI invocation: exit success plus combined stdout+stderr. */
 export interface RunResult {
   ok: boolean;
   out: string;
+}
+
+/**
+ * The canonical "CLI absent, so nothing was touched" lifecycle result. Every
+ * agent's activate/deactivate guard returns this shape; centralizing it keeps
+ * the agent id the single thing that varies and rules out a hand-typed drift
+ * (e.g. a wrong `agent` field or a missing `skipped`).
+ */
+export function skippedResult(agent: AgentId): AgentSyncResult {
+  return { agent, affected: [], skipped: true };
 }
 
 /** A CLI bound to one binary, exposing the shared availability probe and runner. */
@@ -29,8 +40,14 @@ export interface CliOptions {
  * rather than copied across every agent.
  */
 export function makeCli(bin: string, opts: CliOptions): Cli {
+  // A CLI's presence can't change within a single `adg` run, yet `available()`
+  // is called as a guard on every agent lifecycle op (and once per plugin in
+  // some loops). Memoize the first probe so one `plugins update --both` can't
+  // re-shell the same `--help` many times. Cached on first call, not eagerly,
+  // so importing an agent module never spawns a subprocess.
+  let probed: boolean | undefined;
   return {
-    available: () => spawnSync(bin, opts.probeArgs, { stdio: "ignore" }).status === 0,
+    available: () => (probed ??= spawnSync(bin, opts.probeArgs, { stdio: "ignore" }).status === 0),
     run: (args) => {
       const r = spawnSync(bin, args, { encoding: "utf8" });
       // A launch failure (e.g. ENOENT for a missing binary, EACCES) leaves

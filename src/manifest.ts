@@ -80,7 +80,10 @@ export function collectIssues(raw: unknown): string[] {
   if (m.skills !== undefined && typeof m.skills !== "string" && !isStringArray(m.skills)) {
     issues.push("skills must be a string or an array of strings");
   }
-  for (const key of ["agents", "commands", "apps", "hooks", "mcp", "homepage", "changelog", "license", "category"]) {
+  if (m.mcp !== undefined) {
+    issues.push("mcp is not supported; use mcpServers");
+  }
+  for (const key of ["agents", "commands", "apps", "hooks", "mcpServers", "homepage", "changelog", "license", "category"]) {
     if (m[key] !== undefined && typeof m[key] !== "string") {
       issues.push(`${key} must be a string`);
     }

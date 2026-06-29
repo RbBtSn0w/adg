@@ -54,6 +54,21 @@ export function marketplacePath(pluginsDir: string): string {
   return join(pluginsDir, MARKETPLACE_FILENAME);
 }
 
+/** True when `pluginsDir` has the canonical `<root>/.agents/plugins` shape. */
+export function isCanonicalPluginsDir(pluginsDir: string): boolean {
+  return basename(pluginsDir) === "plugins" && basename(dirname(pluginsDir)) === ".agents";
+}
+
+/**
+ * Resolve the marketplace root Codex expects for a local marketplace source.
+ * For `<root>/.agents/plugins`, Codex's source root is `<root>`; for explicit
+ * `--dir` stores there is no `.agents/` project root, so the store itself is the
+ * root and source paths are relative to it.
+ */
+export function codexMarketplaceRoot(pluginsDir: string): string {
+  return isCanonicalPluginsDir(pluginsDir) ? dirname(dirname(pluginsDir)) : pluginsDir;
+}
+
 /**
  * Make a filesystem-safe single path segment out of a git URL by replacing the
  * scheme/host/path separators with `__` and dropping a trailing `.git`.
@@ -122,8 +137,6 @@ export function installedPluginDir(pluginsDir: string, name: string, origin: Plu
  * leaking parent-directory names from a fixed two-levels-up assumption.
  */
 export function marketplaceSourcePath(pluginsDir: string, dest: string): string {
-  const isCanonical =
-    basename(pluginsDir) === "plugins" && basename(dirname(pluginsDir)) === ".agents";
-  const root = isCanonical ? dirname(dirname(pluginsDir)) : pluginsDir;
+  const root = codexMarketplaceRoot(pluginsDir);
   return `./${relative(root, dest).split("\\").join("/")}`;
 }

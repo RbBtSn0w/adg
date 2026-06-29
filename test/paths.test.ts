@@ -2,8 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-
-import { globalPluginsDir, projectPluginsDir, marketplaceSourcePath } from "../src/paths.ts";
+import { codexMarketplaceRoot, globalPluginsDir, projectPluginsDir, marketplaceSourcePath } from "../src/paths.ts";
 import { emptyLock, upsertEntry } from "../src/lock.ts";
 import { tmp } from "./helpers.ts";
 
@@ -11,6 +10,11 @@ test("marketplaceSourcePath is relative to the marketplace.json grandparent (cod
   const pdir = "/root/.agents/plugins";
   assert.equal(marketplaceSourcePath(pdir, "/root/.agents/plugins/foo"), "./.agents/plugins/foo");
   assert.equal(marketplaceSourcePath(pdir, "/root/.agents/plugins/owner__repo/bar"), "./.agents/plugins/owner__repo/bar");
+});
+
+test("codexMarketplaceRoot resolves the project root for canonical .agents/plugins stores", () => {
+  assert.equal(codexMarketplaceRoot("/repo/.agents/plugins"), "/repo");
+  assert.equal(codexMarketplaceRoot("/repo/custom-store"), "/repo/custom-store");
 });
 
 test("marketplaceSourcePath is relative to a non-canonical store dir (explicit --dir)", () => {

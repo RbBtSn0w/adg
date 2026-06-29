@@ -10,8 +10,9 @@ import { toCodexManifest } from "../src/adapters/codex.ts";
 import { importSkills } from "../src/commands/import.ts";
 import { addPlugins, installPlugin } from "../src/commands/install.ts";
 import { linkPlugins } from "../src/commands/link.ts";
-import { writeClaudeCatalog, type Agent, type AgentContext, type AgentSyncResult } from "../src/agents/index.ts";
+import { claudeMarketplaceName, codexMarketplaceName, writeClaudeCatalog, writeCodexMarketplaceName, type Agent, type AgentContext, type AgentSyncResult } from "../src/agents/index.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { globalPluginsDir } from "../src/paths.ts";
 
 /** A fake agent that records activation calls (keeps tests off the real CLIs). */
 function fakeAgent(id: string, calls: AgentContext[]): Agent {
@@ -60,6 +61,14 @@ test("fromNativeManifest maps codex manifest to ADG", () => {
   assert.deepEqual(adg.author, { name: "ADG" });
   // adapters is no longer part of the DSL; reverse-adapt must not emit it.
   assert.ok(!("adapters" in adg));
+});
+
+test("fromNativeManifest maps native MCP fields to ADG mcpServers", () => {
+  const adg = fromNativeManifest(
+    { name: "mcpkit", version: "1.0.0", description: "MCP.", skills: "./skills/", mcpServers: "./.mcp.json" },
+    "codex",
+  );
+  assert.equal(adg.mcpServers, "./.mcp.json");
 });
 
 test("fromNativeManifest canonicalizes Windows-style codex skill ids", () => {
@@ -144,6 +153,28 @@ test("claude skills-root round-trips through ADG to both runtimes", () => {
   assert.equal(claude.skills, "./skills/");
   const codex = toCodexManifest(dir, adg).manifest;
   assert.equal(codex.skills, "./skills/");
+  rmSync(dir, { recursive: true });
+});
+
+test("mcp projects to each runtime's native manifest field", () => {
+  const dir = tmp();
+  seedSkills(dir, ["one"]);
+  const adg = {
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "mcpkit",
+    version: "1.0.0",
+    description: "MCP.",
+    skills: "./skills/",
+    mcpServers: "./.mcp.json",
+  } as const;
+
+  const claude = toAnthropicManifest(dir, adg).manifest;
+  assert.equal(claude.mcpServers, "./.mcp.json");
+  assert.equal(claude.mcp, undefined);
+
+  const codex = toCodexManifest(dir, adg).manifest;
+  assert.equal(codex.mcpServers, "./.mcp.json");
+  assert.equal(codex.mcp, undefined);
   rmSync(dir, { recursive: true });
 });
 
@@ -239,4 +270,51 @@ test("writeClaudeCatalog lists installed plugins with relative sources", () => {
   assert.equal(catalog.plugins[0].name, "demo");
   assert.equal(catalog.plugins[0].source, "./demo");
   rmSync(work, { recursive: true });
+});
+
+test("writeClaudeCatalog defaults project stores to a store-scoped marketplace name", () => {
+  const work = tmp();
+  const store = join(work, "project", ".agents", "plugins");
+  seedInstalled(store);
+  const { file, name } = writeClaudeCatalog(store);
+  const catalog = JSON.parse(readFileSync(file, "utf8"));
+
+  assert.match(name, /^adg-[0-9a-f]{8}$/);
+  assert.equal(catalog.name, name);
+  assert.equal(claudeMarketplaceName(store), name);
+  rmSync(work, { recursive: true });
+});
+
+test("claudeMarketplaceName preserves the historical global marketplace name", () => {
+  assert.equal(claudeMarketplaceName(globalPluginsDir()), "adg");
+});
+
+test("codex marketplace naming preserves global and scopes project stores", () => {
+  const work = tmp();
+  try {
+    const store = join(work, "project", ".agents", "plugins");
+    assert.equal(codexMarketplaceName(globalPluginsDir()), "plugins");
+    assert.match(codexMarketplaceName(store), /^adg-[0-9a-f]{8}$/);
+  } finally {
+    rmSync(work, { recursive: true });
+  }
+});
+
+test("writeCodexMarketplaceName rewrites project marketplace exports to the scoped name", () => {
+  const work = tmp();
+  try {
+    const store = join(work, "project", ".agents", "plugins");
+    seedInstalled(store);
+    const before = JSON.parse(readFileSync(join(store, "marketplace.json"), "utf8"));
+    assert.equal(before.name, "plugins");
+
+    const name = writeCodexMarketplaceName(store);
+    const after = JSON.parse(readFileSync(join(store, "marketplace.json"), "utf8"));
+
+    assert.match(name, /^adg-[0-9a-f]{8}$/);
+    assert.equal(after.name, name);
+    assert.equal(after.plugins[0].source.path, "./.agents/plugins/demo");
+  } finally {
+    rmSync(work, { recursive: true });
+  }
 });

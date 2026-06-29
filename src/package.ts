@@ -1,4 +1,5 @@
 import type { AdgManifest } from "./types.ts";
+import { mcpConfigPath } from "./mcp.ts";
 
 /**
  * Manifest-driven packaging allowlist.
@@ -14,7 +15,11 @@ import type { AdgManifest } from "./types.ts";
 /** Top-level metadata files always shipped with a plugin, matched case-insensitively. */
 const META_RE = /^(README|LICEN[CS]E|CHANGELOG|NOTICE)(\..+)?$/i;
 
-/** Generated runtime projections — shipped, but excluded from the content hash. */
+/**
+ * Generated runtime projections — shipped, but excluded from the content hash.
+ * Antigravity projects its manifest and hooks config at the plugin root, while
+ * its generated hook protocol runner lives under `.antigravity-plugin`.
+ */
 export const PROJECTION_DIRS = [".claude-plugin", ".codex-plugin", ".antigravity-plugin"];
 
 /** Extract the first path segment of a manifest component value (e.g. "./skills/" -> "skills"). */
@@ -35,7 +40,7 @@ export function packagedRoots(manifest: AdgManifest): Set<string> {
     manifest.skills,
     manifest.agents,
     manifest.commands,
-    manifest.mcp,
+    mcpConfigPath(manifest),
     manifest.hooks,
     manifest.apps,
   ];

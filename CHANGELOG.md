@@ -1,3 +1,62 @@
+## [0.4.0-beta.9](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.8...0.4.0-beta.9) (2026-06-29)
+
+### Added
+
+* **codex:** preserve agent query failures and recovery commands ([#40](https://github.com/RbBtSn0w/adg/issues/40)) ([5565068](https://github.com/RbBtSn0w/adg/commit/5565068eed94f3cdb869598342ff321853919d5d))
+
+## [0.4.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.7...0.4.0-beta.8) (2026-06-27)
+
+### Added
+
+* **antigravity:** project plugins directly on disk without agy CLI ([#39](https://github.com/RbBtSn0w/adg/issues/39)) ([8886554](https://github.com/RbBtSn0w/adg/commit/8886554be8834447d08a2694eeec4eaab90e8f80))
+
+## [0.4.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.6...0.4.0-beta.7) (2026-06-26)
+
+### Added
+
+* add --json flag to plugins list and status commands ([#38](https://github.com/RbBtSn0w/adg/issues/38)) ([6707415](https://github.com/RbBtSn0w/adg/commit/6707415e81ea44a57c0368e9b296342c663e2176))
+
+## [0.4.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.5...0.4.0-beta.6) (2026-06-26)
+
+### Added
+
+* adopt canonical mcpServers manifest field and deprecate mcp ([#35](https://github.com/RbBtSn0w/adg/issues/35)) ([9a4d6a4](https://github.com/RbBtSn0w/adg/commit/9a4d6a4891e5af684fc5f3b473add6075f7f3882))
+
+## [0.4.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.4...0.4.0-beta.5) (2026-06-26)
+
+### Changed
+
+* **hooks:** retire adg.hooks/v1 DSL; converge on Claude's hook format ([#34](https://github.com/RbBtSn0w/adg/issues/34)) ([1997041](https://github.com/RbBtSn0w/adg/commit/19970418d6ffe6616f05f0cd214ba98bd2e4f331)), closes [#32](https://github.com/RbBtSn0w/adg/issues/32)
+
+## [0.4.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.3...0.4.0-beta.4) (2026-06-25)
+
+### Added
+
+* **hooks:** cross-agent hooks compatibility + universal hooks DSL ([#33](https://github.com/RbBtSn0w/adg/issues/33)) ([8c0d1d1](https://github.com/RbBtSn0w/adg/commit/8c0d1d1c1e5fa50154f55a390195106281a0aa3b))
+
+## [0.4.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.2...0.4.0-beta.3) (2026-06-25)
+
+### Added
+
+* **plugins:** guide scope for mutating verbs and guard the home==global trap ([#31](https://github.com/RbBtSn0w/adg/issues/31)) ([433d95b](https://github.com/RbBtSn0w/adg/commit/433d95b7fbfc98d05606cc9e4ec11d2ba6df8868))
+
+## [0.4.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.1...0.4.0-beta.2) (2026-06-25)
+
+### Fixed
+
+* **release:** add release rules for refactor type to trigger patch releases ([973ccda](https://github.com/RbBtSn0w/adg/commit/973ccda44369d456c65249b22a1f1ac23c1f18fc))
+
+### Changed
+
+* decompose bin/adg.ts, memoize CLI probe, dedup agent skips, alias marketplace upgrade ([#26](https://github.com/RbBtSn0w/adg/issues/26)) ([#29](https://github.com/RbBtSn0w/adg/issues/29)) ([a93f643](https://github.com/RbBtSn0w/adg/commit/a93f6431793e1c546f396660eeb776adb007889a))
+* remove asc and github-cr plugin files and update .gitignore ([e3b0a7a](https://github.com/RbBtSn0w/adg/commit/e3b0a7a78a75ce5ced17439a73c4b70c09705a3c))
+
+## [0.4.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.3.0...0.4.0-beta.1) (2026-06-23)
+
+### Added
+
+* **plugins:** add unlink/sync/status verbs and fix antigravity residual ([#27](https://github.com/RbBtSn0w/adg/issues/27)) ([c47e598](https://github.com/RbBtSn0w/adg/commit/c47e5984fef2c78cf4eeef5eab2612aa5bf899b2))
+
 ## [0.3.0](https://github.com/RbBtSn0w/adg/compare/0.2.1...0.3.0) (2026-06-22)
 
 ### Added

@@ -34,3 +34,4 @@ dist/
 
 # Local Claude Code workspace settings (per-machine, not shared).
 /.claude/
+plugins/

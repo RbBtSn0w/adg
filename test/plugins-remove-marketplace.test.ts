@@ -9,7 +9,7 @@ import { addPlugins } from "../src/commands/install.ts";
 import type { GitRunner } from "../src/sources.ts";
 import { removePlugin } from "../src/commands/remove.ts";
 import { updateLock } from "../src/commands/update.ts";
-import { marketplaceList, marketplaceRemove, marketplaceUpgrade } from "../src/commands/marketplace.ts";
+import { marketplaceList, marketplaceRemove, updatePlugins } from "../src/commands/marketplace.ts";
 import type { Agent } from "../src/agents/index.ts";
 import { readLock } from "../src/lock.ts";
 import { readMarketplace } from "../src/marketplace.ts";
@@ -135,6 +135,119 @@ test("add (remote, injected clone) installs a native market with --all", async (
     const pluginsDir = join(root, "pdir");
     await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
     assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("remote add --plugin reconciles the store down from a previous --all install", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
+
+    const narrowed = await addPlugins({ spec: "acme/market", pluginsDir, plugins: ["sales"], targets: ["codex"], gitRunner });
+    assert.deepEqual(narrowed.removed, ["finance"]);
+    assert.deepEqual(lockNames(pluginsDir), ["sales"]);
+
+    const switched = await addPlugins({ spec: "acme/market", pluginsDir, plugins: ["finance"], targets: ["codex"], gitRunner });
+    assert.deepEqual(switched.removed, ["sales"]);
+    assert.deepEqual(lockNames(pluginsDir), ["finance"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("remote interactive selection reconciles the store to the selected subset", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    const res = await addPlugins({
+      spec: "acme/market",
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      selectPlugins: (choices) => choices.filter((c) => c.name === "finance").map((c) => c.name),
+    });
+
+    assert.deepEqual(res.removed, ["sales"]);
+    assert.deepEqual(lockNames(pluginsDir), ["finance"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("remote --path install does not prune sibling plugins from the same repo", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    const res = await addPlugins({ spec: "acme/market", pluginsDir, path: "sales", targets: ["codex"], gitRunner });
+
+    assert.deepEqual(res.removed, []);
+    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("remote subset reconcile deactivates removed plugins from every mapped agent", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    const calls: { id: string; op: "activate" | "refresh" | "deactivate"; plugins: string[] }[] = [];
+    const fake = (id: string): Agent => ({
+      id,
+      displayName: id,
+      adaptTarget: "codex",
+      detect: () => true,
+      available: () => true,
+      activate: (ctx) => {
+        calls.push({ id, op: "activate", plugins: ctx.plugins });
+        return { agent: id, affected: ctx.plugins, skipped: false };
+      },
+      refresh: (ctx) => {
+        calls.push({ id, op: "refresh", plugins: ctx.plugins });
+        return { agent: id, affected: ctx.plugins, skipped: false };
+      },
+      deactivate: (ctx) => {
+        calls.push({ id, op: "deactivate", plugins: ctx.plugins });
+        return { agent: id, affected: ctx.plugins, skipped: false };
+      },
+    });
+    const codex = fake("codex");
+    const allAgents = [fake("claude"), codex, fake("antigravity")];
+
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner, activate: true, agents: [codex], deactivationAgents: allAgents });
+    calls.length = 0;
+
+    await addPlugins({ spec: "acme/market", pluginsDir, plugins: ["sales"], targets: ["codex"], gitRunner, activate: true, agents: [codex], deactivationAgents: allAgents });
+
+    assert.deepEqual(
+      calls.filter((c) => c.op === "deactivate").map((c) => [c.id, c.plugins]),
+      [["claude", ["finance"]], ["codex", ["finance"]], ["antigravity", ["finance"]]],
+    );
+    assert.deepEqual(
+      calls.filter((c) => c.op === "refresh").map((c) => [c.id, c.plugins]),
+      [["codex", ["sales"]]],
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -291,29 +404,6 @@ test("marketplace list groups installed plugins by source", async () => {
   }
 });
 
-test("marketplace upgrade refreshes installed and reports newly available", async () => {
-  const root = scratch();
-  try {
-    const remote = join(root, "remote");
-    writeNativeMarket(remote, ["sales", "finance", "ops"]);
-    const pluginsDir = join(root, "pdir");
-    const gitRunner = fakeClone(remote);
-    // Install only two of the three the source offers.
-    await addPlugins({ spec: "acme/market", pluginsDir, plugins: ["sales", "finance"], targets: ["codex"], gitRunner });
-
-    const [res] = await marketplaceUpgrade({ pluginsDir, source: "acme/market", targets: ["codex"], gitRunner });
-    assert.deepEqual(res!.updated.map((u) => u.name).sort(), ["finance", "sales"]);
-    assert.deepEqual(res!.available, ["ops"], "the uninstalled plugin is surfaced");
-    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"], "default upgrade does not install new ones");
-
-    // --all also installs what's newly available.
-    await marketplaceUpgrade({ pluginsDir, source: "acme/market", all: true, targets: ["codex"], gitRunner });
-    assert.deepEqual(lockNames(pluginsDir), ["finance", "ops", "sales"]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("marketplace remove uninstalls every plugin from a source", async () => {
   const root = scratch();
   try {
@@ -331,7 +421,9 @@ test("marketplace remove uninstalls every plugin from a source", async () => {
   }
 });
 
-test("marketplace upgrade rejects a local source and unknown source", async () => {
+// `marketplace upgrade` is now a thin alias for `updatePlugins`; assert the
+// named-source guards on `updatePlugins` directly (the path the alias reaches).
+test("update rejects a local source and unknown source", async () => {
   const root = scratch();
   try {
     const src = join(root, "src");
@@ -342,10 +434,10 @@ test("marketplace upgrade rejects a local source and unknown source", async () =
     // alpha installed from a local path → grouped under "(local)", not re-syncable.
     assert.equal(marketplaceList({ pluginsDir })[0]!.remote, false);
     await assert.rejects(
-      () => marketplaceUpgrade({ pluginsDir, source: "(local)" }),
+      () => updatePlugins({ pluginsDir, source: "(local)" }),
       /local .*cannot be re-synced/,
     );
-    await assert.rejects(() => marketplaceUpgrade({ pluginsDir, source: "nope/repo" }), /no installed source/);
+    await assert.rejects(() => updatePlugins({ pluginsDir, source: "nope/repo" }), /no installed source/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

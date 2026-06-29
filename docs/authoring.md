@@ -35,7 +35,7 @@ A finished plugin on disk — **`.agents/` only**:
 my-plugin/
 ├── .agents/.plugin.json          # ← source of truth (you edit this)
 ├── skills/<name>/SKILL.md        # payload
-├── commands/  agents/  mcp/      # payload (only if declared!)
+├── commands/  agents/  .mcp.json # payload (only if declared!)
 └── README.md  LICENSE  CHANGELOG
 ```
 
@@ -82,7 +82,7 @@ authoring artifact:
   "agents":   "./agents/",                     // string (dir)
   "hooks":    "./hooks/",                      // string (dir)
   "apps":     "./apps/",                       // string (dir)
-  "mcp":      "./mcp/.mcp.json",               // string (file)
+  "mcpServers": "./.mcp.json",                // string (file)
 
   "dependencies": [{ "name": "github-cr", "version": "^0.2.0" }],
   "strict": true,                              // default true (see Skills)
@@ -114,7 +114,7 @@ authoring artifact:
 | `agents` | string | | Directory of sub-agent `.md` files. |
 | `hooks` | string | | Directory of lifecycle hooks. |
 | `apps` | string | | Directory of third-party app integration config. |
-| `mcp` | string | | Path to an MCP config file (e.g. `./mcp/.mcp.json`). |
+| `mcpServers` | string | | Path to an MCP config file (e.g. `./.mcp.json`). |
 | `dependencies` | `[{ name, version }]` | | Other plugins required; `version` is a semver range. |
 | `strict` | boolean | | Default `true`. See **Skills**. |
 | `homepage`, `changelog` | string | | |
@@ -152,12 +152,68 @@ Two ways to declare them:
 
 - **commands** — `"./commands/"`, a dir of slash-command markdown files.
 - **agents** — `"./agents/"`, a dir of sub-agent definition `.md` files.
-- **mcp** — `"./mcp/.mcp.json"`, an MCP server config file (points at a *file*,
-  not a dir).
-- **hooks**, **apps** — directories, same pattern.
+- **mcpServers** — `"./.mcp.json"`, an MCP server config file (points at a *file*,
+  not a dir). ADG keeps that pointer for Claude and Codex; Antigravity instead
+  materializes the referenced file as the required sibling `mcp_config.json`.
+- **hooks**, **apps** — directories, same pattern. For hooks, see **Hooks**
+  below — agents differ on the hook config format, so ADG can compile a single
+  universal definition into each agent's native file.
 
 Declare only what you ship. Omit a field and that component is absent from both
 the runtime projections and the installed package.
+
+---
+
+## Hooks
+
+ADG adopts Claude's hook schema as its canonical source instead of defining a
+fourth hook DSL. Codex consumes that structure directly, while Antigravity has a
+different root filename, schema, event model, and JSON I/O contract. ADG routes
+Claude/Codex files and mechanically projects the supported subset for
+Antigravity. (Rationale and the unify-vs-adopt decision rule:
+[docs/hooks-strategy.md](hooks-strategy.md).)
+
+- **Author** `hooks/hooks.json` in Claude's hook format (see the
+  [Claude hooks reference](https://code.claude.com/docs/en/hooks)), using
+  `${CLAUDE_PLUGIN_ROOT}` for the plugin root.
+- **Claude** auto-loads `hooks/hooks.json`; ADG omits the manifest `hooks` field so
+  the load isn't duplicated.
+- **Codex** consumes the same file: ADG references it from `.codex-plugin/plugin.json`.
+  Need genuinely different Codex behavior? Ship a `hooks/hooks-codex.json` and ADG
+  references that for Codex instead (per-agent override; Claude still uses
+  `hooks/hooks.json`).
+- **Antigravity** requires `hooks.json` at the plugin root. ADG generates that
+  target file from the canonical Claude definition and bridges supported command
+  output into Antigravity's JSON protocol. For behavior that cannot be expressed
+  mechanically, ship native Antigravity DSL as `hooks/hooks-antigravity.json`;
+  ADG validates it, then copies it to the required root filename without
+  rewriting it. Invalid canonical or native input leaves the last-known-good
+  generated projection in place.
+- **Lint** — at `adapt`/install ADG warns when your hooks use an event a target
+  cannot fire or map. Unsupported events/handlers are omitted from the generated
+  Antigravity file, but warnings do not abort synchronization.
+
+The first Antigravity mapping set covers `SessionStart` (startup only),
+`PreToolUse`, `PostToolUse`, and `Stop`. Tool matcher aliases are translated only
+when they are deterministic; use the native override for target-specific tools,
+asynchronous handlers, or output fields that have no Antigravity equivalent.
+At runtime, an unsupported control output fails explicitly rather than being
+silently weakened.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start" }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ---
 
@@ -304,8 +360,9 @@ files.
 
 1. `.agents/.plugin.json` exists and is valid JSON;
 2. structural validity (required fields, kebab `name`, semver `version`, types);
-3. **every declared path exists** (`agents`/`commands`/`apps`/`hooks`/`mcp` dirs
-   or files; the `skills` root, or each explicit skill path).
+3. **every declared path exists** (`agents`/`commands`/`apps`/`hooks` dirs
+   or files; the `mcpServers` file; the `skills` root, or each explicit skill
+   path).
 
 Typical failures:
 
@@ -342,8 +399,11 @@ here, at consumption time:
 └── .claude-plugin/marketplace.json  # Claude-facing discovery export
 ```
 
-The runtimes (Claude, Codex) discover the plugin through their respective
-`marketplace.json`; you do not need to configure them by hand.
+After `add`, run `link` or `sync` for the runtimes that should see the plugin.
+Claude keeps its own registry/cache, so local directory-source plugins are not
+fully visible there until ADG links or syncs them. See
+[local-plugin-registration.md](local-plugin-registration.md) for the supported
+integrator flow and the Claude registration boundary.
 
 ### Legacy note
 

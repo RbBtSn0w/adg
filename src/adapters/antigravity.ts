@@ -1,26 +1,43 @@
-import { join } from "node:path";
+import { cpSync, existsSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
+import { isExposed } from "../components.ts";
+import { mcpConfigPath } from "../mcp.ts";
 import type { AdapterResult } from "./index.ts";
 
-/** Projection subdirectory that holds the self-contained agy plugin root. */
-export const ANTIGRAVITY_PROJECTION_DIR = ".antigravity-plugin";
+export const ANTIGRAVITY_MCP_CONFIG = "mcp_config.json";
 
 /**
  * Generate an Antigravity (`agy`) plugin.json from an ADG manifest.
  *
- * Antigravity's manifest is minimal: it reads only `name` from a `plugin.json`
- * and discovers components by convention (sibling `skills/`, `agents/`,
- * `commands/`, `hooks/` directories plus a `mcp_config.json`) — all resolved
- * relative to the directory handed to `agy plugin install`, with no manifest
- * path indirection. We therefore project a self-contained agy plugin root under
- * `.antigravity-plugin/`: this pure transform emits its `plugin.json`, while the
- * agent materializes the rest (mcp_config.json + symlinked component dirs), so a
- * partial-install `selection` is not expressible for this target.
+ * Antigravity discovers a plugin by scanning a directory for a root `plugin.json`
+ * plus sibling component dirs and `mcp_config.json`, so the manifest is emitted
+ * at the plugin folder root and contains only the plugin name.
  */
 export function toAntigravityManifest(
   _pluginDir: string,
   manifest: AdgManifest,
   _selection?: PluginSelection,
 ): AdapterResult {
-  return { defaultPath: join(ANTIGRAVITY_PROJECTION_DIR, "plugin.json"), manifest: { name: manifest.name } };
+  return { defaultPath: "plugin.json", manifest: { name: manifest.name } };
+}
+
+/** Materialize ADG's MCP pointer under Antigravity's required conventional name. */
+export function writeAntigravityMcpConfig(
+  pluginDir: string,
+  manifest: AdgManifest,
+  selection?: PluginSelection,
+): void {
+  const target = join(pluginDir, ANTIGRAVITY_MCP_CONFIG);
+  const mcp = mcpConfigPath(manifest);
+  const source = mcp ? resolve(pluginDir, mcp) : undefined;
+
+  // An authored mcp_config.json is already the canonical payload, not a
+  // generated projection. Never remove or copy it onto itself.
+  if (source === resolve(target)) return;
+
+  rmSync(target, { force: true });
+  if (source && isExposed(selection, "mcp") && existsSync(source)) {
+    cpSync(source, target);
+  }
 }
