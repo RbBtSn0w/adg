@@ -32,7 +32,7 @@ export interface AgentListFailure {
 export type AgentListResult = string[] | AgentListFailure | undefined;
 
 export function isAgentListFailure(result: AgentListResult): result is AgentListFailure {
-  return result !== undefined && !Array.isArray(result);
+  return result !== undefined && result !== null && !Array.isArray(result);
 }
 
 /**
