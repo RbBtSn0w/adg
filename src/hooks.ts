@@ -5,25 +5,23 @@ import { resolveCodexHooksFile } from "./adapters/codex.ts";
 /**
  * Hooks linting over the de-facto standard format.
  *
- * Agent hook formats have converged on Claude's: a plugin ships a single
- * `hooks/hooks.json` in Claude's native shape (using `${CLAUDE_PLUGIN_ROOT}`),
- * which Claude auto-loads and Codex consumes verbatim (it accepts the same
- * structure and `${CLAUDE_PLUGIN_ROOT}`). ADG does not transform hooks — the
- * adapters only route each agent's manifest to the right file, and an author can
- * ship a `hooks/hooks-codex.json` to override Codex.
+ * A plugin ships `hooks/hooks.json` in Claude's native shape (using
+ * `${CLAUDE_PLUGIN_ROOT}`). Claude auto-loads it and Codex can consume it
+ * verbatim; an author can ship `hooks/hooks-codex.json` to override Codex.
+ * Antigravity diverges in file location, schema, and runtime I/O, so its adapter
+ * projects supported canonical events into a root `hooks.json`. A native
+ * `hooks/hooks-antigravity.json` bypasses that translation.
  *
- * The one cross-agent gap ADG surfaces is *event support*: an event exists in
- * Claude but not Codex (e.g. `UserPromptExpansion`), so a hook on it silently
- * never fires there. `checkHookEvents` warns about that at adapt/install time.
+ * `checkHookEvents` surfaces events that a selected target cannot fire or map,
+ * rather than letting them become silent no-ops at adapt/install time.
  */
 
-export type HookTarget = "claude" | "codex";
+export type HookTarget = "claude" | "codex" | "antigravity";
 
 /**
- * Hook events each target fires, from the official docs (Claude
- * code.claude.com/docs/en/hooks, Codex developers.openai.com/codex/hooks). Used
- * only to warn — never to drop — so an event these lists haven't caught up with
- * is reported as unknown rather than hidden. Codex is a subset of Claude's set.
+ * Canonical Claude events each target can consume or mechanically map, from the
+ * official runtime docs. This table drives diagnostics; target adapters remain
+ * responsible for projection.
  */
 const SUPPORTED_EVENTS: Record<HookTarget, ReadonlySet<string>> = {
   claude: new Set([
@@ -43,6 +41,7 @@ const SUPPORTED_EVENTS: Record<HookTarget, ReadonlySet<string>> = {
     "PostToolUse", "PreCompact", "PostCompact", "UserPromptSubmit",
     "SubagentStop", "Stop",
   ]),
+  antigravity: new Set(["SessionStart", "PreToolUse", "PostToolUse", "Stop"]),
 };
 
 /** The hooks file `target` will actually load (plugin-relative), or undefined. */
@@ -50,6 +49,11 @@ function hooksFileForTarget(pluginDir: string, target: HookTarget): string | und
   // Codex references a file from its manifest (its own variant if shipped, else
   // the shared file) — reuse the adapter's resolution so the lint matches reality.
   if (target === "codex") return resolveCodexHooksFile(pluginDir, "./hooks/");
+  if (target === "antigravity") {
+    const native = join(pluginDir, "hooks", "hooks-antigravity.json");
+    if (existsSync(native)) return undefined; // Native DSL does not need Claude-event linting.
+    return existsSync(join(pluginDir, "hooks", "hooks.json")) ? "hooks/hooks.json" : undefined;
+  }
   // Claude auto-loads only the standard hooks/hooks.json.
   return existsSync(join(pluginDir, "hooks", "hooks.json")) ? "hooks/hooks.json" : undefined;
 }
@@ -66,19 +70,22 @@ function hookEventsOf(file: string): string[] {
 }
 
 /**
- * Warn when a plugin's hooks file declares an event the target agent can't fire,
- * so a no-op hook (e.g. a Claude-only `UserPromptExpansion` projected to Codex)
- * surfaces instead of silently doing nothing. Pure read-only lint — no transform.
+ * Warn when a canonical hook event cannot run on a target. This is read-only;
+ * Antigravity's actual translation lives in its target adapter.
  */
 export function checkHookEvents(pluginDir: string, targets: readonly string[]): string[] {
   const warnings: string[] = [];
   for (const t of targets) {
-    if (t !== "claude" && t !== "codex") continue;
+    if (t !== "claude" && t !== "codex" && t !== "antigravity") continue;
     const rel = hooksFileForTarget(pluginDir, t);
     if (!rel) continue;
     for (const event of hookEventsOf(join(pluginDir, rel))) {
       if (!SUPPORTED_EVENTS[t].has(event)) {
-        warnings.push(`hook event "${event}" is not a known ${t} hook event — ${t} will not fire it`);
+        warnings.push(
+          t === "antigravity"
+            ? `hook event "${event}" is not a supported antigravity hook mapping — antigravity will not fire it`
+            : `hook event "${event}" is not a known ${t} hook event — ${t} will not fire it`,
+        );
       }
     }
   }

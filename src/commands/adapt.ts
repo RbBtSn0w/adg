@@ -4,6 +4,7 @@ import { readManifest } from "../manifest.ts";
 import { writeJson } from "../fsutil.ts";
 import { checkHookEvents } from "../hooks.ts";
 import { writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
+import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
 import type { PluginSelection } from "../types.ts";
 
 export interface AdaptResult {
@@ -21,10 +22,9 @@ export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selecti
   const manifest = readManifest(pluginDir);
   const results: AdaptResult[] = [];
 
-  // Lint the plugin's hooks against each target's event support: a hook on an
-  // event a target can't fire (e.g. a Claude-only event projected to Codex) is a
-  // silent no-op otherwise. Read-only — ADG never transforms hooks.
-  for (const w of checkHookEvents(pluginDir, targets)) console.error(`hooks: ${w}`);
+  // Surface target event gaps before they become silent no-ops. Antigravity's
+  // adapter may add more mechanical-translation diagnostics below.
+  const hookWarnings = new Set(checkHookEvents(pluginDir, targets));
 
   for (const target of targets) {
     const adapter = ADAPTERS[target];
@@ -36,9 +36,14 @@ export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selecti
     const file = join(pluginDir, defaultPath);
 
     writeJson(file, out);
-    if (target === "antigravity") writeAntigravityMcpConfig(pluginDir, manifest, selection);
+    if (target === "antigravity") {
+      writeAntigravityMcpConfig(pluginDir, manifest, selection);
+      for (const warning of writeAntigravityHooks(pluginDir, manifest, selection)) hookWarnings.add(warning);
+    }
     results.push({ target, file });
   }
+
+  for (const warning of hookWarnings) console.error(`hooks: ${warning}`);
 
   return results;
 }

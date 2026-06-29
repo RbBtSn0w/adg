@@ -307,17 +307,26 @@ test("deactivate removes the projection so the plugin is no longer discovered", 
       version: "1.0.0",
       description: "Demo",
       skills: "./skills/",
+      hooks: "./hooks/",
       mcpServers: "./.mcp.json",
     });
     writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { demo: { command: "demo" } } }));
+    mkdirSync(join(dir, "hooks"));
+    writeFileSync(
+      join(dir, "hooks", "hooks.json"),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf '{}'" }] }] } }),
+    );
     withGemini(() => {
       antigravityAgent.activate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
       assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), ["demo"]);
       assert.ok(existsSync(join(dir, "mcp_config.json")));
+      assert.ok(existsSync(join(dir, "hooks.json")));
 
       antigravityAgent.deactivate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
       assert.ok(!existsSync(join(store, "demo", "plugin.json")));
       assert.ok(!existsSync(join(dir, "mcp_config.json")));
+      assert.ok(!existsSync(join(dir, "hooks.json")));
+      assert.ok(!existsSync(join(dir, ".antigravity-plugin", "hook-runner.mjs")));
       assert.deepEqual(antigravityAgent.listInstalled!({ pluginsDir: store, plugins: [], scope: "project" }), []);
     });
   } finally {

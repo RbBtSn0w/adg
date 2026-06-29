@@ -7,6 +7,7 @@ import { isExposed } from "../components.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { toAntigravityManifest, writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
+import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
 import { skippedResult } from "./base.ts";
 import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
@@ -138,6 +139,7 @@ export function ensureAntigravityRoot(dir: string, selection?: PluginSelection):
   const { manifest: pluginJson } = toAntigravityManifest(dir, manifest, selection);
   writeJson(join(dir, ANTIGRAVITY_MANIFEST), pluginJson);
   writeAntigravityMcpConfig(dir, manifest, selection);
+  writeAntigravityHooks(dir, manifest, selection);
 
   for (const field of CONVENTION_FIELDS) {
     const link = join(dir, field);
@@ -197,6 +199,7 @@ function removeProjection(scanDir: string, name: string, realDir?: string): void
     // The real store dir is known: drop the in-place manifest + convention aliases.
     rmSync(join(realDir, ANTIGRAVITY_MANIFEST), { force: true });
     writeAntigravityMcpConfig(realDir, readManifest(realDir), { components: [] });
+    writeAntigravityHooks(realDir, readManifest(realDir), { components: [] });
     for (const field of CONVENTION_FIELDS) rmIfSymlink(join(realDir, field));
     if (resolve(target) === resolve(realDir)) return; // in-place: target IS the store folder — never delete it
     // Aliased exposure we created (symlink, or a copy-fallback dir): safe to drop wholesale.

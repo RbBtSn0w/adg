@@ -166,11 +166,11 @@ the runtime projections and the installed package.
 
 ## Hooks
 
-Agent hook formats have **converged on Claude's**: Claude Code's hook schema is the
-de-facto standard, Codex consumes the same structure (and accepts
-`${CLAUDE_PLUGIN_ROOT}`), and Antigravity uses the same shape. So ADG does **not**
-define its own hook DSL — you author hooks once in **Claude's native format** and
-ADG only routes/lints them. (Rationale and the unify-vs-adopt decision rule:
+ADG adopts Claude's hook schema as its canonical source instead of defining a
+fourth hook DSL. Codex consumes that structure directly, while Antigravity has a
+different root filename, schema, event model, and JSON I/O contract. ADG routes
+Claude/Codex files and mechanically projects the supported subset for
+Antigravity. (Rationale and the unify-vs-adopt decision rule:
 [docs/hooks-strategy.md](hooks-strategy.md).)
 
 - **Author** `hooks/hooks.json` in Claude's hook format (see the
@@ -182,9 +182,23 @@ ADG only routes/lints them. (Rationale and the unify-vs-adopt decision rule:
   Need genuinely different Codex behavior? Ship a `hooks/hooks-codex.json` and ADG
   references that for Codex instead (per-agent override; Claude still uses
   `hooks/hooks.json`).
+- **Antigravity** requires `hooks.json` at the plugin root. ADG generates that
+  target file from the canonical Claude definition and bridges supported command
+  output into Antigravity's JSON protocol. For behavior that cannot be expressed
+  mechanically, ship native Antigravity DSL as `hooks/hooks-antigravity.json`;
+  ADG validates it, then copies it to the required root filename without
+  rewriting it. Invalid canonical or native input leaves the last-known-good
+  generated projection in place.
 - **Lint** — at `adapt`/install ADG warns when your hooks use an event a target
-  can't fire (e.g. `UserPromptExpansion` is Claude-only, so it never fires in Codex).
-  It only warns; it never rewrites your hooks.
+  cannot fire or map. Unsupported events/handlers are omitted from the generated
+  Antigravity file, but warnings do not abort synchronization.
+
+The first Antigravity mapping set covers `SessionStart` (startup only),
+`PreToolUse`, `PostToolUse`, and `Stop`. Tool matcher aliases are translated only
+when they are deterministic; use the native override for target-specific tools,
+asynchronous handlers, or output fields that have no Antigravity equivalent.
+At runtime, an unsupported control output fails explicitly rather than being
+silently weakened.
 
 ```json
 {
