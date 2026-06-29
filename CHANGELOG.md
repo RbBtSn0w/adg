@@ -1,3 +1,9 @@
+## [0.4.0-beta.9](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.8...0.4.0-beta.9) (2026-06-29)
+
+### Added
+
+* **codex:** preserve agent query failures and recovery commands ([#40](https://github.com/RbBtSn0w/adg/issues/40)) ([5565068](https://github.com/RbBtSn0w/adg/commit/5565068eed94f3cdb869598342ff321853919d5d))
+
 ## [0.4.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.4.0-beta.7...0.4.0-beta.8) (2026-06-27)
 
 ### Added
