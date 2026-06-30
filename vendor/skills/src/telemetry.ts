@@ -1,33 +1,37 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
-const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { Resource } from "@opentelemetry/resources";
+import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
+import opentelemetry, { type Tracer, propagation, ROOT_CONTEXT } from "@opentelemetry/api";
+
+const TELEMETRY_URL =
+  process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
+  "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
+const AUDIT_URL = "https://add-skill.vercel.sh/audit";
 
 interface InstallTelemetryData {
-  event: 'install';
+  event: "install";
   source: string;
   skills: string;
   agents: string;
-  global?: '1';
-  skillFiles?: string; // JSON stringified { skillName: relativePath }
-  /**
-   * Source type for different hosts:
-   * - 'github': GitHub repository (default, uses raw.githubusercontent.com)
-   * - 'raw': Direct URL to SKILL.md (generic raw URL)
-   * - Provider IDs like 'mintlify', 'huggingface', etc.
-   */
+  global?: "1";
+  skillFiles?: string;
   sourceType?: string;
 }
 
 interface RemoveTelemetryData {
-  event: 'remove';
+  event: "remove";
   source?: string;
   skills: string;
   agents: string;
-  global?: '1';
+  global?: "1";
   sourceType?: string;
 }
 
 interface UpdateTelemetryData {
-  event: 'update';
+  event: "update";
   scope?: string;
   skillCount: string;
   successCount: string;
@@ -35,20 +39,20 @@ interface UpdateTelemetryData {
 }
 
 interface FindTelemetryData {
-  event: 'find';
+  event: "find";
   query: string;
   resultCount: string;
-  interactive?: '1';
+  interactive?: "1";
 }
 
 interface SyncTelemetryData {
-  event: 'experimental_sync';
+  event: "experimental_sync";
   skillCount: string;
   successCount: string;
   agents: string;
 }
 
-type TelemetryData =
+export type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | UpdateTelemetryData
@@ -57,14 +61,8 @@ type TelemetryData =
 
 let cliVersion: string | null = null;
 let detectedAgentName: string | null = null;
-
-/**
- * Set the detected AI agent name for telemetry tracking.
- * Called once during agent detection, then included in all telemetry events.
- */
-export function setDetectedAgent(agentName: string | null): void {
-  detectedAgentName = agentName;
-}
+let provider: NodeTracerProvider | null = null;
+let activeTracer: Tracer | null = null;
 
 function isCI(): boolean {
   return !!(
@@ -83,14 +81,16 @@ function isEnabled(): boolean {
   return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
 }
 
+export function setDetectedAgent(agentName: string | null): void {
+  detectedAgentName = agentName;
+}
+
 export function setVersion(version: string): void {
   cliVersion = version;
 }
 
-// ─── Security audit data ───
-
 export interface PartnerAudit {
-  risk: 'safe' | 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+  risk: "safe" | "low" | "medium" | "high" | "critical" | "unknown";
   alerts?: number;
   score?: number;
   analyzedAt: string;
@@ -99,10 +99,6 @@ export interface PartnerAudit {
 export type SkillAuditData = Record<string, PartnerAudit>;
 export type AuditResponse = Record<string, SkillAuditData>;
 
-/**
- * Fetch security audit results for skills from the audit API.
- * Returns null on any error or timeout — never blocks installation.
- */
 export async function fetchAuditData(
   source: string,
   skillSlugs: string[],
@@ -113,7 +109,7 @@ export async function fetchAuditData(
   try {
     const params = new URLSearchParams({
       source,
-      skills: skillSlugs.join(','),
+      skills: skillSlugs.join(","),
     });
 
     const controller = new AbortController();
@@ -131,56 +127,61 @@ export async function fetchAuditData(
   }
 }
 
-// Pending telemetry promises — awaited before CLI exit so we don't lose data,
-// but never block the main workflow.
-const pendingTelemetry: Promise<void>[] = [];
+function getTracer(): Tracer {
+  if (!activeTracer) {
+    provider = new NodeTracerProvider({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: "adg-skills",
+      }),
+    });
+
+    const exporter = new OTLPTraceExporter({
+      url: TELEMETRY_URL,
+    });
+
+    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    provider.register();
+
+    activeTracer = opentelemetry.trace.getTracer("adg-skills");
+  }
+  return activeTracer;
+}
 
 export function track(data: TelemetryData): void {
   if (!isEnabled()) return;
 
   try {
-    const params = new URLSearchParams();
+    const tracer = getTracer();
+    const parentContext = propagation.extract(ROOT_CONTEXT, process.env);
+    const span = tracer.startSpan(`skills-${data.event}`, {}, parentContext);
 
-    // Add version
+    // Set common attributes
     if (cliVersion) {
-      params.set('v', cliVersion);
+      span.setAttribute("cli.version", cliVersion);
     }
-
-    // Add CI flag if running in CI
     if (isCI()) {
-      params.set('ci', '1');
+      span.setAttribute("ci", true);
     }
-
-    // Add detected AI agent name
     if (detectedAgentName) {
-      params.set('agent', detectedAgentName);
+      span.setAttribute("agent", detectedAgentName);
     }
 
-    // Add event data
+    // Set event attributes
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined && value !== null) {
-        params.set(key, String(value));
+        span.setAttribute(key, String(value));
       }
     }
 
-    // Fire and forget during the workflow, but track the promise so
-    // flushTelemetry() can await it before the process exits.
-    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`)
-      .catch(() => {})
-      .then(() => {});
-    pendingTelemetry.push(p);
+    span.end();
   } catch {
     // Silently fail - telemetry should never break the CLI
   }
 }
 
-/**
- * Wait for all in-flight telemetry requests to settle.
- * Called once at CLI exit so the process doesn't hang on open sockets
- * but also doesn't drop data by exiting too early.
- */
 export async function flushTelemetry(timeoutMs = 5000): Promise<void> {
-  if (pendingTelemetry.length === 0) return;
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
-  await Promise.race([Promise.all(pendingTelemetry), timeout]);
+  if (provider) {
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+    await Promise.race([provider.shutdown(), timeout]);
+  }
 }

@@ -1,0 +1,53 @@
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { Resource } from "@opentelemetry/resources";
+import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
+import opentelemetry, { type Tracer } from "@opentelemetry/api";
+
+const TELEMETRY_URL =
+  process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
+  "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
+
+function isEnabled(): boolean {
+  return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
+}
+
+let provider: NodeTracerProvider | null = null;
+let activeTracer: Tracer | null = null;
+
+export function getTracer(): Tracer {
+  if (!isEnabled()) {
+    return opentelemetry.trace.getTracer("adg-plugins-noop");
+  }
+
+  if (!activeTracer) {
+    provider = new NodeTracerProvider({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: "adg-plugins",
+      }),
+    });
+
+    const exporter = new OTLPTraceExporter({
+      url: TELEMETRY_URL,
+    });
+
+    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    provider.register();
+
+    activeTracer = opentelemetry.trace.getTracer("adg-plugins");
+  }
+
+  return activeTracer;
+}
+
+export async function shutdownTelemetry(): Promise<void> {
+  if (provider) {
+    try {
+      await provider.shutdown();
+    } catch {
+      // Silently fail - telemetry should never break CLI exit
+    }
+  }
+}
