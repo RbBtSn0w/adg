@@ -1,15 +1,17 @@
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { Resource } from "@opentelemetry/resources";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import opentelemetry, { type Tracer, propagation, ROOT_CONTEXT } from "@opentelemetry/api";
+import { readFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const TELEMETRY_URL =
   process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
   "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
-const AUDIT_URL = "https://add-skill.vercel.sh/audit";
 
 interface InstallTelemetryData {
   event: "install";
@@ -18,110 +20,80 @@ interface InstallTelemetryData {
   agents: string;
   global?: "1";
   skillFiles?: string;
-  sourceType?: string;
-}
-
-interface RemoveTelemetryData {
-  event: "remove";
-  source?: string;
-  skills: string;
-  agents: string;
-  global?: "1";
-  sourceType?: string;
 }
 
 interface UpdateTelemetryData {
   event: "update";
-  scope?: string;
-  skillCount: string;
-  successCount: string;
-  failCount: string;
+  successCount: number;
+  failCount: number;
+  checkedCount: number;
+  global?: "1";
 }
 
-interface FindTelemetryData {
-  event: "find";
-  query: string;
-  resultCount: string;
-  interactive?: "1";
+interface RemoveTelemetryData {
+  event: "remove";
+  skill: string;
+  global?: "1";
 }
 
-interface SyncTelemetryData {
-  event: "experimental_sync";
-  skillCount: string;
-  successCount: string;
-  agents: string;
-}
+type TelemetryData = InstallTelemetryData | UpdateTelemetryData | RemoveTelemetryData;
 
-export type TelemetryData =
-  | InstallTelemetryData
-  | RemoveTelemetryData
-  | UpdateTelemetryData
-  | FindTelemetryData
-  | SyncTelemetryData;
-
-let cliVersion: string | null = null;
-let detectedAgentName: string | null = null;
 let provider: NodeTracerProvider | null = null;
 let activeTracer: Tracer | null = null;
+let detectedAgentName: string | null = null;
 
-function isCI(): boolean {
-  return !!(
-    process.env.CI ||
-    process.env.GITHUB_ACTIONS ||
-    process.env.GITLAB_CI ||
-    process.env.CIRCLECI ||
-    process.env.TRAVIS ||
-    process.env.BUILDKITE ||
-    process.env.JENKINS_URL ||
-    process.env.TEAMCITY_VERSION
-  );
+export function setDetectedAgent(agentName: string | null): void {
+  detectedAgentName = agentName;
 }
 
 function isEnabled(): boolean {
   return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
 }
 
-export function setDetectedAgent(agentName: string | null): void {
-  detectedAgentName = agentName;
+function isCI(): boolean {
+  return (
+    process.env.CI === "true" ||
+    process.env.CI === "1" ||
+    process.env.GITHUB_ACTIONS === "true" ||
+    process.env.VERCEL === "1"
+  );
 }
 
-export function setVersion(version: string): void {
-  cliVersion = version;
+function getCliVersion(): string | null {
+  try {
+    const self = fileURLToPath(import.meta.url);
+    const here = dirname(self);
+    const up = self.endsWith(".ts") ? ".." : join("..", "..");
+    const pkgPath = join(here, up, "package.json");
+    if (!existsSync(pkgPath)) return null;
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.version;
+  } catch {
+    return null;
+  }
 }
 
-export interface PartnerAudit {
-  risk: "safe" | "low" | "medium" | "high" | "critical" | "unknown";
-  alerts?: number;
-  score?: number;
-  analyzedAt: string;
-}
+const cliVersion = getCliVersion();
 
-export type SkillAuditData = Record<string, PartnerAudit>;
-export type AuditResponse = Record<string, SkillAuditData>;
-
-export async function fetchAuditData(
-  source: string,
-  skillSlugs: string[],
-  timeoutMs = 3000
-): Promise<AuditResponse | null> {
-  if (skillSlugs.length === 0) return null;
+async function auditSkill(url: string, source: string): Promise<string | null> {
+  if (!isEnabled()) return null;
 
   try {
-    const params = new URLSearchParams({
-      source,
-      skills: skillSlugs.join(","),
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": `skills-cli/${cliVersion || "unknown"}`,
+      },
+      body: JSON.stringify({ source }),
     });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    if (!res.ok) {
+      return null;
+    }
 
-    const response = await fetch(`${AUDIT_URL}?${params.toString()}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) return null;
-    return (await response.json()) as AuditResponse;
+    const data = (await res.json()) as { warning?: string };
+    return data.warning || null;
   } catch {
     return null;
   }
@@ -129,17 +101,17 @@ export async function fetchAuditData(
 
 export function getTracer(): Tracer {
   if (!activeTracer) {
-    provider = new NodeTracerProvider({
-      resource: new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
-      }),
-    });
-
     const exporter = new OTLPTraceExporter({
       url: TELEMETRY_URL,
     });
 
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    provider = new NodeTracerProvider({
+      resource: resourceFromAttributes({
+        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
+      }),
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+
     provider.register();
 
     activeTracer = opentelemetry.trace.getTracer("adg");

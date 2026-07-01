@@ -1,7 +1,7 @@
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { Resource } from "@opentelemetry/resources";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import opentelemetry, { type Tracer } from "@opentelemetry/api";
 
@@ -23,17 +23,17 @@ export function getTracer(): Tracer {
   }
 
   if (!activeTracer) {
-    provider = new NodeTracerProvider({
-      resource: new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
-      }),
-    });
-
     const exporter = new OTLPTraceExporter({
       url: TELEMETRY_URL,
     });
 
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    provider = new NodeTracerProvider({
+      resource: resourceFromAttributes({
+        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
+      }),
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+
     provider.register();
 
     activeTracer = opentelemetry.trace.getTracer("adg");
