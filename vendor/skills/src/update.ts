@@ -17,10 +17,11 @@ import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './blob.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
-import { track } from './telemetry.ts';
+import { track, getTracer } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import { selfCliArgv } from './self-cli.ts';
 import type { AgentType } from './types.ts';
+import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -31,7 +32,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * our actual TS entry, run via Node's type-stripping (Node >= 22.6), exactly how
  * `adg skills` launches the CLI. See vendor/skills/PROVENANCE.md.
  */
-const SELF_CLI_ENTRY = join(__dirname, 'cli.ts');
+const SELF_CLI_ENTRY = existsSync(join(__dirname, '../../../bin/adg.ts'))
+  ? join(__dirname, '../../../bin/adg.ts')
+  : join(__dirname, '../../../dist/bin/adg.js');
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -511,15 +514,47 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    const result = spawnSync(
-      process.execPath,
-      selfCliArgv(cliEntry, ['add', installUrl, '-g', '-y']),
-      {
-        stdio: ['inherit', 'pipe', 'pipe'],
-        encoding: 'utf-8',
-        shell: process.platform === 'win32',
+    const tracer = getTracer();
+    const args = ['skills', 'add', installUrl, '-g', '-y'];
+    const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
+      try {
+        span.setAttribute("process.executable.name", "adg");
+        span.setAttribute("process.command_args", ["adg", ...args]);
+
+        const r = spawnSync(
+          process.execPath,
+          selfCliArgv(cliEntry, args),
+          {
+            stdio: ['inherit', 'pipe', 'pipe'],
+            encoding: 'utf-8',
+            shell: process.platform === 'win32',
+          }
+        );
+
+        if (r.pid !== undefined) span.setAttribute("process.pid", r.pid);
+        if (r.status !== null) {
+          span.setAttribute("process.exit.code", r.status);
+          if (r.status !== 0) {
+            span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: `Subprocess exited with status ${r.status}`,
+            });
+          }
+        } else if (r.error) {
+          span.setAttribute("process.exit.code", -1);
+          span.setAttribute("error.type", r.error.code || r.error.name || "SpawnError");
+          span.recordException(r.error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: r.error.message,
+          });
+        }
+        return r;
+      } finally {
+        span.end();
       }
-    );
+    });
 
     if (result.status === 0) {
       successCount++;
@@ -648,15 +683,47 @@ export async function updateProjectSkills(
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
-      const result = spawnSync(
-        process.execPath,
-        selfCliArgv(cliEntry, ['add', installUrl, '--skill', skill.name, '-y']),
-        {
-          stdio: ['inherit', 'pipe', 'pipe'],
-          encoding: 'utf-8',
-          shell: process.platform === 'win32',
+      const tracer = getTracer();
+      const args = ['skills', 'add', installUrl, '--skill', skill.name, '-y'];
+      const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
+        try {
+          span.setAttribute("process.executable.name", "adg");
+          span.setAttribute("process.command_args", ["adg", ...args]);
+
+          const r = spawnSync(
+            process.execPath,
+            selfCliArgv(cliEntry, args),
+            {
+              stdio: ['inherit', 'pipe', 'pipe'],
+              encoding: 'utf-8',
+              shell: process.platform === 'win32',
+            }
+          );
+
+          if (r.pid !== undefined) span.setAttribute("process.pid", r.pid);
+          if (r.status !== null) {
+            span.setAttribute("process.exit.code", r.status);
+            if (r.status !== 0) {
+              span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: `Subprocess exited with status ${r.status}`,
+              });
+            }
+          } else if (r.error) {
+            span.setAttribute("process.exit.code", -1);
+            span.setAttribute("error.type", r.error.code || r.error.name || "SpawnError");
+            span.recordException(r.error);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: r.error.message,
+            });
+          }
+          return r;
+        } finally {
+          span.end();
         }
-      );
+      });
 
       if (result.status === 0) {
         successCount++;
