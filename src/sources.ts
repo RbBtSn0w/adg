@@ -3,6 +3,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readManifest, findManifestFile } from "./manifest.ts";
 import type { PluginCandidate } from "./deps.ts";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { getTracer, sanitizeArgs } from "./telemetry.ts";
 
 export interface GitHubSource {
   kind: "github";
@@ -85,7 +87,32 @@ export function cloneGitHub(
 export type GitRunner = (args: string[]) => void;
 
 const defaultGitRunner: GitRunner = (args) => {
-  execFileSync("git", args, { stdio: "pipe" });
+  const tracer = getTracer();
+  return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
+    try {
+      span.setAttribute("process.executable.name", "git");
+      span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
+
+      execFileSync("git", args, { stdio: "pipe" });
+
+      span.setAttribute("process.exit.code", 0);
+    } catch (error: any) {
+      const exitCode = typeof error.status === "number" ? error.status : 1;
+      span.setAttribute("process.exit.code", exitCode);
+      if (typeof error.pid === "number") {
+        span.setAttribute("process.pid", error.pid);
+      }
+      span.setAttribute("error.type", error.code || error.name || `EXIT_CODE_${exitCode}`);
+      span.recordException(error as Error);
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: error.message,
+      });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
 };
 
 /**

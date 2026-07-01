@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import type { AgentId, AgentSyncResult } from "./types.ts";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { getTracer, sanitizeArgs } from "../telemetry.ts";
 
 /** Outcome of a CLI invocation: exit success plus combined stdout+stderr. */
 export interface RunResult {
@@ -49,16 +51,46 @@ export function makeCli(bin: string, opts: CliOptions): Cli {
   return {
     available: () => (probed ??= spawnSync(bin, opts.probeArgs, { stdio: "ignore" }).status === 0),
     run: (args) => {
-      const r = spawnSync(bin, args, { encoding: "utf8" });
-      // A launch failure (e.g. ENOENT for a missing binary, EACCES) leaves
-      // `status` null and `stderr` empty, exposing the cause only via `error`;
-      // treat that as a failure and keep its message instead of swallowing it.
-      const ok = r.status === 0 && !r.error;
-      if (!ok && opts.echoStderr) {
-        if (r.error) console.error(r.error.message);
-        else if (r.stderr) console.error(r.stderr.trim());
-      }
-      return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? r.error.message : ""}` };
+      const tracer = getTracer();
+      return tracer.startActiveSpan(bin, { kind: SpanKind.CLIENT }, (span) => {
+        try {
+          span.setAttribute("process.executable.name", bin);
+          span.setAttribute("process.command_args", sanitizeArgs([bin, ...args]));
+
+          const r = spawnSync(bin, args, { encoding: "utf8" });
+
+          if (r.pid !== undefined) {
+            span.setAttribute("process.pid", r.pid);
+          }
+          if (r.status !== null) {
+            span.setAttribute("process.exit.code", r.status);
+            if (r.status !== 0) {
+              span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: `Command exited with non-zero status ${r.status}`,
+              });
+            }
+          } else if (r.error) {
+            span.setAttribute("process.exit.code", -1);
+            span.setAttribute("error.type", ("code" in r.error ? String(r.error.code) : null) || r.error.name || "SpawnError");
+            span.recordException(r.error);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: r.error.message,
+            });
+          }
+
+          const ok = r.status === 0 && !r.error;
+          if (!ok && opts.echoStderr) {
+            if (r.error) console.error(r.error.message);
+            else if (r.stderr) console.error(r.stderr.trim());
+          }
+          return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? r.error.message : ""}` };
+        } finally {
+          span.end();
+        }
+      });
     },
   };
 }

@@ -7,8 +7,8 @@ import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
 import { TOP_USAGE, fail } from "../src/cli/index.ts";
 import { runPlugins } from "../src/cli/handlers.ts";
-import { getTracer, shutdownTelemetry } from "../src/telemetry.ts";
-import { SpanStatusCode, propagation, context } from "@opentelemetry/api";
+import { getTracer, shutdownTelemetry, sanitizeArgs } from "../src/telemetry.ts";
+import { SpanKind, SpanStatusCode, propagation, context } from "@opentelemetry/api";
 
 // ---------------------------------------------------------------------------
 // `adg` entry point: thin wire-up only.
@@ -39,7 +39,7 @@ export function skillsChildArgv(
   return [...execArgv, entry, ...args];
 }
 
-function runSkills(verb: string | undefined, rest: string[]): void {
+function runSkills(verb: string | undefined, rest: string[]): number {
   const self = fileURLToPath(import.meta.url);
   const here = dirname(self);
   // Resolve the vendored CLI with the same extension we ourselves run as: `.ts`
@@ -62,7 +62,7 @@ function runSkills(verb: string | undefined, rest: string[]): void {
       ...envCarrier,
     },
   });
-  process.exit(r.status ?? 1);
+  return r.status ?? 1;
 }
 
 /**
@@ -80,7 +80,7 @@ export function getVersion(): string {
   return pkg.version;
 }
 
-async function main(argv: string[]): Promise<void> {
+async function main(argv: string[]): Promise<number | void> {
   const [domain, verb, ...rest] = argv;
 
   // --version / -v at the root level: print version and exit.
@@ -99,8 +99,14 @@ async function main(argv: string[]): Promise<void> {
   }
 
   const tracer = getTracer();
-  return await tracer.startActiveSpan(`adg-${domain || "help"}`, async (span) => {
+  return await tracer.startActiveSpan("adg", { kind: SpanKind.INTERNAL }, async (span) => {
+    let status = 0;
     try {
+      span.setAttribute("process.executable.name", "adg");
+      span.setAttribute("process.executable.path", process.argv[1] || process.execPath);
+      span.setAttribute("process.pid", process.pid);
+      span.setAttribute("process.command_args", sanitizeArgs(["adg", ...argv]));
+
       // Check for an available update (reads local cache; schedules a background
       // network refresh when the cache is stale — the refresh uses an unreffed
       // socket so it cannot delay process exit).
@@ -115,18 +121,31 @@ async function main(argv: string[]): Promise<void> {
         case "plugin": // tolerated alias
           span.setAttribute("domain", "plugins");
           if (verb) span.setAttribute("verb", verb);
-          return await runPlugins(verb, rest);
+          await runPlugins(verb, rest);
+          break;
         case "skills":
         case "skill":
           span.setAttribute("domain", "skills");
           if (verb) span.setAttribute("verb", verb);
-          // runSkills calls process.exit, so we MUST shutdown telemetry here!
-          await shutdownTelemetry();
-          return runSkills(verb, rest);
+          status = runSkills(verb, rest);
+          break;
         default:
           fail(`unknown domain: ${domain} (expected \`plugins\` or \`skills\`)`);
       }
+
+      span.setAttribute("process.exit.code", status);
+      if (status !== 0) {
+        span.setAttribute("error.type", `EXIT_CODE_${status}`);
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: `CLI exited with non-zero status ${status}`,
+        });
+      }
+      return status;
     } catch (error) {
+      status = 1;
+      span.setAttribute("process.exit.code", status);
+      span.setAttribute("error.type", error instanceof Error ? error.name : typeof error);
       span.recordException(error as Error);
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -159,8 +178,9 @@ function isInvokedDirectly(): boolean {
 
 if (isInvokedDirectly()) {
   main(process.argv.slice(2))
-    .then(async () => {
+    .then(async (status) => {
       await shutdownTelemetry();
+      process.exit(typeof status === "number" ? status : 0);
     })
     .catch(async (err) => {
       console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);

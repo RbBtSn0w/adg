@@ -127,11 +127,11 @@ export async function fetchAuditData(
   }
 }
 
-function getTracer(): Tracer {
+export function getTracer(): Tracer {
   if (!activeTracer) {
     provider = new NodeTracerProvider({
       resource: new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: "adg-skills",
+        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
       }),
     });
 
@@ -142,7 +142,7 @@ function getTracer(): Tracer {
     provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
     provider.register();
 
-    activeTracer = opentelemetry.trace.getTracer("adg-skills");
+    activeTracer = opentelemetry.trace.getTracer("adg");
   }
   return activeTracer;
 }
@@ -156,6 +156,7 @@ export function track(data: TelemetryData): void {
     const span = tracer.startSpan(`skills-${data.event}`, {}, parentContext);
 
     // Set common attributes
+    span.setAttribute("domain", "skills");
     if (cliVersion) {
       span.setAttribute("cli.version", cliVersion);
     }

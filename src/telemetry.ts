@@ -19,13 +19,13 @@ let activeTracer: Tracer | null = null;
 
 export function getTracer(): Tracer {
   if (!isEnabled()) {
-    return opentelemetry.trace.getTracer("adg-plugins-noop");
+    return opentelemetry.trace.getTracer("adg-noop");
   }
 
   if (!activeTracer) {
     provider = new NodeTracerProvider({
       resource: new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: "adg-plugins",
+        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
       }),
     });
 
@@ -36,7 +36,7 @@ export function getTracer(): Tracer {
     provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
     provider.register();
 
-    activeTracer = opentelemetry.trace.getTracer("adg-plugins");
+    activeTracer = opentelemetry.trace.getTracer("adg");
   }
 
   return activeTracer;
@@ -50,4 +50,24 @@ export async function shutdownTelemetry(): Promise<void> {
       // Silently fail - telemetry should never break CLI exit
     }
   }
+}
+
+export function sanitizeArgs(args: string[]): string[] {
+  return args.map((arg) => {
+    if (arg.startsWith("ghp_") || arg.startsWith("github_pat_")) {
+      return "[REDACTED_TOKEN]";
+    }
+    if (arg.includes("@") && (arg.startsWith("http://") || arg.startsWith("https://"))) {
+      try {
+        const url = new URL(arg);
+        if (url.password) {
+          url.password = "[REDACTED]";
+        }
+        return url.toString();
+      } catch {
+        return "[REDACTED_URL]";
+      }
+    }
+    return arg;
+  });
 }
