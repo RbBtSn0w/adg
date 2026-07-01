@@ -5,10 +5,12 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import opentelemetry, { type Tracer } from "@opentelemetry/api";
 
+const baseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const TELEMETRY_URL =
   process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
-  "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
+  (baseEndpoint
+    ? `${baseEndpoint.replace(/\/$/, "")}/v1/traces`
+    : "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
 
 function isEnabled(): boolean {
   return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
@@ -54,12 +56,22 @@ export async function shutdownTelemetry(): Promise<void> {
 
 export function sanitizeArgs(args: string[]): string[] {
   return args.map((arg) => {
-    if (arg.startsWith("ghp_") || arg.startsWith("github_pat_")) {
+    if (
+      arg.startsWith("ghp_") ||
+      arg.startsWith("gho_") ||
+      arg.startsWith("ghu_") ||
+      arg.startsWith("ghs_") ||
+      arg.startsWith("ghr_") ||
+      arg.startsWith("github_pat_")
+    ) {
       return "[REDACTED_TOKEN]";
     }
     if (arg.includes("@") && (arg.startsWith("http://") || arg.startsWith("https://"))) {
       try {
         const url = new URL(arg);
+        if (url.username) {
+          url.username = "[REDACTED]";
+        }
         if (url.password) {
           url.password = "[REDACTED]";
         }

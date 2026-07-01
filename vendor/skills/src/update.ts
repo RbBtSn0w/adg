@@ -34,7 +34,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  */
 const SELF_CLI_ENTRY = existsSync(join(__dirname, '../../../bin/adg.ts'))
   ? join(__dirname, '../../../bin/adg.ts')
-  : join(__dirname, '../../../bin/adg.js');
+  : join(__dirname, '../../../dist/bin/adg.js');
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';

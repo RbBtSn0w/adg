@@ -73,7 +73,8 @@ export function makeCli(bin: string, opts: CliOptions): Cli {
             }
           } else if (r.error) {
             span.setAttribute("process.exit.code", -1);
-            span.setAttribute("error.type", ("code" in r.error ? String(r.error.code) : null) || r.error.name || "SpawnError");
+            const errCode = (r.error as any).code;
+            span.setAttribute("error.type", (typeof errCode === "string" || typeof errCode === "number" ? String(errCode) : null) || r.error.name || "SpawnError");
             span.recordException(r.error);
             span.setStatus({
               code: SpanStatusCode.ERROR,

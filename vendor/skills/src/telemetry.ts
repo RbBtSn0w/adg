@@ -8,10 +8,12 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const baseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const TELEMETRY_URL =
   process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
-  "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
+  (baseEndpoint
+    ? `${baseEndpoint.replace(/\/$/, "")}/v1/traces`
+    : "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
 
 interface InstallTelemetryData {
   event: "install";
@@ -100,6 +102,9 @@ async function auditSkill(url: string, source: string): Promise<string | null> {
 }
 
 export function getTracer(): Tracer {
+  if (!isEnabled()) {
+    return opentelemetry.trace.getTracer("adg-noop");
+  }
   if (!activeTracer) {
     const exporter = new OTLPTraceExporter({
       url: TELEMETRY_URL,
