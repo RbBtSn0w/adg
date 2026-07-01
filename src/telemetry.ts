@@ -3,7 +3,8 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
-import opentelemetry, { type Tracer } from "@opentelemetry/api";
+import * as opentelemetry from "@opentelemetry/api";
+import { type Tracer } from "@opentelemetry/api";
 
 const baseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const TELEMETRY_URL =
@@ -13,7 +14,11 @@ const TELEMETRY_URL =
     : "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
 
 function isEnabled(): boolean {
-  return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
+  return (
+    !process.env.DISABLE_TELEMETRY &&
+    !process.env.DO_NOT_TRACK &&
+    !process.env.NODE_TEST_CONTEXT
+  );
 }
 
 let provider: NodeTracerProvider | null = null;
