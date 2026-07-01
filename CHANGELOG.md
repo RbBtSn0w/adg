@@ -1,3 +1,9 @@
+## [0.5.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.4.0...0.5.0-beta.1) (2026-07-01)
+
+### Added
+
+* implement OpenTelemetry tracing and subprocess instrumentation ([#43](https://github.com/RbBtSn0w/adg/issues/43)) ([0404c5c](https://github.com/RbBtSn0w/adg/commit/0404c5cb51d31b8f3d4541b547c8fe855eb3494d))
+
 ## [0.4.0](https://github.com/RbBtSn0w/adg/compare/0.3.0...0.4.0) (2026-06-29)
 
 ### Added
