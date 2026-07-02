@@ -216,6 +216,11 @@ function translateToolMatcher(matcher: unknown): string | undefined {
   for (const token of tokens) {
     if (token.startsWith("mcp__")) {
       const mapped = "mcp_" + token.slice(5).replaceAll("__", "_");
+      try {
+        new RegExp(mapped);
+      } catch {
+        return undefined;
+      }
       translated.push(mapped);
     } else {
       if (!/^[A-Za-z0-9_]+$/.test(token)) return undefined;
