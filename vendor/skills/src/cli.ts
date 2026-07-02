@@ -3,7 +3,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runAdd, parseAddOptions } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -27,7 +27,6 @@ function getVersion(): string {
 }
 
 const VERSION = getVersion();
-initTelemetry(VERSION);
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';

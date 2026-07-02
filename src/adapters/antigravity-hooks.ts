@@ -212,13 +212,22 @@ function translateToolMatcher(matcher: unknown): string | undefined {
   if (matcher === undefined || matcher === "" || matcher === "*") return typeof matcher === "string" ? matcher : "";
   if (typeof matcher !== "string") return undefined;
   const tokens = matcher.split("|");
-  if (tokens.some((token) => !/^[A-Za-z0-9_]+$/.test(token))) return undefined;
   const translated: string[] = [];
   for (const token of tokens) {
-    const alias = TOOL_ALIASES[token];
-    if (alias) translated.push(alias);
-    else if (ANTIGRAVITY_TOOL_NAMES.has(token)) translated.push(token);
-    else return undefined;
+    if (token.startsWith("mcp__")) {
+      const mapped = "mcp_" + token.slice(5).replaceAll("__", "_");
+      translated.push(mapped);
+    } else {
+      if (!/^[A-Za-z0-9_]+$/.test(token)) return undefined;
+      const alias = TOOL_ALIASES[token];
+      if (alias) {
+        translated.push(alias);
+      } else if (ANTIGRAVITY_TOOL_NAMES.has(token)) {
+        translated.push(token);
+      } else {
+        return undefined;
+      }
+    }
   }
   return translated.join("|");
 }
