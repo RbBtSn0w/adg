@@ -1,3 +1,9 @@
+## [0.5.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.2...0.5.0-beta.3) (2026-07-02)
+
+### Fixed
+
+* **telemetry): restore audit/version + chore(vendor:** re-sync skills CLI to v1.5.14 ([#45](https://github.com/RbBtSn0w/adg/issues/45)) ([59082bd](https://github.com/RbBtSn0w/adg/commit/59082bd527eb8f4bc2b9bea4ac4102a591f1ad2d))
+
 ## [0.5.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.1...0.5.0-beta.2) (2026-07-02)
 
 ### Fixed
