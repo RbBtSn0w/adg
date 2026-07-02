@@ -684,7 +684,12 @@ export async function updateProjectSkills(
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
       const tracer = getTracer();
-      const args = ['skills', 'add', installUrl, '--skill', skill.name, '-y'];
+      // Preserve Eve subagent placement recorded at install time. The lock stores
+      // '' for the root agent, which maps to the `root` keyword for `add --subagent`.
+      const subagentArgs = skill.entry.subagents?.length
+        ? ['--subagent', ...skill.entry.subagents.map((s) => (s === '' ? 'root' : s))]
+        : [];
+      const args = ['skills', 'add', installUrl, '--skill', skill.name, ...subagentArgs, '-y'];
       const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
         try {
           span.setAttribute("process.executable.name", "adg");

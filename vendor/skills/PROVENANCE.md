@@ -6,10 +6,32 @@ wrapped by `adg skills`.
 | Field | Value |
 |-------|-------|
 | Upstream repo | https://github.com/vercel-labs/skills |
-| npm package | `skills` (v1.5.11) |
-| Vendored commit | `be0dd25b4a8665894a56f45ef582cc02ca802c39` |
-| Vendored on | 2026-06-11 |
+| npm package | `skills` (v1.5.14) |
+| Vendored commit | `2adcfe5a4cce0ce5f4d5547a997b2a161ec5d127` (tag `v1.5.14`) |
+| Vendored on | 2026-07-02 |
+| Previous vendoring | `be0dd25` (v1.5.11), 2026-06-11 |
 | What was copied | `src/` (excluding `*.test.ts`) and `ThirdPartyNoticeText.txt` |
+
+## Re-sync notes (v1.5.11 → v1.5.14, 2026-07-02)
+
+3-way merge (base `be0dd25`, ours = prior vendoring + ADG patches, theirs `2adcfe5`).
+Upstream dependencies were unchanged. Resolution map:
+
+- **Auto-merged clean** (upstream + ADG changes disjoint): `agents.ts`, `blob.ts`, `cli.ts`.
+- **Took upstream** (ADG unmodified): `find.ts`, `installer.ts`, `local-lock.ts`, `remove.ts`, `types.ts`.
+- **Kept ADG** (upstream unmodified): `telemetry.ts`, `git.ts`, `install.ts`, `skill-lock.ts`,
+  `skills.ts`, `source-parser.ts`, `use.ts`, `providers/wellknown.ts`, `git-tree.ts`, `self-cli.ts`.
+- **Manual conflict resolutions** (2):
+  - `add.ts` — **openclaw source guard dropped to follow upstream.** 1.5.14 removed the
+    "block `openclaw/*` sources unless `--dangerously-accept-openclaw-risks`" gate from `add`
+    and reconceived `openclaw` as a first-class *agent*. We took upstream (removed the guard,
+    the `AddOptions.dangerouslyAcceptOpenclawRisks` field, and its arg parsing). The `use`
+    command keeps its own independent openclaw guard (upstream `use.ts` still has it).
+  - `update.ts` — carried upstream's new `--subagent` (Eve) forwarding **into** ADG's
+    `SELF_CLI_ENTRY`/OTel-CLIENT-span spawn: `subagentArgs` is now spliced into the
+    `adg skills add … --skill <name> [--subagent …] -y` args on the project-update path.
+- **New upstream feature carried in full**: Eve subagents (`eve` agent, `--subagent` install
+  flag, subagent-aware project update) and `find --owner`.
 
 ## License — MIT
 
