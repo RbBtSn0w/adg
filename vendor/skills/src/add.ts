@@ -532,6 +532,7 @@ export interface AddOptions {
    * selects the root agent. Implies installing for Eve.
    */
   subagent?: string[];
+  dangerouslyAcceptOpenclawRisks?: boolean;
 }
 
 /**
@@ -1081,6 +1082,25 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (!ownerRepo) return Promise.resolve(null);
       return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
     })();
+
+    // Block openclaw sources unless explicitly opted in
+    const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
+    if (sourceOwner === 'openclaw' && !options.dangerouslyAcceptOpenclawRisks) {
+      console.log();
+      p.log.warn(pc.yellow(pc.bold('⚠ OpenClaw skills are unverified community submissions.')));
+      p.log.message(
+        pc.yellow(
+          'This source contains user-submitted skills that have not been reviewed for safety or quality.'
+        )
+      );
+      p.log.message(pc.yellow('Skills run with full agent permissions and could be malicious.'));
+      console.log();
+      p.log.message(
+        `If you understand the risks, re-run with:\n\n  ${pc.cyan(`adg skills add ${source} --dangerously-accept-openclaw-risks`)}\n`
+      );
+      p.outro(pc.red('Installation blocked'));
+      process.exit(1);
+    }
 
     // Handle well-known skills from arbitrary URLs
     if (parsed.type === 'well-known') {
@@ -2172,6 +2192,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--dangerously-accept-openclaw-risks') {
+      options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg === '--subagent') {
       options.subagent = options.subagent || [];
       i++;
