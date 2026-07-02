@@ -16,30 +16,55 @@ const TELEMETRY_URL =
     ? `${baseEndpoint.replace(/\/$/, "")}/v1/traces`
     : "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
 
+const AUDIT_URL = "https://add-skill.vercel.sh/audit";
+
 interface InstallTelemetryData {
   event: "install";
   source: string;
   skills: string;
   agents: string;
   global?: "1";
-  skillFiles?: string;
-}
-
-interface UpdateTelemetryData {
-  event: "update";
-  successCount: number;
-  failCount: number;
-  checkedCount: number;
-  global?: "1";
+  skillFiles?: string; // JSON stringified { skillName: relativePath }
+  sourceType?: string;
 }
 
 interface RemoveTelemetryData {
   event: "remove";
-  skill: string;
+  source?: string;
+  skills: string;
+  agents: string;
   global?: "1";
+  sourceType?: string;
 }
 
-type TelemetryData = InstallTelemetryData | UpdateTelemetryData | RemoveTelemetryData;
+interface UpdateTelemetryData {
+  event: "update";
+  scope?: string;
+  skillCount: string;
+  successCount: string;
+  failCount: string;
+}
+
+interface FindTelemetryData {
+  event: "find";
+  query: string;
+  resultCount: string;
+  interactive?: "1";
+}
+
+interface SyncTelemetryData {
+  event: "experimental_sync";
+  skillCount: string;
+  successCount: string;
+  agents: string;
+}
+
+type TelemetryData =
+  | InstallTelemetryData
+  | RemoveTelemetryData
+  | UpdateTelemetryData
+  | FindTelemetryData
+  | SyncTelemetryData;
 
 let provider: NodeTracerProvider | null = null;
 let activeTracer: Tracer | null = null;
@@ -70,7 +95,13 @@ function getCliVersion(): string | null {
   try {
     const self = fileURLToPath(import.meta.url);
     const here = dirname(self);
-    const up = self.endsWith(".ts") ? ".." : join("..", "..");
+    // Resolve adg's top-level package.json (name "@rbbtsn0w/adg"), not the
+    // vendored skills-cli package.json. This module lives at
+    // vendor/skills/src/telemetry.ts (dev) or dist/vendor/skills/src/
+    // telemetry.js (built), so the adg root is 3 levels up for .ts, 4 for .js.
+    const up = self.endsWith(".ts")
+      ? join("..", "..", "..")
+      : join("..", "..", "..", "..");
     const pkgPath = join(here, up, "package.json");
     if (!existsSync(pkgPath)) return null;
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
@@ -82,25 +113,45 @@ function getCliVersion(): string | null {
 
 const cliVersion = getCliVersion();
 
-async function auditSkill(url: string, source: string): Promise<string | null> {
-  if (!isEnabled()) return null;
+// ─── Security audit data ───
+
+export interface PartnerAudit {
+  risk: "safe" | "low" | "medium" | "high" | "critical" | "unknown";
+  alerts?: number;
+  score?: number;
+  analyzedAt: string;
+}
+
+export type SkillAuditData = Record<string, PartnerAudit>;
+export type AuditResponse = Record<string, SkillAuditData>;
+
+/**
+ * Fetch security audit results for skills from the audit API.
+ * Returns null on any error or timeout — never blocks installation.
+ */
+export async function fetchAuditData(
+  source: string,
+  skillSlugs: string[],
+  timeoutMs = 3000
+): Promise<AuditResponse | null> {
+  if (skillSlugs.length === 0) return null;
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": `skills-cli/${cliVersion || "unknown"}`,
-      },
-      body: JSON.stringify({ source }),
+    const params = new URLSearchParams({
+      source,
+      skills: skillSlugs.join(","),
     });
 
-    if (!res.ok) {
-      return null;
-    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const data = (await res.json()) as { warning?: string };
-    return data.warning || null;
+    const response = await fetch(`${AUDIT_URL}?${params.toString()}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+    return (await response.json()) as AuditResponse;
   } catch {
     return null;
   }
