@@ -111,6 +111,7 @@ async function main(argv: string[]): Promise<number | void> {
       // network refresh when the cache is stale — the refresh uses an unreffed
       // socket so it cannot delay process exit).
       const currentVersion = getVersion();
+      span.setAttribute("cli.version", currentVersion);
       const latestVersion = checkForUpdate(currentVersion);
       if (latestVersion) {
         process.stderr.write(formatUpdateNotice(currentVersion, latestVersion));
