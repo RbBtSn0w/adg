@@ -1,3 +1,9 @@
+## [0.5.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.1...0.5.0-beta.2) (2026-07-02)
+
+### Fixed
+
+* antigravity mcp hook matchers ([#44](https://github.com/RbBtSn0w/adg/issues/44)) ([88e0aaf](https://github.com/RbBtSn0w/adg/commit/88e0aafbd08ba95d44ba2a986755dff481f3c45b))
+
 ## [0.5.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.4.0...0.5.0-beta.1) (2026-07-01)
 
 ### Added

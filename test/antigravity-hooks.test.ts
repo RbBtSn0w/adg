@@ -307,6 +307,7 @@ test("Antigravity maps Claude MCP tool matchers correctly to Antigravity format"
   }
 });
 
+
 test("Antigravity rejects an mcp__ matcher that maps to an invalid regex", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-hooks-"));
   try {
