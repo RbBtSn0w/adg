@@ -307,6 +307,34 @@ test("Antigravity maps Claude MCP tool matchers correctly to Antigravity format"
   }
 });
 
+test("Antigravity rejects an mcp__ matcher that maps to an invalid regex", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-hooks-"));
+  try {
+    writeManifest(dir);
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(
+      join(dir, "hooks", "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "mcp__[__run_query",
+              hooks: [{ type: "command", command: "printf '{}'" }],
+            },
+          ],
+        },
+      }),
+    );
+
+    const warnings = writeAntigravityHooks(dir, readManifest(dir));
+
+    assert.ok(warnings.some((warning) => warning.includes('matcher "mcp__[__run_query" cannot be safely mapped')));
+    assert.equal(existsSync(join(dir, "hooks.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Antigravity prefers a native override and removes generated hooks when deselected", () => {
   const dir = makeSuperpowersPlugin();
   try {
