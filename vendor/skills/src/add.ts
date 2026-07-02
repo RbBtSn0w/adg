@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
@@ -9,6 +10,7 @@ import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
+const EVE_AGENT_LABEL = 'eve agent';
 
 /**
  * Check if a source identifier (owner/repo format) represents a private GitHub repo.
@@ -48,6 +50,7 @@ import {
   getVisibleUniversalAgents,
   getNonUniversalAgents,
   isUniversalAgent,
+  getEveSubagents,
 } from './agents.ts';
 import {
   track,
@@ -178,6 +181,13 @@ function shortenPath(fullPath: string, cwd: string): string {
   return fullPath;
 }
 
+function computeSingleFileSkillHash(contents: string): string {
+  const hash = createHash('sha256');
+  hash.update('SKILL.md');
+  hash.update(contents);
+  return hash.digest('hex');
+}
+
 /**
  * Formats a list of items, truncating if too many
  */
@@ -188,6 +198,18 @@ function formatList(items: string[], maxShow: number = 5): string {
   const shown = items.slice(0, maxShow);
   const remaining = items.length - maxShow;
   return `${shown.join(', ')} +${remaining} more`;
+}
+
+function formatSkillPromptSubject(skills: Skill[]): string {
+  const names = skills.map((skill) => pc.cyan(getSkillDisplayName(skill)));
+  const namedSubject = formatList(names, 3);
+  return stripTerminalEscapes(namedSubject).length <= 80
+    ? namedSubject
+    : `${skills.length} selected skills`;
+}
+
+export function formatEveInstallPromptMessage(skills: Skill[]): string {
+  return `Detected an eve project. Install ${formatSkillPromptSubject(skills)} for your ${EVE_AGENT_LABEL} to use?`;
 }
 
 /**
@@ -229,6 +251,76 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
   } else {
     // Copy mode - all agents get copies
     const allNames = targetAgents.map((a) => agents[a].displayName);
+    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+  }
+
+  return lines;
+}
+
+/**
+ * A concrete install destination. For Eve, `subagent` optionally targets a
+ * subagent's skills directory (`agent/subagents/<name>/skills`); when omitted
+ * the skill installs to the root agent (`agent/skills`). Other agents never set
+ * `subagent`.
+ */
+interface InstallTarget {
+  agent: AgentType;
+  subagent?: string;
+}
+
+/** Human-readable label for an install target, e.g. "Eve (research)". */
+function targetDisplayName(target: InstallTarget): string {
+  const base = agents[target.agent].displayName;
+  return target.subagent ? `${base} (${target.subagent})` : base;
+}
+
+/** Stable key used to deduplicate / index per-target state. */
+function targetKey(target: InstallTarget): string {
+  return target.subagent ? `${target.agent}:${target.subagent}` : target.agent;
+}
+
+/**
+ * Expand the selected agents into concrete install targets, fanning Eve out
+ * across the chosen subagents (root and/or named subagents).
+ */
+function buildInstallTargets(
+  targetAgents: AgentType[],
+  eveSubagentTargets: Array<string | undefined>
+): InstallTarget[] {
+  const targets: InstallTarget[] = [];
+  for (const agent of targetAgents) {
+    if (agent === 'eve') {
+      for (const subagent of eveSubagentTargets) {
+        targets.push({ agent, subagent });
+      }
+    } else {
+      targets.push({ agent });
+    }
+  }
+  return targets;
+}
+
+/**
+ * Builds summary lines showing universal vs symlinked agents and Eve subagents.
+ */
+function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallMode): string[] {
+  const lines: string[] = [];
+  const rootAgents = targets.filter((t) => !t.subagent).map((t) => t.agent);
+  const subagentNames = targets.filter((t) => t.subagent).map(targetDisplayName);
+  const { universal, symlinked } = splitAgentsByType(rootAgents);
+
+  if (installMode === 'symlink') {
+    if (universal.length > 0) {
+      lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
+    }
+    if (symlinked.length > 0) {
+      lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
+    }
+    if (subagentNames.length > 0) {
+      lines.push(`  ${pc.dim('copy →')} ${formatList(subagentNames)}`);
+    }
+  } else {
+    const allNames = targets.map(targetDisplayName);
     lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
   }
 
@@ -372,7 +464,9 @@ async function selectAgentsInteractive(options: {
 
   const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
   const visibleUniversalAgents = getVisibleUniversalAgents().filter(supportsGlobalFilter);
-  const otherAgents = getNonUniversalAgents().filter(supportsGlobalFilter);
+  const otherAgents = getNonUniversalAgents().filter(
+    (agent) => agent !== 'eve' && supportsGlobalFilter(agent)
+  );
 
   // Universal agents shown as locked section
   const universalSection = {
@@ -433,6 +527,11 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  /**
+   * Eve subagent targets. Each value is a subagent name; `root` (or `.`)
+   * selects the root agent. Implies installing for Eve.
+   */
+  subagent?: string[];
   dangerouslyAcceptOpenclawRisks?: boolean;
 }
 
@@ -1306,17 +1405,47 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
 
-      if (installedAgents.length === 0) {
+      if (installedAgents.includes('eve') && (options.yes || !agentResult.isAgent)) {
+        const useEve = options.yes
+          ? true
+          : await p.confirm({
+              message: formatEveInstallPromptMessage(selectedSkills),
+              initialValue: true,
+            });
+
+        if (p.isCancel(useEve)) {
+          p.cancel('Installation cancelled');
+          await cleanup(tempDir);
+          process.exit(0);
+        }
+
+        if (useEve) {
+          targetAgents = ['eve'];
+          p.log.info(`Installing to: ${pc.cyan(EVE_AGENT_LABEL)}`);
+        } else {
+          const selected = await selectAgentsInteractive({ global: options.global });
+
+          if (p.isCancel(selected)) {
+            p.cancel('Installation cancelled');
+            await cleanup(tempDir);
+            process.exit(0);
+          }
+
+          targetAgents = selected as AgentType[];
+        }
+      } else if (installedAgents.length === 0) {
         if (options.yes) {
           targetAgents = validAgents as AgentType[];
           p.log.info('Installing to all agents');
         } else {
           p.log.info('Select agents to install skills to');
 
-          const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
-            value: key as AgentType,
-            label: config.displayName,
-          }));
+          const allAgentChoices = Object.entries(agents)
+            .filter(([key]) => key !== 'eve')
+            .map(([key, config]) => ({
+              value: key as AgentType,
+              label: config.displayName,
+            }));
 
           // Use helper to prompt with search
           const selected = await promptForAgents(
@@ -1356,6 +1485,52 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // An explicit --subagent flag implies the user wants to target Eve.
+    if (options.subagent && options.subagent.length > 0 && !targetAgents.includes('eve')) {
+      targetAgents = [...targetAgents, 'eve'];
+    }
+
+    // Eve supports subagents, each with their own skills directory at
+    // agent/subagents/<name>/skills in addition to the root agent/skills.
+    // When Eve is a target, choose which of those to install into.
+    let eveSubagentTargets: Array<string | undefined> = [undefined];
+    if (targetAgents.includes('eve')) {
+      const availableSubagents = getEveSubagents(process.cwd());
+
+      if (options.subagent && options.subagent.length > 0) {
+        // Non-interactive: 'root' or '.' selects the root agent.
+        eveSubagentTargets = options.subagent.map((s) =>
+          s === 'root' || s === '.' ? undefined : s
+        );
+      } else if (availableSubagents.length > 0 && !options.yes) {
+        const subagentChoices = [
+          { value: '', label: 'Root agent', hint: 'agent/skills' },
+          ...availableSubagents.map((name) => ({
+            value: name,
+            label: name,
+            hint: `agent/subagents/${name}/skills`,
+          })),
+        ];
+
+        const selectedSubagents = await p.multiselect({
+          message: 'Where should Eve skills be installed?',
+          options: subagentChoices,
+          initialValues: [''],
+          required: true,
+        });
+
+        if (p.isCancel(selectedSubagents)) {
+          p.cancel('Installation cancelled');
+          await cleanup(tempDir);
+          process.exit(0);
+        }
+
+        eveSubagentTargets = (selectedSubagents as string[]).map((s) => (s === '' ? undefined : s));
+      }
+    }
+
+    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
+
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
@@ -1391,10 +1566,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
     // Only prompt for install mode when there are multiple unique target directories.
-    // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-    const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+    // When all selected targets share the same skillsDir, symlink vs copy is meaningless.
+    // Eve writes skill files directly into each (sub)agent dir, so a symlink prompt is
+    // never meaningful when every target is Eve.
+    const allEve = installTargets.every((t) => t.agent === 'eve');
+    const uniqueDirs = new Set(
+      installTargets.map((t) =>
+        t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir
+      )
+    );
 
-    if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+    if (!options.copy && !options.yes && uniqueDirs.size > 1 && !allEve) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
@@ -1414,8 +1596,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installMode = modeChoice as InstallMode;
-    } else if (uniqueDirs.size <= 1) {
-      // Single target directory — default to copy (no symlink needed)
+    } else if (uniqueDirs.size <= 1 || allEve) {
+      // Single target directory (or all-Eve) — default to copy (no symlink needed)
       installMode = 'copy';
     }
 
@@ -1423,24 +1605,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Build installation summary
     const summaryLines: string[] = [];
-    const agentNames = targetAgents.map((a) => agents[a].displayName);
 
     // Check if any skill will be overwritten (parallel)
     const overwriteChecks = await Promise.all(
       selectedSkills.flatMap((skill) =>
-        targetAgents.map(async (agent) => ({
+        installTargets.map(async (target) => ({
           skillName: skill.name,
-          agent,
-          installed: await isSkillInstalled(skill.name, agent, { global: installGlobally }),
+          target,
+          installed: await isSkillInstalled(skill.name, target.agent, {
+            global: installGlobally,
+            eveSubagent: target.subagent,
+          }),
         }))
       )
     );
+    // Keyed by skill name → target key → installed?
     const overwriteStatus = new Map<string, Map<string, boolean>>();
-    for (const { skillName, agent, installed } of overwriteChecks) {
+    for (const { skillName, target, installed } of overwriteChecks) {
       if (!overwriteStatus.has(skillName)) {
         overwriteStatus.set(skillName, new Map());
       }
-      overwriteStatus.get(skillName)!.set(agent, installed);
+      overwriteStatus.get(skillName)!.set(targetKey(target), installed);
     }
 
     // Group selected skills for summary
@@ -1462,15 +1647,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
+        const canonicalPath =
+          installTargets.length === 1
+            ? getCanonicalPath(skill.name, {
+                global: installGlobally,
+                agent: installTargets[0]!.agent,
+                eveSubagent: installTargets[0]!.subagent,
+              })
+            : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+        summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
 
         const skillOverwrites = overwriteStatus.get(skill.name);
-        const overwriteAgents = targetAgents
-          .filter((a) => skillOverwrites?.get(a))
-          .map((a) => agents[a].displayName);
+        const overwriteAgents = installTargets
+          .filter((t) => skillOverwrites?.get(targetKey(t)))
+          .map(targetDisplayName);
 
         if (overwriteAgents.length > 0) {
           summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
@@ -1549,13 +1741,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }[] = [];
 
     for (const skill of selectedSkills) {
-      for (const agent of targetAgents) {
+      for (const target of installTargets) {
+        const { agent, subagent } = target;
         let result;
         if (blobResult && 'files' in skill) {
           // Blob-based install: write files from snapshot
           const blobSkill = skill as BlobSkill;
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
+            agent,
+            { global: installGlobally, mode: installMode, eveSubagent: subagent }
+          );
+        } else if (tempDir && skill.path === tempDir && skill.rawContent) {
+          // Remote root-level SKILL.md: install the skill file, not the whole repository.
+          result = await installBlobSkillForAgent(
+            { installName: skill.name, files: [{ path: 'SKILL.md', contents: skill.rawContent }] },
             agent,
             { global: installGlobally, mode: installMode }
           );
@@ -1564,11 +1764,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            eveSubagent: subagent,
           });
         }
         results.push({
           skill: getSkillDisplayName(skill),
-          agent: agents[agent].displayName,
+          agent: targetDisplayName(target),
           pluginName: skill.pluginName,
           ...result,
         });
@@ -1701,6 +1902,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Add to local lock file for project-scoped installs
     if (successful.length > 0 && !installGlobally) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      // Record Eve subagent placement (root = '') so `update` can restore it.
+      // Only meaningful when Eve is among the targets and a non-root subagent
+      // was selected; otherwise omit for a clean, minimal lock entry.
+      const eveSubagents = targetAgents.includes('eve')
+        ? eveSubagentTargets.map((s) => s ?? '')
+        : undefined;
+      const recordSubagents =
+        eveSubagents && (eveSubagents.length > 1 || eveSubagents.some((s) => s !== ''));
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
@@ -1709,7 +1918,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             const computedHash =
               blobResult && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
-                : await computeSkillFolderHash(skill.path);
+                : tempDir && skill.path === tempDir && skill.rawContent
+                  ? computeSingleFileSkillHash(skill.rawContent)
+                  : await computeSkillFolderHash(skill.path);
             const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
               skill.name,
@@ -1719,6 +1930,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 sourceType: parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
+                ...(recordSubagents && { subagents: eveSubagents }),
               },
               cwd
             );
@@ -1982,6 +2194,16 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.copy = true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
+    } else if (arg === '--subagent') {
+      options.subagent = options.subagent || [];
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        options.subagent.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
