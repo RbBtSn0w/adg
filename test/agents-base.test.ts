@@ -3,12 +3,34 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SpanStatusCode, type Span } from "@opentelemetry/api";
+import type { SpawnSyncReturns } from "node:child_process";
 
-import { makeCli, skippedResult } from "../src/agents/base.ts";
+import { annotateCliRun, makeCli, skippedResult } from "../src/agents/base.ts";
 
 // `node` is guaranteed present in the test environment, so it stands in for a
 // real agent CLI; a deliberately absent name exercises the launch-failure path.
 const MISSING = "adg-nonexistent-binary-zzz";
+
+function makeSpan() {
+  const attrs: Record<string, unknown> = {};
+  const exceptions: Error[] = [];
+  const statuses: Array<{ code: SpanStatusCode; message?: string }> = [];
+  const span: Pick<Span, "setAttribute" | "recordException" | "setStatus"> = {
+    setAttribute: (name: string, value: unknown) => {
+      attrs[name] = value;
+      return span as Span;
+    },
+    recordException: (exception: Error) => {
+      exceptions.push(exception);
+    },
+    setStatus: (status) => {
+      statuses.push(status);
+      return span as Span;
+    },
+  };
+  return { span, attrs, exceptions, statuses };
+}
 
 test("available() is true when the probe command exits 0", () => {
   const cli = makeCli("node", { probeArgs: ["--version"] });
@@ -94,4 +116,75 @@ test("run() stays silent on failure when echoStderr is unset", () => {
     console.error = original;
   }
   assert.equal(calls, 0);
+});
+
+test("annotateCliRun records a synthetic exception for non-zero exits", () => {
+  const { span, attrs, exceptions, statuses } = makeSpan();
+  const r = {
+    output: [],
+    pid: 123,
+    status: 1,
+    signal: null,
+    stdout: "",
+    stderr: "merge conflict while updating marketplace",
+  } as unknown as SpawnSyncReturns<string>;
+
+  annotateCliRun(span, "claude", ["plugin", "marketplace", "update", "adg"], r);
+
+  assert.equal(attrs["process.pid"], 123);
+  assert.equal(attrs["process.exit.code"], 1);
+  assert.equal(attrs["error.type"], "EXIT_CODE_1");
+  assert.equal(attrs["exception.slug"], "cli-nonzero-exit");
+  assert.equal(attrs["cli.stderr_excerpt"], "merge conflict while updating marketplace");
+  assert.equal(exceptions.length, 1);
+  assert.match(exceptions[0]!.message, /claude plugin marketplace update adg exited with status 1/);
+  assert.match(exceptions[0]!.message, /merge conflict while updating marketplace/);
+  assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
+  assert.match(statuses[0]!.message ?? "", /merge conflict while updating marketplace/);
+});
+
+test("annotateCliRun preserves real spawn failures", () => {
+  const { span, attrs, exceptions, statuses } = makeSpan();
+  const spawnError = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+  const r = {
+    output: [],
+    pid: 456,
+    status: null,
+    signal: null,
+    stdout: "",
+    stderr: "",
+    error: spawnError,
+  } as unknown as SpawnSyncReturns<string>;
+
+  annotateCliRun(span, "claude", ["plugin", "list"], r);
+
+  assert.equal(attrs["process.pid"], 456);
+  assert.equal(attrs["process.exit.code"], -1);
+  assert.equal(attrs["error.type"], "ENOENT");
+  assert.equal(attrs["exception.slug"], "cli-spawn-failure");
+  assert.equal(exceptions.length, 1);
+  assert.equal(exceptions[0], spawnError);
+  assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
+  assert.equal(statuses[0]!.message, "spawn ENOENT");
+});
+
+test("annotateCliRun leaves successful exits as success metadata only", () => {
+  const { span, attrs, exceptions, statuses } = makeSpan();
+  const r = {
+    output: [],
+    pid: 789,
+    status: 0,
+    signal: null,
+    stdout: "ok",
+    stderr: "",
+  } as unknown as SpawnSyncReturns<string>;
+
+  annotateCliRun(span, "claude", ["plugin", "list"], r);
+
+  assert.equal(attrs["process.pid"], 789);
+  assert.equal(attrs["process.exit.code"], 0);
+  assert.equal(attrs["error.type"], undefined);
+  assert.equal(attrs["exception.slug"], undefined);
+  assert.equal(exceptions.length, 0);
+  assert.equal(statuses.length, 0);
 });
