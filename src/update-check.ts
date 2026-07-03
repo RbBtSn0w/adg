@@ -178,9 +178,11 @@ export function checkForUpdate(
 
 /** Format an update notice for display on stderr. */
 export function formatUpdateNotice(currentVersion: string, latestVersion: string): string {
+  const channel = prereleaseChannel(latestVersion);
+  const npmTarget = channel ? latestVersion : "latest";
   return (
     `\n  Update available: ${currentVersion} → ${latestVersion}\n` +
     `  Run: ${selfUpdateHint(latestVersion)}\n` +
-    `  npm: npm install -g ${PACKAGE_NAME}@${prereleaseChannel(latestVersion) ? "beta" : "latest"}\n`
+    `  npm: npm install -g ${PACKAGE_NAME}@${npmTarget}\n`
   );
 }

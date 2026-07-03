@@ -225,6 +225,6 @@ test("formatUpdateNotice pins the exact version for a pre-release suggestion", (
     notice.includes("Run: adg update --beta"),
     "pre-release updates should use the beta wrapper",
   );
-  assert.ok(notice.includes("@beta"), "beta updates should install the beta dist-tag");
+  assert.ok(notice.includes("@0.3.0-beta.2"), "beta updates should install the exact version");
   assert.ok(!notice.includes("@latest"), "must not point pre-release users at @latest");
 });
