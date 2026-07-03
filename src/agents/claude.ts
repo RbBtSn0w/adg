@@ -6,7 +6,7 @@ import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { makeCli, skippedResult } from "./base.ts";
+import { makeCli, skippedResult, type RunResult } from "./base.ts";
 import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
 
 /**
@@ -95,13 +95,21 @@ export function parseClaudeMarketplaceList(out: string): string[] {
   }
 }
 
-/** Register the ADG store as a Claude marketplace without an expected-failure fallback. */
-function syncMarketplace(pluginsDir: string, name: string): void {
-  const listed = run(["plugin", "marketplace", "list", "--json"]);
+/** Register or refresh the ADG store as a Claude marketplace, failing open. */
+export function syncMarketplace(
+  pluginsDir: string,
+  name: string,
+  runner: (args: string[]) => RunResult = run,
+): void {
+  const listed = runner(["plugin", "marketplace", "list", "--json"]);
   if (listed.ok && parseClaudeMarketplaceList(listed.out).includes(name)) {
-    if (run(["plugin", "marketplace", "update", name]).ok) return;
+    // Claude's marketplace update path can fail on existing installs (for
+    // example, merge-conflict-style failures on older CLI builds). When that
+    // happens, fall back to re-adding the marketplace so the refresh remains
+    // best-effort instead of surfacing a hard EXIT_CODE_1 in the ADG timeline.
+    if (runner(["plugin", "marketplace", "update", name]).ok) return;
   }
-  run(["plugin", "marketplace", "add", pluginsDir]);
+  runner(["plugin", "marketplace", "add", pluginsDir]);
 }
 
 export const claudeAgent: Agent = {
