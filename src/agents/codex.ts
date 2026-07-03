@@ -131,7 +131,7 @@ export function parseCodexPluginList(out: string, marketplace: string): string[]
     const status = (cols[1] ?? "").toLowerCase();
     // Count only plugins actually added and active; "disabled" never contains
     // "enabled", so the substring tests cleanly separate the states.
-    if (!status.includes("installed") || status.includes("disabled")) continue;
+    if (!status.includes("installed") || !status.includes("enabled") || status.includes("disabled")) continue;
     if (!seen.has(head[1]!)) {
       seen.add(head[1]!);
       names.push(head[1]!);

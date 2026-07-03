@@ -233,6 +233,8 @@ adg plugins link   --target codex --global          # enable in one agent (regen
 adg plugins link   --target claude --global         # symlink into ~/.claude/skills/
 adg plugins unlink --target antigravity asc         # disable in one agent only (supports agent-only residuals)
 adg plugins unlink --target all asc                 # disable in all agents
+adg plugins disable --global asc                    # persistently disable everywhere; keep store payload
+adg plugins enable --global asc                     # restore from the store in every compatible agent
 adg plugins sync   --target antigravity asc         # reconcile one agent to the store (clears residual)
 adg plugins sync   --target all --global            # reconcile all agents to the store in one go
 adg plugins marketplace sync owner/repo --target all     # same, scoped to a whole source across all agents
@@ -245,11 +247,19 @@ adg plugins migrate --dir plugins          # move flat installs into per-marketp
 
 ```
 
-Two layers, two verb pairs. The **store** (`add` / `remove`) is the system of
-record; **agents are projections** of it (`link` / `unlink` toggle one agent;
-`sync` forces an agent to match the store). `remove` deletes from the store and
-every agent at once — for per-agent control use `unlink`. When something looks
-off, `status` shows the drift and `sync` repairs it.
+Two layers, with the store as the system of record. `add` / `remove` control the
+payload; `enable` / `disable` persist whether a stored plugin should be projected
+to any agent. Agents are projections of that desired state: `link` / `unlink`
+remain temporary per-agent controls, while `sync` restores the store state.
+`remove` deletes from the store and every agent; `disable` keeps the payload,
+source, version, and marketplace entry so updates and later re-enabling remain
+available.
+
+Disabled plugins stay in their existing on-disk paths. Their lock entry records
+`state: "disabled"`; Codex and Claude installations are removed and Antigravity's
+discovery manifest/projection is cleared. `update` may refresh a disabled
+plugin's payload but never activates it. `list` groups enabled and disabled
+entries, and `status` distinguishes intentional disablement from runtime drift.
 
 For the local-directory-source flow into Claude's registry/cache, see
 [docs/local-plugin-registration.md](docs/local-plugin-registration.md).

@@ -1,6 +1,6 @@
 import { installedPluginDir } from "../paths.ts";
 import { agentsForComponents } from "../agents/index.ts";
-import { COMPONENT_TYPES, type ComponentType } from "../types.ts";
+import { COMPONENT_TYPES, pluginState, type ComponentType, type PluginState } from "../types.ts";
 import type { ListedPlugin, PluginContents } from "../commands/list.ts";
 import type { AgentStatus } from "../commands/status.ts";
 import type { AgentScope } from "../agents/index.ts";
@@ -22,6 +22,7 @@ export interface PluginsListJson {
     contents: PluginContents;
     counts: CountMap;
     partial: boolean;
+    state: PluginState;
   }>;
 }
 
@@ -62,6 +63,7 @@ export function pluginsListJson(plugins: ListedPlugin[], pluginsDir: string): Pl
         contents,
         counts: contentCounts(contents),
         partial: plugin.selection !== undefined,
+        state: pluginState(plugin),
       };
     }),
   };

@@ -9,6 +9,7 @@ import { linkPlugins } from "../commands/link.ts";
 import { unlinkPlugins } from "../commands/unlink.ts";
 import { syncPlugins } from "../commands/sync.ts";
 import { removePlugin } from "../commands/remove.ts";
+import { disablePlugins, enablePlugins } from "../commands/state.ts";
 import { migrateLayout } from "../commands/migrate.ts";
 import { pluginStatus } from "../commands/status.ts";
 import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult, type ScopeInfo } from "../commands/marketplace.ts";
@@ -337,6 +338,25 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
         if (res.cliSkipped) {
           console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
         }
+      }
+      return;
+    }
+    case "disable":
+    case "enable": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      if (positionals.length === 0) fail(`plugins ${verb} requires at least one <name>`);
+      const sc = await resolveActionScope(values, verb);
+      const result = verb === "disable"
+        ? disablePlugins({ pluginsDir: sc.pluginsDir, names: positionals, scope: sc.agentScope })
+        : enablePlugins({ pluginsDir: sc.pluginsDir, names: positionals, scope: sc.agentScope });
+      for (const name of result.order) {
+        const changed = result.changed.includes(name);
+        console.log(`${changed ? ui.ok(verb === "disable" ? "disabled" : "enabled") : ui.meta("already " + result.state)} ${ui.name(name)}`);
+      }
+      for (const agent of result.agents) {
+        const display = getAgent(agent.agent)?.displayName ?? agent.agent;
+        if (agent.affected.length > 0) console.log(ui.meta(`  ${result.state} in ${display}: ${agent.affected.join(", ")}`));
+        else if (agent.skipped) console.log(ui.warn(`  ${agent.agent} unavailable — run \`adg plugins sync --target ${agent.agent} ${result.order.join(" ")}\` later`));
       }
       return;
     }

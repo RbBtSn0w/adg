@@ -12,6 +12,7 @@ import { marketplaceSync } from "../src/commands/marketplace.ts";
 import { pluginStatus } from "../src/commands/status.ts";
 import type { Agent, AgentContext, AgentListResult, AgentSyncResult } from "../src/agents/index.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 
 /**
  * Projection-layer verbs (link/unlink/sync), their source-scoped twin
@@ -155,6 +156,24 @@ test("sync regenerates the manifest and refreshes (not activates) the plugin", (
   rmSync(work, { recursive: true });
 });
 
+test("sync deactivates disabled plugins instead of regenerating or refreshing them", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.alpha!.state = "disabled";
+  writeLock(join(store, ".plugin-lock.json"), lock);
+
+  const rec = recorder();
+  const res = syncPlugins({ pluginsDir: store, target: "codex", agent: fakeAgent("codex", rec) });
+
+  assert.equal(res.actions[0]!.name, "alpha");
+  assert.equal(res.actions[0]!.synced, true);
+  assert.deepEqual(rec.deactivate.map((c) => c.plugins), [["alpha"]]);
+  assert.deepEqual(rec.refresh, []);
+  rmSync(work, { recursive: true });
+});
+
 // ---- link subsetting ----
 
 test("link with names acts only on the named subset", () => {
@@ -167,6 +186,20 @@ test("link with names acts only on the named subset", () => {
   const res = linkPlugins({ pluginsDir: store, target: "codex", names: ["beta"], agent: fakeAgent("codex", rec) });
   assert.deepEqual(res.actions.map((a) => a.name), ["beta"]);
   assert.deepEqual(rec.activate.map((c) => c.plugins), [["beta"]]);
+  rmSync(work, { recursive: true });
+});
+
+test("link rejects a disabled plugin and points to enable", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.alpha!.state = "disabled";
+  writeLock(join(store, ".plugin-lock.json"), lock);
+  assert.throws(
+    () => linkPlugins({ pluginsDir: store, target: "codex", names: ["alpha"], agent: fakeAgent("codex", recorder()) }),
+    /adg plugins enable alpha/,
+  );
   rmSync(work, { recursive: true });
 });
 
@@ -201,6 +234,27 @@ test("status classifies in-sync / missing / agent-only against the store", () =>
   assert.deepEqual(s!.inSync, ["alpha"]);
   assert.deepEqual(s!.missing, ["beta"]);
   assert.deepEqual(s!.agentOnly, ["gamma"]);
+  assert.deepEqual(s!.disabled, []);
+  assert.deepEqual(s!.unexpectedlyEnabled, []);
+  rmSync(work, { recursive: true });
+});
+
+test("status distinguishes intentionally disabled plugins from unexpectedly enabled ones", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  seed(store, "beta");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.alpha!.state = "disabled";
+  lock.plugins.beta!.state = "disabled";
+  writeLock(join(store, ".plugin-lock.json"), lock);
+
+  const agent = fakeAgent("codex", recorder(), { installed: ["beta"] });
+  const [s] = pluginStatus({ pluginsDir: store, scope: "project", agents: [agent] });
+  assert.deepEqual(s!.disabled, ["alpha"]);
+  assert.deepEqual(s!.unexpectedlyEnabled, ["beta"]);
+  assert.deepEqual(s!.missing, []);
+  assert.deepEqual(s!.inSync, []);
   rmSync(work, { recursive: true });
 });
 

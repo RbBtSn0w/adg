@@ -32,6 +32,10 @@
         },
         "installedAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
+        "state": {
+          "enum": ["enabled", "disabled"],
+          "description": "Desired cross-agent projection state. Absent means enabled."
+        },
         "dependencies": {
           "type": "object",
           "additionalProperties": { "type": "string" }

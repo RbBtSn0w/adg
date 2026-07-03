@@ -5,6 +5,7 @@ import type { ComponentType } from "../types.ts";
 import type { ListedPlugin } from "../commands/list.ts";
 import type { MarketplaceGroup, PluginUpdateResult } from "../commands/marketplace.ts";
 import type { AgentStatus } from "../commands/status.ts";
+import { pluginState } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Presentation layer for `adg plugins`. Each function turns command-layer data
@@ -83,7 +84,10 @@ export function renderPluginList(
   // dimmed as secondary metadata. Widths are measured on the uncolored strings
   // (above), so wrapping the padded text keeps columns aligned.
   const out: string[] = [];
-  for (const r of rows) {
+  const appendRows = (heading: string, group: typeof rows): void => {
+    if (group.length === 0) return;
+    out.push(ui.name(heading));
+    for (const r of group) {
     const partial = r.p.selection ? "  (partial)" : "";
     const name = ui.name(r.label.padEnd(nameW));
     const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
@@ -91,7 +95,10 @@ export function renderPluginList(
     const provenance = `[${r.p.origin.type}] ${(r.p.folderHash ?? "").slice(0, 19)}${partial}`;
     out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
     if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
-  }
+    }
+  };
+  appendRows("Enabled", rows.filter((row) => pluginState(row.p) === "enabled"));
+  appendRows("Disabled", rows.filter((row) => pluginState(row.p) === "disabled"));
   return out;
 }
 
@@ -158,6 +165,13 @@ export function renderStatus(statuses: AgentStatus[]): string[] {
     if (s.agentOnly.length > 0) {
       out.push(ui.warn(`  in agent only (${s.agentOnly.length}): ${s.agentOnly.join(", ")}`));
       out.push(ui.meta(`     → if ADG-managed, adg plugins unlink --target ${s.id} <name>  (else ignore)`));
+    }
+    if (s.disabled.length > 0) {
+      out.push(ui.meta(`  disabled (${s.disabled.length}): ${s.disabled.join(", ")}`));
+    }
+    if (s.unexpectedlyEnabled.length > 0) {
+      out.push(ui.warn(`  unexpectedly enabled (${s.unexpectedlyEnabled.length}): ${s.unexpectedlyEnabled.join(", ")}`));
+      out.push(ui.meta(`     → adg plugins sync --target ${s.id} ${s.unexpectedlyEnabled.join(" ")}`));
     }
   }
 

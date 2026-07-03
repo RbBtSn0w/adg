@@ -64,12 +64,13 @@ apple-skills@plugins  installed, enabled  1.12.0   /Users/snow/.agents/plugins/x
 asc@plugins           installed, enabled  0.1.0    /Users/snow/.agents/plugins/y/asc
 muted@plugins         installed, disabled 2.0.0    /Users/snow/.agents/plugins/x/muted
 later@plugins         available           3.0.0    /Users/snow/.agents/plugins/x/later
+removed@plugins       not installed                /Users/snow/.agents/plugins/x/removed
 foo@othermp           installed, enabled  1.0.0    /Users/snow/.agents/plugins/z/foo
 `;
 
 test("parseCodexPluginList keeps only installed+enabled rows of the given marketplace", () => {
-  // muted is disabled and later is merely available — both excluded; foo is in
-  // a different marketplace.
+  // muted is disabled, later is merely available, and removed is explicitly not
+  // installed — all are excluded; foo is in a different marketplace.
   assert.deepEqual(parseCodexPluginList(CODEX_OUT, "plugins"), ["apple-skills", "asc"]);
 });
 
