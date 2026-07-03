@@ -1,3 +1,9 @@
+## [0.5.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.3...0.5.0-beta.4) (2026-07-03)
+
+### Added
+
+* add adg self-update wrapper ([#48](https://github.com/RbBtSn0w/adg/issues/48)) ([62751ab](https://github.com/RbBtSn0w/adg/commit/62751ab82e4855e134d892a4f9143af98f1c24cb))
+
 ## [0.5.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.2...0.5.0-beta.3) (2026-07-02)
 
 ### Fixed
