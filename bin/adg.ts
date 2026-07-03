@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { selfUpdateCommand, parseSelfUpdateArgs, SELF_UPDATE_USAGE } from "../src/self-update.ts";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
 import { TOP_USAGE, fail } from "../src/cli/index.ts";
@@ -62,6 +63,17 @@ function runSkills(verb: string | undefined, rest: string[]): number {
       ...envCarrier,
     },
   });
+  return r.status ?? 1;
+}
+
+function runSelfUpdate(args: string[]): number {
+  const options = parseSelfUpdateArgs(args);
+  if (options.help) {
+    console.log(SELF_UPDATE_USAGE);
+    return 0;
+  }
+  const command = selfUpdateCommand(options.beta);
+  const r = spawnSync(command.command, command.args, { stdio: "inherit" });
   return r.status ?? 1;
 }
 
@@ -130,8 +142,13 @@ async function main(argv: string[]): Promise<number | void> {
           if (verb) span.setAttribute("verb", verb);
           status = runSkills(verb, rest);
           break;
+        case "update":
+          span.setAttribute("domain", "update");
+          if (verb) span.setAttribute("verb", verb);
+          status = runSelfUpdate([verb, ...rest].filter((x): x is string => x !== undefined));
+          break;
         default:
-          fail(`unknown domain: ${domain} (expected \`plugins\` or \`skills\`)`);
+          fail(`unknown domain: ${domain} (expected \`plugins\`, \`skills\`, or \`update\`)`);
       }
 
       span.setAttribute("process.exit.code", status);
