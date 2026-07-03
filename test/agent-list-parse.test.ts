@@ -58,6 +58,7 @@ test("parseClaudeMarketplaceList extracts marketplace names from json", () => {
   const out = JSON.stringify([
     { name: "adg", source: "directory" },
     { name: "claude-plugins-official", source: "github" },
+    null,
     { source: "directory" },
   ]);
   assert.deepEqual(parseClaudeMarketplaceList(out), ["adg", "claude-plugins-official"]);

@@ -30,6 +30,7 @@ const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]
 const GH_BLOB_URL = /^(?:https?:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/(?:blob|tree)\/([^/]+)\/(.+)$/;
 
 function stripKnownManifestSuffix(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
   const suffixes = [
     ".agents/.plugin.json",
     ".claude-plugin/plugin.json",
@@ -37,10 +38,10 @@ function stripKnownManifestSuffix(path: string): string {
     ".adg-plugin/plugin.json",
   ];
   for (const suffix of suffixes) {
-    if (path === suffix) return "";
-    if (path.endsWith(`/${suffix}`)) return path.slice(0, -(suffix.length + 1));
+    if (normalized === suffix) return "";
+    if (normalized.endsWith(`/${suffix}`)) return normalized.slice(0, -(suffix.length + 1));
   }
-  return path;
+  return normalized;
 }
 
 function decodeGitHubUrlPart(value: string): string {

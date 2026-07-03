@@ -143,6 +143,49 @@ test("annotateCliRun records a synthetic exception for non-zero exits", () => {
   assert.match(statuses[0]!.message ?? "", /merge conflict while updating marketplace/);
 });
 
+test("annotateCliRun records stdout excerpts under a stdout-specific key", () => {
+  const { span, attrs, exceptions, statuses } = makeSpan();
+  const r = {
+    output: [],
+    pid: 321,
+    status: 1,
+    signal: null,
+    stdout: "printed to stdout",
+    stderr: "",
+  } as unknown as SpawnSyncReturns<string>;
+
+  annotateCliRun(span, "claude", ["plugin", "list"], r);
+
+  assert.equal(attrs["cli.stdout_excerpt"], "printed to stdout");
+  assert.equal(attrs["cli.stderr_excerpt"], undefined);
+  assert.equal(exceptions.length, 1);
+  assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
+});
+
+test("annotateCliRun records signal-terminated processes as failures", () => {
+  const { span, attrs, exceptions, statuses } = makeSpan();
+  const r = {
+    output: [],
+    pid: 654,
+    status: null,
+    signal: "SIGTERM",
+    stdout: "",
+    stderr: "terminated",
+  } as unknown as SpawnSyncReturns<string>;
+
+  annotateCliRun(span, "claude", ["plugin", "list"], r);
+
+  assert.equal(attrs["process.pid"], 654);
+  assert.equal(attrs["process.exit.code"], -1);
+  assert.equal(attrs["process.exit.signal"], "SIGTERM");
+  assert.equal(attrs["error.type"], "SIGNAL_SIGTERM");
+  assert.equal(attrs["exception.slug"], "cli-signal-exit");
+  assert.equal(attrs["cli.stderr_excerpt"], "terminated");
+  assert.equal(exceptions.length, 1);
+  assert.match(exceptions[0]!.message, /terminated by signal SIGTERM/);
+  assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
+});
+
 test("annotateCliRun preserves real spawn failures", () => {
   const { span, attrs, exceptions, statuses } = makeSpan();
   const spawnError = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });

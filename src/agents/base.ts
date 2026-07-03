@@ -36,17 +36,23 @@ export interface CliOptions {
 }
 
 export type CliSpan = Pick<Span, "setAttribute" | "recordException" | "setStatus">;
+type FailureSummary = { stream: "stderr" | "stdout"; text: string };
 
 function clipText(value: string, max = 512): string {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
-function summarizeFailure(r: SpawnSyncReturns<string>): string | undefined {
+function summarizeFailure(r: SpawnSyncReturns<string>): FailureSummary | undefined {
   const stderr = r.stderr?.trim();
-  if (stderr) return clipText(stderr);
+  if (stderr) return { stream: "stderr", text: clipText(stderr) };
   const stdout = r.stdout?.trim();
-  if (stdout) return clipText(stdout);
+  if (stdout) return { stream: "stdout", text: clipText(stdout) };
   return undefined;
+}
+
+function recordFailureExcerpt(span: CliSpan, summary: FailureSummary | undefined): void {
+  if (!summary) return;
+  span.setAttribute(summary.stream === "stderr" ? "cli.stderr_excerpt" : "cli.stdout_excerpt", summary.text);
 }
 
 /**
@@ -63,16 +69,33 @@ export function annotateCliRun(span: CliSpan, bin: string, args: string[], r: Sp
     if (r.status !== 0) {
       const summary = summarizeFailure(r);
       const command = sanitizeArgs([bin, ...args]).join(" ");
-      const message = summary ? `${command} exited with status ${r.status}: ${summary}` : `${command} exited with status ${r.status}`;
+      const message = summary ? `${command} exited with status ${r.status}: ${summary.text}` : `${command} exited with status ${r.status}`;
       span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
       span.setAttribute("exception.slug", "cli-nonzero-exit");
-      if (summary) span.setAttribute("cli.stderr_excerpt", summary);
+      recordFailureExcerpt(span, summary);
       span.recordException(new Error(message));
       span.setStatus({
         code: SpanStatusCode.ERROR,
         message,
       });
     }
+    return;
+  }
+
+  if (r.signal) {
+    const summary = summarizeFailure(r);
+    const command = sanitizeArgs([bin, ...args]).join(" ");
+    const message = summary ? `${command} terminated by signal ${r.signal}: ${summary.text}` : `${command} terminated by signal ${r.signal}`;
+    span.setAttribute("process.exit.code", -1);
+    span.setAttribute("process.exit.signal", r.signal);
+    span.setAttribute("error.type", `SIGNAL_${r.signal}`);
+    span.setAttribute("exception.slug", "cli-signal-exit");
+    recordFailureExcerpt(span, summary);
+    span.recordException(new Error(message));
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message,
+    });
     return;
   }
 

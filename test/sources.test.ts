@@ -213,6 +213,15 @@ test("parseSource strips manifest suffixes for repo-root plugin URLs", () => {
   }
 });
 
+test("parseSource normalizes backslashes in manifest paths from browser URLs", () => {
+  const windowsBlob = parseSource("https://github.com/owner/repo/blob/main/honeycomb\\.claude-plugin\\plugin.json");
+  assert.equal(windowsBlob.kind, "github");
+  if (windowsBlob.kind === "github") {
+    assert.equal(windowsBlob.ref, "main");
+    assert.equal(windowsBlob.path, "honeycomb");
+  }
+});
+
 test("parseSource throws on an unparseable spec", () => {
   assert.throws(() => parseSource("not a valid spec!!"), /cannot parse install source/);
 });

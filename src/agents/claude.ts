@@ -85,10 +85,13 @@ export function writeClaudeCatalog(pluginsDir: string, name: string = claudeMark
 /** Parse `claude plugin marketplace list --json` into configured marketplace names. */
 export function parseClaudeMarketplaceList(out: string): string[] {
   try {
-    const parsed = JSON.parse(out) as Array<{ name?: unknown }>;
+    const parsed = JSON.parse(out) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .map((entry) => (typeof entry?.name === "string" ? entry.name : undefined))
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) return undefined;
+        return typeof entry.name === "string" ? entry.name : undefined;
+      })
       .filter((name): name is string => Boolean(name));
   } catch {
     return [];
