@@ -123,3 +123,22 @@ Repair drift with:
 ```bash
 adg plugins sync --target <runtime> <plugin-name> --global
 ```
+
+## Persistent Disablement
+
+Use store-level disablement when a plugin should remain installed and updateable
+without being loaded by any runtime:
+
+```bash
+adg plugins disable <plugin-name> --global
+adg plugins enable <plugin-name> --global
+```
+
+`disable` keeps the payload and marketplace catalog entry in ADG's store, records
+the desired state in `.plugin-lock.json`, and removes the plugin from every
+registered runtime. `enable` restores disabled dependencies first, regenerates
+runtime projections, and activates the plugin in each compatible runtime.
+
+`unlink --target <runtime>` is different: it is a temporary per-runtime override
+and does not change store state. A later `sync` restores the store's enabled or
+disabled state. `remove` deletes the payload and catalog entry entirely.

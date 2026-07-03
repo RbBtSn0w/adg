@@ -49,7 +49,7 @@ test("renderContents expands each component type to its members", () => {
   assert.ok(!text.includes("commands"), "empty component types are skipped");
 });
 
-function listed(name: string, contents: Partial<Record<string, string[]>>): ListedPlugin {
+function listed(name: string, contents: Partial<Record<string, string[]>>, state?: "enabled" | "disabled"): ListedPlugin {
   return {
     name,
     version: "1.0.0",
@@ -57,6 +57,7 @@ function listed(name: string, contents: Partial<Record<string, string[]>>): List
     folderHash: "sha256-0123456789abcdef0123",
     installedAt: "2026-06-11T00:00:00Z",
     updatedAt: "2026-06-11T00:00:00Z",
+    ...(state ? { state } : {}),
     contents: { skills: [], agents: [], commands: [], mcp: [], hooks: [], apps: [], ...contents },
   } as ListedPlugin;
 }
@@ -83,6 +84,17 @@ test("renderPluginList --verbose drills into members", () => {
   assert.ok(verbose.join("\n").includes("s1"), "member name listed");
 });
 
+test("renderPluginList groups enabled and disabled plugins", () => {
+  const text = renderPluginList([
+    listed("alpha", { skills: ["s1"] }),
+    listed("beta", { skills: ["s2"] }, "disabled"),
+  ], "/store").map(stripAnsi).join("\n");
+  assert.match(text, /Enabled/);
+  assert.match(text, /Disabled/);
+  assert.ok(text.indexOf("alpha@1.0.0") < text.indexOf("Disabled"));
+  assert.ok(text.indexOf("Disabled") < text.indexOf("beta@1.0.0"));
+});
+
 test("pluginsListJson emits stable machine fields without human formatting", () => {
   const out = pluginsListJson([listed("alpha", { skills: ["s1"], mcp: ["xcode"] })], "/store");
   assert.equal(out.pluginsDir, "/store");
@@ -94,6 +106,7 @@ test("pluginsListJson emits stable machine fields without human formatting", () 
   assert.equal(out.plugins[0]!.counts.mcp, 1);
   assert.deepEqual(out.plugins[0]!.agents.sort(), ["antigravity", "claude", "codex"]);
   assert.equal(out.plugins[0]!.partial, false);
+  assert.equal(out.plugins[0]!.state, "enabled");
 });
 
 test("pluginsListJson represents an empty store as an empty array", () => {
@@ -102,7 +115,7 @@ test("pluginsListJson represents an empty store as an empty array", () => {
 
 test("pluginsStatusJson preserves status arrays and scope metadata", () => {
   const statuses: AgentStatus[] = [
-    { id: "claude", displayName: "Claude Code", queryable: true, inSync: ["alpha"], missing: [], agentOnly: ["beta"] },
+    { id: "claude", displayName: "Claude Code", queryable: true, inSync: ["alpha"], missing: [], agentOnly: ["beta"], disabled: [], unexpectedlyEnabled: [] },
   ];
   assert.deepEqual(pluginsStatusJson(statuses, "/store", "user", ["claude"]), {
     pluginsDir: "/store",
@@ -122,12 +135,31 @@ test("renderStatus explains a failed live query and shows its recovery command",
     inSync: [],
     missing: [],
     agentOnly: [],
+    disabled: [],
+    unexpectedlyEnabled: [],
   }];
 
   const text = renderStatus(statuses).map(stripAnsi).join("\n");
   assert.match(text, /failed to load marketplace adg-deadbeef/);
   assert.match(text, /codex plugin marketplace remove adg-deadbeef/);
   assert.doesNotMatch(text, /agent CLI not available/);
+});
+
+test("renderStatus shows disabled state and cleanup for unexpected activation", () => {
+  const statuses: AgentStatus[] = [{
+    id: "codex",
+    displayName: "Codex",
+    queryable: true,
+    inSync: [],
+    missing: [],
+    agentOnly: [],
+    disabled: ["alpha"],
+    unexpectedlyEnabled: ["beta"],
+  }];
+  const text = renderStatus(statuses).map(stripAnsi).join("\n");
+  assert.match(text, /disabled \(1\): alpha/);
+  assert.match(text, /unexpectedly enabled \(1\): beta/);
+  assert.match(text, /adg plugins sync --target codex beta/);
 });
 
 test("renderMarketplaceList groups by source and tags local sources", () => {

@@ -163,6 +163,20 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     positional: "<name>  an installed plugin name (see `adg plugins list`)",
     flags: ["force", ...SCOPE],
   },
+  disable: {
+    summary: "disable plugins across every runtime (store kept)",
+    synopsis: "adg plugins disable <name...>",
+    positional: "<name...>  installed plugin names (see `adg plugins list`)",
+    blurb: "Keep plugin payloads in the ADG store while removing their projections\nfrom every registered agent. Disabled state survives update and sync.",
+    flags: [...SCOPE],
+  },
+  enable: {
+    summary: "enable stored plugins across every runtime",
+    synopsis: "adg plugins enable <name...>",
+    positional: "<name...>  installed plugin names (see `adg plugins list`)",
+    blurb: "Restore disabled plugins and their dependencies from the ADG store,\nregenerate projections, and activate them in every compatible agent.",
+    flags: [...SCOPE],
+  },
   init: {
     summary: "scaffold a new plugin or marketplace (.agents/ only)",
     synopsis: "adg plugins init <name> [--type plugin|marketplace|all]",
@@ -306,7 +320,7 @@ Scope (most commands):  --project (default) | --global | --dir <dir>
   --global honors XDG_STATE_HOME / ADG_PLUGINS_HOME. Only the plugins/ subtree is
   touched; AGENTS.md and skills/ are never modified.
   Mutating verbs ask project/global in a terminal when no scope flag is given.
-  sync/link/unlink/remove/migrate/import-skills require one in a non-interactive
+  sync/link/unlink/enable/disable/remove/migrate/import-skills require one in a non-interactive
   run (rather than assuming project); add/update fall back to a safe default. A
   project store that resolves to the global path is auto-promoted to global.`;
 }

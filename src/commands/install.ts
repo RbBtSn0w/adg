@@ -14,7 +14,7 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
 import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
-import { sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
+import { pluginState, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
@@ -132,6 +132,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     entry.dependencies = Object.fromEntries(manifest.dependencies.map((d) => [d.name, d.version]));
   }
   if (selection) entry.selection = selection;
+  if (prev?.state) entry.state = prev.state;
   upsertEntry(lock, name, entry, opts.now);
   writeLock(lockFile, lock);
 
@@ -523,7 +524,9 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     // path) only re-activate plugins that actually changed — re-running an agent
     // CLI for an untouched plugin is wasted work.
     let agents: AgentSyncResult[] | undefined;
-    const toActivate = opts.skipUnchanged ? installed.filter((r) => r.changed) : installed;
+    const updatedLock = readLock(lockPath(opts.pluginsDir));
+    const eligible = installed.filter((result) => pluginState(updatedLock.plugins[result.name]!) === "enabled");
+    const toActivate = opts.skipUnchanged ? eligible.filter((r) => r.changed) : eligible;
     if (opts.activate && toActivate.length > 0) {
       const resolved = opts.agents ?? resolveAgents(targets);
       const scope = opts.scope ?? "project";

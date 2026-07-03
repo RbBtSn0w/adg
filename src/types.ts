@@ -76,6 +76,8 @@ export interface PluginSelection {
   skills?: string[];
 }
 
+export type PluginState = "enabled" | "disabled";
+
 export interface LockEntry {
   /** Upstream provenance the plugin was installed from. */
   origin: PluginSource;
@@ -87,6 +89,12 @@ export interface LockEntry {
   dependencies?: Record<string, string>;
   /** Partial-install selection; absent means the whole plugin is exposed. */
   selection?: PluginSelection;
+  /** Desired cross-agent projection state. Absent in legacy v2 locks means enabled. */
+  state?: PluginState;
+}
+
+export function pluginState(entry?: LockEntry | null): PluginState {
+  return entry?.state ?? "enabled";
 }
 
 export interface PluginLock {

@@ -234,6 +234,15 @@ test("runPlugins <verb> -h prints that verb's help", async () => {
   assert.equal(out, renderVerbHelp("add"));
 });
 
+test("plugins help exposes store-level enable and disable commands without target flags", () => {
+  const disable = renderVerbHelp("disable");
+  const enable = renderVerbHelp("enable");
+  assert.match(disable, /adg plugins disable <name\.\.\.>/);
+  assert.match(enable, /adg plugins enable <name\.\.\.>/);
+  assert.doesNotMatch(disable, /--target/);
+  assert.doesNotMatch(enable, /--target/);
+});
+
 test("runPlugins list --json prints parseable JSON only", async () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-cli-json-store-"));
   try {

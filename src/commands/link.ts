@@ -4,6 +4,7 @@ import { selectInstalled } from "./projection.ts";
 import { installedPluginDir } from "../paths.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
+import { pluginState } from "../types.ts";
 
 /** A single runtime to link into. Any registered adapter target (claude/codex/antigravity). */
 export type LinkTarget = AdapterTarget;
@@ -45,8 +46,15 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
   const agent = opts.agent ?? getAgent(opts.target);
   const adaptTarget = agent?.adaptTarget ?? opts.target;
 
+  const selected = selectInstalled(opts.pluginsDir, opts.names);
+  const disabled = selected.filter((p) => pluginState(p) === "disabled");
+  if (opts.names && disabled.length > 0) {
+    const names = disabled.map((p) => p.name);
+    throw new Error(`disabled plugin(s): ${names.join(", ")}. Run \`adg plugins enable ${names.join(" ")}\`.`);
+  }
+  const enabled = selected.filter((p) => pluginState(p) === "enabled");
   const actions: LinkAction[] = [];
-  for (const p of selectInstalled(opts.pluginsDir, opts.names)) {
+  for (const p of enabled) {
     const dir = installedPluginDir(opts.pluginsDir, p.name, p.origin);
     if (!existsSync(dir)) continue;
     const adapted = adaptPlugin(dir, [adaptTarget], p.selection).map((r) => r.file);
@@ -54,6 +62,7 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
   }
 
   if (!agent) return { target: opts.target, actions };
+  if (actions.length === 0) return { target: opts.target, actions };
 
   const res = agent.activate({
     pluginsDir: opts.pluginsDir,

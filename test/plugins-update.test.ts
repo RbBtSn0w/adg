@@ -9,7 +9,7 @@ import { addPlugins } from "../src/commands/install.ts";
 import type { GitRunner } from "../src/sources.ts";
 import type { Agent } from "../src/agents/index.ts";
 import { updatePlugins } from "../src/commands/marketplace.ts";
-import { readLock } from "../src/lock.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
 
 /** A fake codex agent that records every activate() call it receives. */
@@ -159,6 +159,36 @@ test("updatePlugins does not re-activate agents for unchanged plugins, but does 
       agents: [recordingAgent("codex", busy)],
     });
     assert.deepEqual(busy, [{ id: "codex", plugins: ["sales"] }], "only the changed plugin is re-activated");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins updates disabled payload without activating it", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    const lock = readLock(lockPath(pluginsDir));
+    lock.plugins.sales!.state = "disabled";
+    writeLock(lockPath(pluginsDir), lock);
+
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgent("codex", calls)],
+    });
+
+    assert.deepEqual(result.remote[0]!.updated, ["sales"]);
+    assert.equal(readLock(lockPath(pluginsDir)).plugins.sales!.state, "disabled");
+    assert.deepEqual(calls, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
