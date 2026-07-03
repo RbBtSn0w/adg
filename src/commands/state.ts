@@ -50,8 +50,8 @@ function enableOrder(lock: PluginLock, roots: string[]): string[] {
   return order;
 }
 
-function pluginAgentIds(pluginsDir: string, name: string): Set<string> {
-  const plugin = listPlugins(pluginsDir).find((item) => item.name === name);
+function pluginAgentIds(plugins: ReturnType<typeof listPlugins>, name: string): Set<string> {
+  const plugin = plugins.find((item) => item.name === name);
   const types = Object.entries(plugin?.contents ?? {})
     .filter(([, members]) => members.length > 0)
     .map(([type]) => type as ComponentType);
@@ -80,13 +80,15 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
   for (const name of order) lock.plugins[name]!.state = "enabled";
   if (changed.length > 0) writeLock(lockPath(opts.pluginsDir), lock);
 
+  const plugins = listPlugins(opts.pluginsDir);
   const agents = (opts.agents ?? resolveAgents()).map((agent) => {
-    const compatible = order.filter((name) => pluginAgentIds(opts.pluginsDir, name).has(agent.id));
+    const compatible = changed.filter((name) => pluginAgentIds(plugins, name).has(agent.id));
     for (const name of compatible) {
       const entry = lock.plugins[name]!;
       const dir = installedPluginDir(opts.pluginsDir, name, entry.origin);
       if (existsSync(dir)) adaptPlugin(dir, [agent.adaptTarget], entry.selection);
     }
+    if (compatible.length === 0) return { agent: agent.id, affected: [], skipped: false };
     return agent.activate({ pluginsDir: opts.pluginsDir, plugins: compatible, scope: opts.scope });
   });
   return { state: "enabled", order, changed, agents };

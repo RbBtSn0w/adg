@@ -56,15 +56,26 @@ function tmp(): string {
 }
 
 /** Install a named plugin (one skill) into the store. */
-function seed(store: string, name: string): void {
+function seed(store: string, name: string, kind: "skills" | "apps" = "skills"): void {
   const src = tmp();
   mkdirSync(join(src, ".adg-plugin"), { recursive: true });
   writeFileSync(
     join(src, ".adg-plugin", "plugin.json"),
-    JSON.stringify({ schemaVersion: ADG_SCHEMA_VERSION, name, version: "0.1.0", description: `${name}.`, skills: "./skills/" }),
+    JSON.stringify({
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name,
+      version: "0.1.0",
+      description: `${name}.`,
+      ...(kind === "skills" ? { skills: "./skills/" } : { apps: "./apps/" }),
+    }),
   );
-  mkdirSync(join(src, "skills", "hello"), { recursive: true });
-  writeFileSync(join(src, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: hi.\n---\n");
+  if (kind === "skills") {
+    mkdirSync(join(src, "skills", "hello"), { recursive: true });
+    writeFileSync(join(src, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: hi.\n---\n");
+  } else {
+    mkdirSync(join(src, "apps"), { recursive: true });
+    writeFileSync(join(src, "apps", "hello.js"), "export default {};\n");
+  }
   installPlugin({ source: src, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
   rmSync(src, { recursive: true });
 }
@@ -200,6 +211,23 @@ test("link rejects a disabled plugin and points to enable", () => {
     () => linkPlugins({ pluginsDir: store, target: "codex", names: ["alpha"], agent: fakeAgent("codex", recorder()) }),
     /adg plugins enable alpha/,
   );
+  rmSync(work, { recursive: true });
+});
+
+test("link without names skips disabled plugins and links enabled ones", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  seed(store, "beta");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.alpha!.state = "disabled";
+  writeLock(join(store, ".plugin-lock.json"), lock);
+
+  const rec = recorder();
+  const res = linkPlugins({ pluginsDir: store, target: "codex", agent: fakeAgent("codex", rec) });
+
+  assert.deepEqual(res.actions.map((a) => a.name), ["beta"]);
+  assert.deepEqual(rec.activate.map((c) => c.plugins), [["beta"]]);
   rmSync(work, { recursive: true });
 });
 

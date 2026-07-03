@@ -33,7 +33,7 @@ function agent(id: "codex" | "claude", calls: Calls, available = true): Agent {
   };
 }
 
-function seed(store: string, name: string, dependencies: string[] = []): void {
+function seed(store: string, name: string, dependencies: string[] = [], kind: "skills" | "apps" = "skills"): void {
   const src = join(tmp(), name);
   mkdirSync(join(src, ".agents"), { recursive: true });
   writeFileSync(join(src, ".agents", ".plugin.json"), JSON.stringify({
@@ -41,11 +41,16 @@ function seed(store: string, name: string, dependencies: string[] = []): void {
     name,
     version: "1.0.0",
     description: `${name}.`,
-    skills: "./skills/",
+    ...(kind === "skills" ? { skills: "./skills/" } : { apps: "./apps/" }),
     ...(dependencies.length ? { dependencies: dependencies.map((dependency) => ({ name: dependency, version: "1.0.0" })) } : {}),
   }));
-  mkdirSync(join(src, "skills", "hello"), { recursive: true });
-  writeFileSync(join(src, "skills", "hello", "SKILL.md"), "# hello\n");
+  if (kind === "skills") {
+    mkdirSync(join(src, "skills", "hello"), { recursive: true });
+    writeFileSync(join(src, "skills", "hello", "SKILL.md"), "# hello\n");
+  } else {
+    mkdirSync(join(src, "apps"), { recursive: true });
+    writeFileSync(join(src, "apps", "hello.js"), "export default {};\n");
+  }
   installPlugin({ source: src, pluginsDir: store, now: "2026-07-03T00:00:00Z" });
 }
 
@@ -62,6 +67,11 @@ test("legacy lock entries default to enabled and reinstall preserves disabled", 
   lock = readLock(join(store, ".plugin-lock.json"));
   assert.equal(lock.plugins.alpha!.state, "disabled");
   rmSync(work, { recursive: true });
+});
+
+test("pluginState defaults missing entries to enabled", () => {
+  assert.equal(pluginState(undefined), "enabled");
+  assert.equal(pluginState(null), "enabled");
 });
 
 test("disable persists desired state, keeps payload and catalog, and deactivates every agent", () => {
@@ -125,5 +135,30 @@ test("enable restores disabled dependencies in dependency-first order and activa
   const updated = readLock(join(store, ".plugin-lock.json"));
   assert.equal(pluginState(updated.plugins.base!), "enabled");
   assert.equal(pluginState(updated.plugins.consumer!), "enabled");
+  rmSync(work, { recursive: true });
+});
+
+test("enable skips activate for agents with no compatible changed plugins", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "claude-only", [], "apps");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins["claude-only"]!.state = "disabled";
+  writeFileSync(join(store, ".plugin-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+  const calls: Calls = { activate: [], deactivate: [] };
+
+  const result = enablePlugins({
+    pluginsDir: store,
+    names: ["claude-only"],
+    scope: "project",
+    agents: [agent("codex", calls), agent("claude", calls)],
+  });
+
+  assert.deepEqual(result.changed, ["claude-only"]);
+  assert.deepEqual(calls.activate, [["claude-only"]]);
+  assert.deepEqual(result.agents.map((entry) => [entry.agent, entry.affected]), [
+    ["codex", []],
+    ["claude", ["claude-only"]],
+  ]);
   rmSync(work, { recursive: true });
 });

@@ -47,12 +47,14 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
   const adaptTarget = agent?.adaptTarget ?? opts.target;
 
   const selected = selectInstalled(opts.pluginsDir, opts.names);
-  const disabled = selected.filter((p) => pluginState(p) === "disabled").map((p) => p.name);
-  if (disabled.length > 0) {
-    throw new Error(`disabled plugin(s): ${disabled.join(", ")}. Run \`adg plugins enable ${disabled.join(" ")}\`.`);
+  const disabled = selected.filter((p) => pluginState(p) === "disabled");
+  if (opts.names && disabled.length > 0) {
+    const names = disabled.map((p) => p.name);
+    throw new Error(`disabled plugin(s): ${names.join(", ")}. Run \`adg plugins enable ${names.join(" ")}\`.`);
   }
+  const enabled = selected.filter((p) => pluginState(p) === "enabled");
   const actions: LinkAction[] = [];
-  for (const p of selected) {
+  for (const p of enabled) {
     const dir = installedPluginDir(opts.pluginsDir, p.name, p.origin);
     if (!existsSync(dir)) continue;
     const adapted = adaptPlugin(dir, [adaptTarget], p.selection).map((r) => r.file);
@@ -60,6 +62,7 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
   }
 
   if (!agent) return { target: opts.target, actions };
+  if (actions.length === 0) return { target: opts.target, actions };
 
   const res = agent.activate({
     pluginsDir: opts.pluginsDir,

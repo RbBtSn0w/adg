@@ -93,8 +93,8 @@ export interface LockEntry {
   state?: PluginState;
 }
 
-export function pluginState(entry: LockEntry): PluginState {
-  return entry.state ?? "enabled";
+export function pluginState(entry?: LockEntry | null): PluginState {
+  return entry?.state ?? "enabled";
 }
 
 export interface PluginLock {
