@@ -1,3 +1,9 @@
+## [0.5.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.4...0.5.0-beta.5) (2026-07-03)
+
+### Fixed
+
+* make Claude marketplace sync fail open ([#50](https://github.com/RbBtSn0w/adg/issues/50)) ([6047d74](https://github.com/RbBtSn0w/adg/commit/6047d74f38edaf40395328cfe3920b41e8f10a54))
+
 ## [0.5.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.3...0.5.0-beta.4) (2026-07-03)
 
 ### Added
