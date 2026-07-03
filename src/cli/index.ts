@@ -257,6 +257,7 @@ plugin sets — and adapt each to both Claude and Codex runtimes from one manife
 Quick start:
   adg plugins add <owner/repo>     install plugins from a source (guided in a terminal)
   adg plugins list                 see what's installed
+  adg update                       upgrade the ADG CLI itself
 
 Two domains:
   adg plugins <verb>    manage plugins   (run \`adg plugins -h\`)

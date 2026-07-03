@@ -10,6 +10,7 @@ import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import {
   MARKETPLACE_USAGE,
   PLUGIN_COMMANDS,
+  TOP_USAGE,
   parseVerb,
   renderPluginsHelp,
   renderVerbHelp,
@@ -227,6 +228,11 @@ function seedPlugin(store: string, name: string): void {
 test("runPlugins with no verb prints the L1 overview", async () => {
   const out = await captureLog(() => runPlugins(undefined, []));
   assert.equal(out, renderPluginsHelp());
+});
+
+test("top-level usage advertises adg update", () => {
+  assert.match(TOP_USAGE, /adg update/);
+  assert.match(MARKETPLACE_USAGE, /adg plugins update/);
 });
 
 test("runPlugins <verb> -h prints that verb's help", async () => {
