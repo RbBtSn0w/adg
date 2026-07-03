@@ -392,13 +392,14 @@ function reconcileRemotePlugins(
   opts: AddOptions,
   parsed: ReturnType<typeof parseSource>,
   ref: string | undefined,
+  narrowed: boolean,
   desired: Set<string>,
 ): string[] {
   if (parsed.kind === "local") return [];
   // A path/sparse install does not prove the full source shape, so it must not
   // prune sibling plugins from the same repo that were intentionally excluded
   // from the checkout/selection window.
-  if (opts.path || opts.sparse?.length) return [];
+  if (narrowed || opts.sparse?.length) return [];
 
   const lock = readLock(lockPath(opts.pluginsDir));
   const stale = Object.entries(lock.plugins)
@@ -435,6 +436,8 @@ function reconcileRemotePlugins(
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   const parsed = parseSource(opts.spec);
   const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
+  const inferredPath = parsed.kind === "github" ? parsed.path : undefined;
+  const path = opts.path ?? inferredPath;
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
   let cleanup: (() => void) | undefined;
@@ -463,7 +466,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       );
     }
 
-    const selected = await selectPluginNames(opts, candidates, workRoot, converted);
+    const selected = await selectPluginNames({ ...opts, path }, candidates, workRoot, converted);
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -475,7 +478,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       // upstream: don't abort — return what the source still offers so the
       // caller can report the deletions.
       if (opts.missingPlugins === "skip") {
-        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(selected));
+        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(selected));
         return { order: [], installed: [], removed, converted, available };
       }
       throw new Error("no plugins selected");
@@ -496,7 +499,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         }
       }
     }
-    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
+    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(order));
 
     // Snapshot which plugins already existed before this call mutates the lock,
     // so the activation step below can tell brand-new installs from updates.

@@ -82,10 +82,26 @@ export function writeClaudeCatalog(pluginsDir: string, name: string = claudeMark
   return { file, name };
 }
 
-/** Register the ADG store as a Claude marketplace (add, or update if present). */
+/** Parse `claude plugin marketplace list --json` into configured marketplace names. */
+export function parseClaudeMarketplaceList(out: string): string[] {
+  try {
+    const parsed = JSON.parse(out) as Array<{ name?: unknown }>;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => (typeof entry?.name === "string" ? entry.name : undefined))
+      .filter((name): name is string => Boolean(name));
+  } catch {
+    return [];
+  }
+}
+
+/** Register the ADG store as a Claude marketplace without an expected-failure fallback. */
 function syncMarketplace(pluginsDir: string, name: string): void {
-  const update = run(["plugin", "marketplace", "update", name]);
-  if (!update.ok) run(["plugin", "marketplace", "add", pluginsDir]);
+  const listed = run(["plugin", "marketplace", "list", "--json"]);
+  if (listed.ok && parseClaudeMarketplaceList(listed.out).includes(name)) {
+    if (run(["plugin", "marketplace", "update", name]).ok) return;
+  }
+  run(["plugin", "marketplace", "add", pluginsDir]);
 }
 
 export const claudeAgent: Agent = {

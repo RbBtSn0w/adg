@@ -13,6 +13,8 @@ export interface GitHubSource {
   owner: string;
   repo: string;
   ref?: string;
+  /** Optional subdirectory inferred from a browser URL to a plugin manifest or folder. */
+  path?: string;
   sourceUrl: string;
 }
 
@@ -25,6 +27,20 @@ export type ParsedSource = GitHubSource | LocalSource;
 
 const GH_SHORTHAND = /^([\w.-]+)\/([\w.-]+?)(?:@(.+))?$/;
 const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:@(.+))?$/;
+const GH_BLOB_URL = /^(?:https?:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/(?:blob|tree)\/([^/]+)\/(.+)$/;
+
+function stripKnownManifestSuffix(path: string): string {
+  const suffixes = [
+    "/.agents/.plugin.json",
+    "/.claude-plugin/plugin.json",
+    "/.codex-plugin/plugin.json",
+    "/.adg-plugin/plugin.json",
+  ];
+  for (const suffix of suffixes) {
+    if (path.endsWith(suffix)) return path.slice(0, -suffix.length);
+  }
+  return path;
+}
 
 /**
  * Parse an install spec into a local directory or a GitHub source.
@@ -35,12 +51,19 @@ const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]
 export function parseSource(spec: string): ParsedSource {
   if (existsSync(spec)) return { kind: "local", dir: spec };
 
-  const url = spec.match(GH_URL);
+  const clean = spec.replace(/[?#].*$/, "");
+  const blob = clean.match(GH_BLOB_URL);
+  if (blob) {
+    const [, owner, repo, ref, path] = blob;
+    return { ...gh(owner!, repo!, ref), path: stripKnownManifestSuffix(path!) };
+  }
+
+  const url = clean.match(GH_URL);
   if (url) {
     const [, owner, repo, ref] = url;
     return gh(owner!, repo!, ref);
   }
-  const short = spec.match(GH_SHORTHAND);
+  const short = clean.match(GH_SHORTHAND);
   if (short) {
     const [, owner, repo, ref] = short;
     return gh(owner!, repo!, ref);
