@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseClaudePluginList } from "../src/agents/claude.ts";
+import { parseClaudeMarketplaceList, parseClaudePluginList } from "../src/agents/claude.ts";
 import { codexListFailure, parseCodexPluginList } from "../src/agents/codex.ts";
 
 /**
@@ -52,6 +52,20 @@ test("parseClaudePluginList excludes a disabled plugin", () => {
 
 test("parseClaudePluginList returns nothing for an unknown marketplace", () => {
   assert.deepEqual(parseClaudePluginList(CLAUDE_OUT, "nope", "project"), []);
+});
+
+test("parseClaudeMarketplaceList extracts marketplace names from json", () => {
+  const out = JSON.stringify([
+    { name: "adg", source: "directory" },
+    { name: "claude-plugins-official", source: "github" },
+    null,
+    { source: "directory" },
+  ]);
+  assert.deepEqual(parseClaudeMarketplaceList(out), ["adg", "claude-plugins-official"]);
+});
+
+test("parseClaudeMarketplaceList returns an empty list for invalid json", () => {
+  assert.deepEqual(parseClaudeMarketplaceList("not json"), []);
 });
 
 // ---- Codex: a `<name>@mp  STATUS  VERSION  PATH` table ----

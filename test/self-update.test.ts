@@ -5,6 +5,7 @@ import {
   parseSelfUpdateArgs,
   selfUpdateCommand,
   selfUpdateHint,
+  selfUpdateSpawnOptions,
   selfUpdateTarget,
   SELF_UPDATE_USAGE,
 } from "../src/self-update.ts";
@@ -40,9 +41,18 @@ test("selfUpdateCommand builds the npm install invocation", () => {
   });
 });
 
+test("selfUpdateSpawnOptions enables shell on Windows only", () => {
+  assert.deepEqual(selfUpdateSpawnOptions("win32"), { stdio: "inherit", shell: true });
+  assert.deepEqual(selfUpdateSpawnOptions("darwin"), { stdio: "inherit", shell: false });
+});
+
 test("selfUpdateHint maps stable and beta notices to adg update commands", () => {
   assert.equal(selfUpdateHint("1.0.0"), "adg update");
   assert.equal(selfUpdateHint("1.0.0-beta.2"), "adg update --beta");
+  assert.equal(
+    selfUpdateHint("1.0.0-alpha.1"),
+    "npm install -g @rbbtsn0w/adg@1.0.0-alpha.1",
+  );
 });
 
 test("SELF_UPDATE_USAGE documents both stable and beta forms", () => {

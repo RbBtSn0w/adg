@@ -36,8 +36,15 @@ export function selfUpdateCommand(beta: boolean, npmBin = "npm"): { command: str
   };
 }
 
+export function selfUpdateSpawnOptions(platform: NodeJS.Platform = process.platform): { stdio: "inherit"; shell: boolean } {
+  return { stdio: "inherit", shell: platform === "win32" };
+}
+
 export function selfUpdateHint(latestVersion: string): string {
-  return prereleaseChannel(latestVersion) ? "adg update --beta" : "adg update";
+  const channel = prereleaseChannel(latestVersion);
+  if (channel === "beta") return "adg update --beta";
+  if (channel) return `npm install -g ${PACKAGE_NAME}@${latestVersion}`;
+  return "adg update";
 }
 
 export const SELF_UPDATE_USAGE = `adg update — upgrade the ADG CLI

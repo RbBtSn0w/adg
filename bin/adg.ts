@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { selfUpdateCommand, parseSelfUpdateArgs, SELF_UPDATE_USAGE } from "../src/self-update.ts";
+import { selfUpdateCommand, parseSelfUpdateArgs, SELF_UPDATE_USAGE, selfUpdateSpawnOptions } from "../src/self-update.ts";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
 import { TOP_USAGE, fail } from "../src/cli/index.ts";
@@ -73,7 +73,11 @@ function runSelfUpdate(args: string[]): number {
     return 0;
   }
   const command = selfUpdateCommand(options.beta);
-  const r = spawnSync(command.command, command.args, { stdio: "inherit" });
+  const r = spawnSync(command.command, command.args, selfUpdateSpawnOptions());
+  if (r.error) {
+    console.error(r.error.message);
+    return 1;
+  }
   return r.status ?? 1;
 }
 

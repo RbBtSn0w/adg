@@ -170,6 +170,58 @@ test("parseSource handles no-ref shorthand, ssh url and .git normalization", () 
   }
 });
 
+test("parseSource accepts GitHub blob/tree URLs and infers a plugin subdir", () => {
+  const blob = parseSource("https://github.com/owner/repo/blob/main/honeycomb/.claude-plugin/plugin.json");
+  assert.equal(blob.kind, "github");
+  if (blob.kind === "github") {
+    assert.equal(blob.source, "owner/repo");
+    assert.equal(blob.ref, "main");
+    assert.equal(blob.path, "honeycomb");
+  }
+
+  const tree = parseSource("https://github.com/owner/repo/tree/v1.2.3/honeycomb");
+  assert.equal(tree.kind, "github");
+  if (tree.kind === "github") {
+    assert.equal(tree.source, "owner/repo");
+    assert.equal(tree.ref, "v1.2.3");
+    assert.equal(tree.path, "honeycomb");
+  }
+});
+
+test("parseSource decodes browser-encoded GitHub blob/tree refs and paths", () => {
+  const blob = parseSource("https://github.com/owner/repo/blob/feature%2Fbranch/my%20plugin/.agents/.plugin.json");
+  assert.equal(blob.kind, "github");
+  if (blob.kind === "github") {
+    assert.equal(blob.ref, "feature/branch");
+    assert.equal(blob.path, "my plugin");
+  }
+
+  const tree = parseSource("https://github.com/owner/repo/tree/release%2Fbeta/plugins%20dir");
+  assert.equal(tree.kind, "github");
+  if (tree.kind === "github") {
+    assert.equal(tree.ref, "release/beta");
+    assert.equal(tree.path, "plugins dir");
+  }
+});
+
+test("parseSource strips manifest suffixes for repo-root plugin URLs", () => {
+  const root = parseSource("https://github.com/owner/repo/blob/main/.agents/.plugin.json");
+  assert.equal(root.kind, "github");
+  if (root.kind === "github") {
+    assert.equal(root.ref, "main");
+    assert.equal(root.path, "");
+  }
+});
+
+test("parseSource normalizes backslashes in manifest paths from browser URLs", () => {
+  const windowsBlob = parseSource("https://github.com/owner/repo/blob/main/honeycomb\\.claude-plugin\\plugin.json");
+  assert.equal(windowsBlob.kind, "github");
+  if (windowsBlob.kind === "github") {
+    assert.equal(windowsBlob.ref, "main");
+    assert.equal(windowsBlob.path, "honeycomb");
+  }
+});
+
 test("parseSource throws on an unparseable spec", () => {
   assert.throws(() => parseSource("not a valid spec!!"), /cannot parse install source/);
 });
@@ -288,6 +340,40 @@ test("github add (injected clone) records github provenance", async () => {
   const bucket = join(store, "RbBtSn0w__plugins");
   assert.ok(existsSync(join(bucket, "asc", ".agents", ".plugin.json")));
   assert.ok(existsSync(join(bucket, "github-cr", ".agents", ".plugin.json")));
+  rmSync(work, { recursive: true });
+});
+
+test("github add accepts a blob URL to a native manifest and installs the containing plugin", async () => {
+  const work = tmp();
+  const remote = join(work, "remote");
+  const pluginRoot = join(remote, "honeycomb");
+  mkdirSync(join(pluginRoot, ".agents"), { recursive: true });
+  writeFileSync(
+    join(pluginRoot, ".agents", ".plugin.json"),
+    JSON.stringify({
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "honeycomb",
+      version: "1.0.0",
+      description: "Honeycomb plugin.",
+    }),
+  );
+
+  const gitRunner: GitRunner = (args) => {
+    const dest = args[args.length - 1]!;
+    cpSync(remote, dest, { recursive: true });
+  };
+
+  const store = join(work, "store");
+  const { order, installed } = await addPlugins({
+    spec: "https://github.com/owner/repo/blob/main/honeycomb/.agents/.plugin.json",
+    pluginsDir: store,
+    gitRunner,
+    now: "2026-06-11T00:00:00Z",
+  });
+
+  assert.deepEqual(order, ["honeycomb"]);
+  assert.equal(installed.length, 1);
+  assert.ok(existsSync(join(installed[0]!.installedTo, ".agents", ".plugin.json")));
   rmSync(work, { recursive: true });
 });
 
