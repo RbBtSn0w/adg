@@ -90,7 +90,8 @@ export function parseClaudeMarketplaceList(out: string): string[] {
     return parsed
       .map((entry) => {
         if (typeof entry !== "object" || entry === null) return undefined;
-        return typeof entry.name === "string" ? entry.name : undefined;
+        const name = (entry as Record<string, unknown>)["name"];
+        return typeof name === "string" ? name : undefined;
       })
       .filter((name): name is string => Boolean(name));
   } catch {
