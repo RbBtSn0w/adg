@@ -188,6 +188,31 @@ test("parseSource accepts GitHub blob/tree URLs and infers a plugin subdir", () 
   }
 });
 
+test("parseSource decodes browser-encoded GitHub blob/tree refs and paths", () => {
+  const blob = parseSource("https://github.com/owner/repo/blob/feature%2Fbranch/my%20plugin/.agents/.plugin.json");
+  assert.equal(blob.kind, "github");
+  if (blob.kind === "github") {
+    assert.equal(blob.ref, "feature/branch");
+    assert.equal(blob.path, "my plugin");
+  }
+
+  const tree = parseSource("https://github.com/owner/repo/tree/release%2Fbeta/plugins%20dir");
+  assert.equal(tree.kind, "github");
+  if (tree.kind === "github") {
+    assert.equal(tree.ref, "release/beta");
+    assert.equal(tree.path, "plugins dir");
+  }
+});
+
+test("parseSource strips manifest suffixes for repo-root plugin URLs", () => {
+  const root = parseSource("https://github.com/owner/repo/blob/main/.agents/.plugin.json");
+  assert.equal(root.kind, "github");
+  if (root.kind === "github") {
+    assert.equal(root.ref, "main");
+    assert.equal(root.path, "");
+  }
+});
+
 test("parseSource throws on an unparseable spec", () => {
   assert.throws(() => parseSource("not a valid spec!!"), /cannot parse install source/);
 });

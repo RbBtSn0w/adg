@@ -31,15 +31,24 @@ const GH_BLOB_URL = /^(?:https?:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)
 
 function stripKnownManifestSuffix(path: string): string {
   const suffixes = [
-    "/.agents/.plugin.json",
-    "/.claude-plugin/plugin.json",
-    "/.codex-plugin/plugin.json",
-    "/.adg-plugin/plugin.json",
+    ".agents/.plugin.json",
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".adg-plugin/plugin.json",
   ];
   for (const suffix of suffixes) {
-    if (path.endsWith(suffix)) return path.slice(0, -suffix.length);
+    if (path === suffix) return "";
+    if (path.endsWith(`/${suffix}`)) return path.slice(0, -(suffix.length + 1));
   }
   return path;
+}
+
+function decodeGitHubUrlPart(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**
@@ -55,7 +64,9 @@ export function parseSource(spec: string): ParsedSource {
   const blob = clean.match(GH_BLOB_URL);
   if (blob) {
     const [, owner, repo, ref, path] = blob;
-    return { ...gh(owner!, repo!, ref), path: stripKnownManifestSuffix(path!) };
+    const decodedRef = decodeGitHubUrlPart(ref!);
+    const decodedPath = decodeGitHubUrlPart(path!);
+    return { ...gh(owner!, repo!, decodedRef), path: stripKnownManifestSuffix(decodedPath) };
   }
 
   const url = clean.match(GH_URL);
