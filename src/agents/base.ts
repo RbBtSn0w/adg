@@ -42,11 +42,17 @@ function clipText(value: string, max = 512): string {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
+function redactFailureText(value: string): string {
+  return value
+    .replace(/\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)\b/gu, "[REDACTED_TOKEN]")
+    .replace(/\b(Authorization\s*:\s*Bearer\s+)[^\s,;]+/giu, "$1[REDACTED_TOKEN]");
+}
+
 function summarizeFailure(r: SpawnSyncReturns<string>): FailureSummary | undefined {
   const stderr = r.stderr?.trim();
-  if (stderr) return { stream: "stderr", text: clipText(stderr) };
+  if (stderr) return { stream: "stderr", text: clipText(redactFailureText(stderr)) };
   const stdout = r.stdout?.trim();
-  if (stdout) return { stream: "stdout", text: clipText(stdout) };
+  if (stdout) return { stream: "stdout", text: clipText(redactFailureText(stdout)) };
   return undefined;
 }
 

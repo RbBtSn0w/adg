@@ -162,6 +162,27 @@ test("annotateCliRun records stdout excerpts under a stdout-specific key", () =>
   assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
 });
 
+test("annotateCliRun redacts credentials from exported failure details", () => {
+  const { span, attrs, exceptions, statuses } = makeSpan();
+  const r = {
+    output: [],
+    pid: 322,
+    status: 1,
+    signal: null,
+    stdout: "",
+    stderr: "request failed with github_pat_11AA22BB33CC44DD55EE66FF77GG88HH99II00JJ and Authorization: Bearer secret-value",
+  } as unknown as SpawnSyncReturns<string>;
+
+  annotateCliRun(span, "claude", ["plugin", "list"], r);
+
+  assert.equal(
+    attrs["cli.stderr_excerpt"],
+    "request failed with [REDACTED_TOKEN] and Authorization: Bearer [REDACTED_TOKEN]",
+  );
+  assert.doesNotMatch(exceptions[0]!.message, /github_pat_|secret-value/);
+  assert.doesNotMatch(statuses[0]!.message ?? "", /github_pat_|secret-value/);
+});
+
 test("annotateCliRun records signal-terminated processes as failures", () => {
   const { span, attrs, exceptions, statuses } = makeSpan();
   const r = {

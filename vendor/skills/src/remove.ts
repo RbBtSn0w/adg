@@ -137,6 +137,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     targetAgents = Object.keys(agents) as AgentType[];
     spinner.stop(`Targeting ${targetAgents.length} potential agent(s)`);
   }
+  const eveSubagents = !isGlobal && targetAgents.includes('eve') ? getEveSubagents(cwd) : [];
 
   if (!options.yes) {
     console.log();
@@ -185,7 +186,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
           // Eve skills may also live in subagent directories.
           if (agentKey === 'eve') {
-            for (const subagent of getEveSubagents(cwd)) {
+            for (const subagent of eveSubagents) {
               pathsToCleanup.add(join(getEveSubagentSkillsDir(subagent, cwd), sanitizedName));
             }
           }

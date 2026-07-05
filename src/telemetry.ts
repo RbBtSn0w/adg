@@ -7,10 +7,15 @@ import * as opentelemetry from "@opentelemetry/api";
 import { type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
 const baseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+export function normalizeTraceEndpoint(endpoint: string): string {
+  const normalized = endpoint.replace(/\/$/, "");
+  return normalized.endsWith("/v1/traces") ? normalized : `${normalized}/v1/traces`;
+}
+
 const TELEMETRY_URL =
   process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
   (baseEndpoint
-    ? `${baseEndpoint.replace(/\/$/, "")}/v1/traces`
+    ? normalizeTraceEndpoint(baseEndpoint)
     : "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
 
 function isEnabled(): boolean {

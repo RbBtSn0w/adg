@@ -7,7 +7,7 @@ import type { Attributes, Span } from "@opentelemetry/api";
 
 import { readLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
-import { recordTelemetryEvent } from "../src/telemetry.ts";
+import { normalizeTraceEndpoint, recordTelemetryEvent } from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 
@@ -15,6 +15,12 @@ interface RecordedEvent {
   name: string;
   attributes?: Attributes;
 }
+
+test("normalizeTraceEndpoint appends the trace path exactly once", () => {
+  assert.equal(normalizeTraceEndpoint("https://collector.example.com"), "https://collector.example.com/v1/traces");
+  assert.equal(normalizeTraceEndpoint("https://collector.example.com/"), "https://collector.example.com/v1/traces");
+  assert.equal(normalizeTraceEndpoint("https://collector.example.com/v1/traces"), "https://collector.example.com/v1/traces");
+});
 
 function eventSpan(events: RecordedEvent[]): Pick<Span, "addEvent"> {
   return {
