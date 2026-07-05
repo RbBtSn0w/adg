@@ -1,3 +1,9 @@
+## [0.5.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.6...0.5.0-beta.7) (2026-07-05)
+
+### Fixed
+
+* address release review findings ([e8d7fce](https://github.com/RbBtSn0w/adg/commit/e8d7fce4369b522368c6ce14d263ab12736db5dc))
+
 ## [0.5.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.5...0.5.0-beta.6) (2026-07-05)
 
 ### Fixed
