@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { ADG_SCHEMA_VERSION, type AdgManifest } from "./types.ts";
+import { isAbsolute, join } from "node:path";
+import type { Span } from "@opentelemetry/api";
+import { ADG_SCHEMA_VERSION, COMPONENT_TYPES, type AdgManifest } from "./types.ts";
+import { recordTelemetryEvent } from "./telemetry.ts";
 
 /** Canonical, vendor-neutral source manifest location (a plugin). */
 export const ADG_MANIFEST_PATH = join(".agents", ".plugin.json");
@@ -35,7 +37,7 @@ export class ManifestError extends Error {
 }
 
 /** Read and validate a plugin's `.agents/.plugin.json` (or legacy fallback). */
-export function readManifest(pluginDir: string): AdgManifest {
+export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addEvent">): AdgManifest {
   const file = findManifestFile(pluginDir);
   if (!file) {
     throw new ManifestError([`${ADG_MANIFEST_PATH} not found in ${pluginDir}`]);
@@ -45,6 +47,15 @@ export function readManifest(pluginDir: string): AdgManifest {
     raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (err) {
     throw new ManifestError([`${file} is not valid JSON: ${(err as Error).message}`]);
+  }
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    const schemaVersion = (raw as Record<string, unknown>).schemaVersion;
+    if (typeof schemaVersion === "string") {
+      recordTelemetryEvent("adg.manifest.read", {
+        "schema.version": schemaVersion === ADG_SCHEMA_VERSION ? schemaVersion : "other",
+        "manifest.layout": file === join(pluginDir, LEGACY_MANIFEST_PATH) ? "legacy" : "canonical",
+      }, telemetrySpan);
+    }
   }
   return validateManifest(raw);
 }
@@ -80,12 +91,20 @@ export function collectIssues(raw: unknown): string[] {
   if (m.skills !== undefined && typeof m.skills !== "string" && !isStringArray(m.skills)) {
     issues.push("skills must be a string or an array of strings");
   }
+  if (typeof m.skills === "string" && !isSafeRelativePointer(m.skills)) issues.push("skills must stay within the plugin directory");
+  if (isStringArray(m.skills) && m.skills.some((path) => !isSafeRelativePointer(path))) {
+    issues.push("skills entries must stay within the plugin directory");
+  }
   if (m.mcp !== undefined) {
     issues.push("mcp is not supported; use mcpServers");
   }
   for (const key of ["agents", "commands", "apps", "hooks", "mcpServers", "homepage", "changelog", "license", "category"]) {
     if (m[key] !== undefined && typeof m[key] !== "string") {
       issues.push(`${key} must be a string`);
+    }
+    if (typeof m[key] === "string" && ["agents", "commands", "apps", "hooks", "mcpServers"].includes(key)
+      && !isSafeRelativePointer(m[key] as string)) {
+      issues.push(`${key} must stay within the plugin directory`);
     }
   }
   if (m.strict !== undefined && typeof m.strict !== "boolean") {
@@ -106,6 +125,30 @@ export function collectIssues(raw: unknown): string[] {
       });
     }
   }
+  if (m.selectionDependencies !== undefined) {
+    if (typeof m.selectionDependencies !== "object" || m.selectionDependencies === null || Array.isArray(m.selectionDependencies)) {
+      issues.push("selectionDependencies must be an object");
+    } else {
+      for (const [component, rawRequirement] of Object.entries(m.selectionDependencies as Record<string, unknown>)) {
+        if (!COMPONENT_TYPES.includes(component as (typeof COMPONENT_TYPES)[number])) {
+          issues.push(`selectionDependencies.${component} is not a supported component`);
+          continue;
+        }
+        if (typeof rawRequirement !== "object" || rawRequirement === null || Array.isArray(rawRequirement)) {
+          issues.push(`selectionDependencies.${component} must be an object`);
+          continue;
+        }
+        const requirement = rawRequirement as Record<string, unknown>;
+        if (requirement.components !== undefined && (!isStringArray(requirement.components)
+          || requirement.components.some((value) => !COMPONENT_TYPES.includes(value as (typeof COMPONENT_TYPES)[number])))) {
+          issues.push(`selectionDependencies.${component}.components must contain supported component names`);
+        }
+        if (requirement.skills !== undefined && !isStringArray(requirement.skills)) {
+          issues.push(`selectionDependencies.${component}.skills must be an array of strings`);
+        }
+      }
+    }
+  }
   // `adapters` is no longer part of the DSL. A stray one from an old manifest is
   // tolerated (ignored) rather than rejected — output paths are ADG-internal.
   return issues;
@@ -113,4 +156,9 @@ export function collectIssues(raw: unknown): string[] {
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function isSafeRelativePointer(value: string): boolean {
+  if (isAbsolute(value) || /^[A-Za-z]:[/\\]/.test(value) || /^[/\\]{2}/.test(value)) return false;
+  return !value.replaceAll("\\", "/").split("/").includes("..");
 }

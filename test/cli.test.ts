@@ -8,6 +8,7 @@ import { ADAPTER_TARGETS } from "../src/adapters/index.ts";
 import { installPlugin } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import {
+  CACHE_USAGE,
   MARKETPLACE_USAGE,
   PLUGIN_COMMANDS,
   TOP_USAGE,
@@ -290,6 +291,18 @@ test("runPlugins marketplace <sub> -h prints the marketplace usage", async () =>
 
   const viaAlias = await captureLog(() => runPlugins("mp", ["-h"]));
   assert.equal(viaAlias, MARKETPLACE_USAGE);
+});
+
+test("runPlugins cache exposes delegated help and status", async () => {
+  assert.equal(await captureLog(() => runPlugins("cache", ["status", "-h"])), CACHE_USAGE);
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-cache-"));
+  try {
+    const out = await captureLog(() => runPlugins("cache", ["status", "--dir", dir]));
+    assert.match(out, /cache is empty/);
+    assert.match(out, /total: 0 bytes/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Capture console.error over an async call, restoring it even on throw.

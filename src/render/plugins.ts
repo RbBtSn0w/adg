@@ -92,7 +92,7 @@ export function renderPluginList(
     const name = ui.name(r.label.padEnd(nameW));
     const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
     out.push(`${name}  ${path}  ${ui.meta("Agents:")} ${r.agents}`);
-    const provenance = `[${r.p.origin.type}] ${(r.p.folderHash ?? "").slice(0, 19)}${partial}`;
+    const provenance = `[${r.p.origin.type}] ${(r.p.installedHash ?? "").slice(0, 19)}${partial}`;
     out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
     if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
     }

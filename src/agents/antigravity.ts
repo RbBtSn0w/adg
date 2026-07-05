@@ -9,7 +9,7 @@ import { readLock } from "../lock.ts";
 import { toAntigravityManifest, writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
 import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
 import { skippedResult } from "./base.ts";
-import type { AdgManifest, ComponentType, PluginSelection } from "../types.ts";
+import { resolveSelectionDependencies, type AdgManifest, type ComponentType, type PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
 
 /**
@@ -220,7 +220,8 @@ function pluginRealDir(pluginsDir: string, name: string): { dir: string; selecti
   const entry = readLock(lockPath(pluginsDir)).plugins[name];
   if (!entry) return undefined;
   const dir = installedPluginDir(pluginsDir, name, entry.origin);
-  return existsSync(dir) ? { dir, selection: entry.selection } : undefined;
+  if (!existsSync(dir)) return undefined;
+  return { dir, selection: resolveSelectionDependencies(readManifest(dir), entry.selection) };
 }
 
 export const antigravityAgent: Agent = {

@@ -29,12 +29,13 @@ function seedStore(store: string, name: string, manifest: Record<string, unknown
   const dir = join(store, name);
   writePlugin(dir, manifest);
   writeLock(lockPath(store), {
-    version: 2,
+    version: 3,
     plugins: {
       [name]: {
         origin: { type: "local", path: `./${name}` },
         version: "1.0.0",
-        folderHash: "sha256-test",
+        sourceHash: "sha256-source",
+        installedHash: "sha256-installed",
         installedAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
@@ -250,7 +251,7 @@ test("activate (user) exposes into the global scan dir; a project query never su
     mkdirSync(join(gdir, "skills", "s"), { recursive: true });
     writeFileSync(join(gdir, "skills", "s", "SKILL.md"), "# s");
     // Mirror the real bug: a project store whose lock exists but manages nothing.
-    writeLock(lockPath(projectStore), { version: 2, plugins: {} });
+    writeLock(lockPath(projectStore), { version: 3, plugins: {} });
 
     withGemini((gemini) => {
       antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });

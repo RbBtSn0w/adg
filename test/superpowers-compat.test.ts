@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { addPlugins } from "../src/commands/install.ts";
+import { pluginSourceCacheDir } from "../src/paths.ts";
 
 /**
  * Cross-agent compatibility contract, pinned against a vendored `superpowers`
@@ -122,5 +123,30 @@ test("aggregate: every shipped feature survives the round-trip", async () => {
     assert.notDeepEqual(claudeHook, codexHook, "the two hook variants must stay distinct");
   } finally {
     cleanup();
+  }
+});
+
+test("partial install physically excludes unselected superpowers payload", async () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-sp-partial-"));
+  const src = join(root, "src");
+  cpSync(FIXTURE, src, { recursive: true });
+  const store = join(root, "store");
+  try {
+    const res = await addPlugins({
+      spec: src,
+      pluginsDir: store,
+      all: true,
+      only: ["skills"],
+      skillsSubset: ["systematic-debugging"],
+      targets: ["claude", "codex"],
+    });
+    const dir = res.installed[0]!.installedTo;
+    assert.ok(existsSync(join(dir, "skills", "systematic-debugging", "SKILL.md")));
+    assert.ok(!existsSync(join(dir, "skills", "using-superpowers")));
+    assert.ok(!existsSync(join(dir, "skills", "test-driven-development")));
+    assert.ok(!existsSync(join(dir, "hooks")), "Claude conventional hooks must not exist when hooks are unselected");
+    assert.ok(existsSync(join(pluginSourceCacheDir(store, "superpowers"), "hooks", "hooks.json")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -14,7 +14,8 @@ export interface PluginsListJson {
     name: string;
     version: string;
     source: ListedPlugin["origin"];
-    folderHash: string;
+    sourceHash: string;
+    installedHash: string;
     installedAt: string;
     updatedAt: string;
     path: string;
@@ -55,7 +56,8 @@ export function pluginsListJson(plugins: ListedPlugin[], pluginsDir: string): Pl
         name: plugin.name,
         version: plugin.version,
         source: plugin.origin,
-        folderHash: plugin.folderHash,
+        sourceHash: plugin.sourceHash,
+        installedHash: plugin.installedHash,
         installedAt: plugin.installedAt,
         updatedAt: plugin.updatedAt,
         path: installedPluginDir(pluginsDir, plugin.name, plugin.origin),

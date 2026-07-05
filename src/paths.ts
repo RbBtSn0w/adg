@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { PluginSource } from "./types.ts";
 
 export const LOCK_FILENAME = ".plugin-lock.json";
@@ -52,6 +53,29 @@ export function lockPath(pluginsDir: string): string {
 
 export function marketplacePath(pluginsDir: string): string {
   return join(pluginsDir, MARKETPLACE_FILENAME);
+}
+
+/**
+ * Internal full-source cache for a plugin store. The runtime-facing
+ * `pluginsDir` contains only effective installations; complete source payloads
+ * live in the sibling cache tree and are never registered with an agent.
+ */
+export function pluginCacheRoot(pluginsDir: string): string {
+  const storeId = createHash("sha1").update(resolve(pluginsDir).split("\\").join("/")).digest("hex").slice(0, 12);
+  return join(dirname(pluginsDir), "cache", "plugins", storeId);
+}
+
+/** One replaceable full-source snapshot per installed plugin. */
+export function pluginSourceCacheDir(pluginsDir: string, name: string): string {
+  return join(pluginCacheRoot(pluginsDir), name);
+}
+
+/** Resolve a complete payload for rebuilding, falling back to a live local source. */
+export function pluginRematerializationSource(pluginsDir: string, name: string, origin: PluginSource): string {
+  const cache = pluginSourceCacheDir(pluginsDir, name);
+  if (existsSync(cache)) return cache;
+  if (origin.type === "local" && existsSync(origin.path)) return origin.path;
+  throw new Error(`source cache missing for "${name}"; run \`adg plugins update\` or re-add the plugin`);
 }
 
 /** True when `pluginsDir` has the canonical `<root>/.agents/plugins` shape. */

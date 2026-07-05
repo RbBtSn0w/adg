@@ -112,7 +112,7 @@ test("updatePlugins leaves unchanged plugins untouched (no re-install / no updat
 
     const before = readLock(lockPath(pluginsDir)).plugins;
     const beforeStamps = { sales: before.sales!.updatedAt, finance: before.finance!.updatedAt };
-    const beforeHashes = { sales: before.sales!.folderHash, finance: before.finance!.folderHash };
+    const beforeHashes = { sales: before.sales!.sourceHash, finance: before.finance!.sourceHash };
 
     // Source is byte-identical; a later `now` would be written only if we re-installed.
     await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner, now: "2026-09-09T00:00:00Z" });
@@ -120,8 +120,8 @@ test("updatePlugins leaves unchanged plugins untouched (no re-install / no updat
     const after = readLock(lockPath(pluginsDir)).plugins;
     assert.equal(after.sales!.updatedAt, beforeStamps.sales, "unchanged plugin keeps its updatedAt");
     assert.equal(after.finance!.updatedAt, beforeStamps.finance, "unchanged plugin keeps its updatedAt");
-    assert.equal(after.sales!.folderHash, beforeHashes.sales);
-    assert.equal(after.finance!.folderHash, beforeHashes.finance);
+    assert.equal(after.sales!.sourceHash, beforeHashes.sales);
+    assert.equal(after.finance!.sourceHash, beforeHashes.finance);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

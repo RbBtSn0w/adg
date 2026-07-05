@@ -165,7 +165,7 @@ asc/
 | File | Schema | Role |
 |------|--------|------|
 | `.agents/.plugin.json` | [adg-plugin.schema.json](schemas/adg-plugin.schema.json) (`adg.plugin/v1`) | Universal manifest — source of truth |
-| `.plugin-lock.json` | [plugin-lock.schema.json](schemas/plugin-lock.schema.json) (`version: 2`) | **Control plane** — ADG's authoritative state |
+| `.plugin-lock.json` | [plugin-lock.schema.json](schemas/plugin-lock.schema.json) (`version: 3`) | **Control plane** — ADG's authoritative state |
 | `marketplace.json` | [marketplace.schema.json](schemas/marketplace.schema.json) | **Export** — de-facto catalog for Codex |
 
 The split is deliberate:
@@ -243,7 +243,7 @@ adg plugins marketplace sync owner/repo --target all     # same, scoped to a who
 adg plugins status --target antigravity    # live-diff store vs agent (isolates global plugins if project is uninitialized)
 adg plugins update --dir plugins           # re-fetch remote sources; rescan local ones in place
 adg plugins list --dir plugins             # list locked plugins
-adg plugins migrate --dir plugins          # move flat installs into per-marketplace dirs
+adg plugins migrate --dir plugins          # upgrade legacy locks and move flat installs
 
 ```
 

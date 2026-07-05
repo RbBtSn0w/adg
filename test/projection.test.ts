@@ -155,6 +155,9 @@ test("sync regenerates the manifest and refreshes (not activates) the plugin", (
   const work = tmp();
   const store = join(work, "store");
   seed(store, "alpha");
+  mkdirSync(join(store, "alpha", "hooks"), { recursive: true });
+  writeFileSync(join(store, "alpha", "hooks", "hooks.json"), "{}");
+  const lockBefore = readFileSync(join(store, ".plugin-lock.json"), "utf8");
 
   const rec = recorder();
   const res = syncPlugins({ pluginsDir: store, target: "codex", agent: fakeAgent("codex", rec) });
@@ -162,6 +165,12 @@ test("sync regenerates the manifest and refreshes (not activates) the plugin", (
   assert.equal(res.actions[0]!.name, "alpha");
   assert.equal(res.actions[0]!.synced, true);
   assert.ok(existsSync(join(store, "alpha", ".codex-plugin", "plugin.json")), "manifest regenerated");
+  assert.ok(!existsSync(join(store, "alpha", "hooks")), "sync rematerializes and removes stale payload");
+  assert.equal(
+    readFileSync(join(store, ".plugin-lock.json"), "utf8"),
+    lockBefore,
+    "projection-only repair must not rewrite source-update metadata",
+  );
   assert.deepEqual(rec.refresh.map((c) => c.plugins), [["alpha"]]);
   assert.deepEqual(rec.activate, [], "sync uses refresh, never activate");
   rmSync(work, { recursive: true });

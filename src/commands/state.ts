@@ -1,10 +1,10 @@
-import { existsSync } from "node:fs";
-import { adaptPlugin } from "./adapt.ts";
 import { listPlugins } from "./list.ts";
 import { agentsForComponents, resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
-import { installedPluginDir, lockPath } from "../paths.ts";
+import { lockPath, pluginRematerializationSource } from "../paths.ts";
 import { readLock, writeLock } from "../lock.ts";
 import { pluginState, type ComponentType, type PluginLock, type PluginState } from "../types.ts";
+import { ADAPTER_TARGETS } from "../adapters/index.ts";
+import { installPlugin } from "./install.ts";
 
 export interface PluginStateOptions {
   pluginsDir: string;
@@ -77,17 +77,23 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
   const { lock, names } = selectedLock(opts);
   const order = enableOrder(lock, names);
   const changed = order.filter((name) => pluginState(lock.plugins[name]!) !== "enabled");
-  for (const name of order) lock.plugins[name]!.state = "enabled";
-  if (changed.length > 0) writeLock(lockPath(opts.pluginsDir), lock);
-
   const plugins = listPlugins(opts.pluginsDir);
+  for (const name of changed) {
+    const entry = lock.plugins[name]!;
+    installPlugin({
+      source: pluginRematerializationSource(opts.pluginsDir, name, entry.origin),
+      pluginsDir: opts.pluginsDir,
+      origin: entry.origin,
+      selection: entry.selection,
+      targets: [...ADAPTER_TARGETS],
+      forceMaterialize: true,
+    });
+  }
+  const updatedLock = readLock(lockPath(opts.pluginsDir));
+  for (const name of order) updatedLock.plugins[name]!.state = "enabled";
+  if (changed.length > 0) writeLock(lockPath(opts.pluginsDir), updatedLock);
   const agents = (opts.agents ?? resolveAgents()).map((agent) => {
     const compatible = changed.filter((name) => pluginAgentIds(plugins, name).has(agent.id));
-    for (const name of compatible) {
-      const entry = lock.plugins[name]!;
-      const dir = installedPluginDir(opts.pluginsDir, name, entry.origin);
-      if (existsSync(dir)) adaptPlugin(dir, [agent.adaptTarget], entry.selection);
-    }
     if (compatible.length === 0) return { agent: agent.id, affected: [], skipped: false };
     return agent.activate({ pluginsDir: opts.pluginsDir, plugins: compatible, scope: opts.scope });
   });

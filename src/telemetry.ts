@@ -4,7 +4,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import * as opentelemetry from "@opentelemetry/api";
-import { type Tracer } from "@opentelemetry/api";
+import { type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
 const baseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const TELEMETRY_URL =
@@ -87,4 +87,17 @@ export function sanitizeArgs(args: string[]): string[] {
     }
     return arg;
   });
+}
+
+/** Record a privacy-safe event without allowing telemetry to affect CLI behavior. */
+export function recordTelemetryEvent(
+  name: string,
+  attributes: Attributes,
+  span: Pick<Span, "addEvent"> | undefined = opentelemetry.trace.getActiveSpan(),
+): void {
+  try {
+    span?.addEvent(name, attributes);
+  } catch {
+    // Telemetry must never change CLI behavior.
+  }
 }

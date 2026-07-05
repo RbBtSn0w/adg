@@ -1,10 +1,9 @@
-import { existsSync } from "node:fs";
-import { adaptPlugin } from "./adapt.ts";
 import { selectInstalled } from "./projection.ts";
-import { installedPluginDir } from "../paths.ts";
+import { pluginRematerializationSource } from "../paths.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
-import type { AdapterTarget } from "../adapters/index.ts";
+import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { pluginState } from "../types.ts";
+import { installPlugin } from "./install.ts";
 
 /**
  * `adg plugins sync` — reconcile one agent's copy of the selected plugins to the
@@ -55,10 +54,15 @@ export function syncPlugins(opts: SyncOptions): SyncResult {
   const disabled = selected.filter((p) => pluginState(p) === "disabled");
   const actions: SyncAction[] = disabled.map((p) => ({ name: p.name, adapted: [], synced: false }));
   for (const p of enabled) {
-    const dir = installedPluginDir(opts.pluginsDir, p.name, p.origin);
-    if (!existsSync(dir)) continue;
-    const adapted = adaptPlugin(dir, [adaptTarget], p.selection).map((r) => r.file);
-    actions.push({ name: p.name, adapted, synced: false });
+    const result = installPlugin({
+      source: pluginRematerializationSource(opts.pluginsDir, p.name, p.origin),
+      pluginsDir: opts.pluginsDir,
+      origin: p.origin,
+      selection: p.selection,
+      targets: [...ADAPTER_TARGETS],
+      forceMaterialize: true,
+    });
+    actions.push({ name: p.name, adapted: result.adapted.filter((file) => file.includes(`.${adaptTarget}-plugin`) || adaptTarget === "antigravity"), synced: false });
   }
 
   if (!agent) return { target: opts.target, actions };
