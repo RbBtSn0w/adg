@@ -1,3 +1,9 @@
+## [0.5.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.5...0.5.0-beta.6) (2026-07-05)
+
+### Fixed
+
+* typo ([c9ac759](https://github.com/RbBtSn0w/adg/commit/c9ac75974e094ae4a3c06f38cc93741f8e55a5c7))
+
 ## [0.5.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.4...0.5.0-beta.5) (2026-07-03)
 
 ### Fixed
