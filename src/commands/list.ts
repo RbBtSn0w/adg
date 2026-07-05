@@ -3,6 +3,7 @@ import { readLock } from "../lock.ts";
 import { readManifest } from "../manifest.ts";
 import { exposedContents, pluginContents, type PluginContents } from "../components.ts";
 import type { LockEntry } from "../types.ts";
+import { resolveSelectionDependencies } from "../types.ts";
 
 export type { PluginContents };
 
@@ -19,7 +20,9 @@ export function listPlugins(pluginsDir: string): ListedPlugin[] {
     const dir = installedPluginDir(pluginsDir, name, entry.origin);
     let contents: PluginContents | undefined;
     try {
-      contents = exposedContents(pluginContents(dir, readManifest(dir)), entry.selection);
+      const manifest = readManifest(dir);
+      const effectiveSelection = resolveSelectionDependencies(manifest, entry.selection);
+      contents = exposedContents(pluginContents(dir, manifest), effectiveSelection);
     } catch {
       contents = undefined; // no/invalid manifest on disk — show provenance only
     }

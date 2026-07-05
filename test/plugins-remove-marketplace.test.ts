@@ -13,7 +13,7 @@ import { marketplaceList, marketplaceRemove, updatePlugins } from "../src/comman
 import type { Agent } from "../src/agents/index.ts";
 import { readLock } from "../src/lock.ts";
 import { readMarketplace } from "../src/marketplace.ts";
-import { lockPath, marketplacePath } from "../src/paths.ts";
+import { lockPath, marketplacePath, pluginSourceCacheDir } from "../src/paths.ts";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "adg-rm-mp-"));
@@ -264,12 +264,14 @@ test("removePlugin deletes dir and drops it from lock + marketplace", async () =
     await addPlugins({ spec: join(src, "demo"), pluginsDir, targets: ["codex"] });
 
     assert.ok(existsSync(join(pluginsDir, "demo")));
+    assert.ok(existsSync(pluginSourceCacheDir(pluginsDir, "demo")));
     assert.deepEqual(lockNames(pluginsDir), ["demo"]);
 
     const res = removePlugin({ pluginsDir, name: "demo" });
     assert.equal(res.removedFromLock, true);
     assert.equal(res.removedFromMarketplace, true);
     assert.ok(!existsSync(join(pluginsDir, "demo")));
+    assert.ok(!existsSync(pluginSourceCacheDir(pluginsDir, "demo")));
     assert.deepEqual(lockNames(pluginsDir), []);
     assert.deepEqual(readMarketplace(marketplacePath(pluginsDir), "pdir").plugins, []);
   } finally {
@@ -353,7 +355,7 @@ test("updateLock with resync re-syncs changed plugins to both agents (injected)"
     // Mutate packaged content (a declared skill) so update detects a change.
     // A non-payload file (e.g. NOTE.md) would be excluded by the packaging
     // allowlist and correctly not affect the hash.
-    writeFileSync(join(pluginsDir, "demo", "skills", "getting-started", "SKILL.md"), "---\nname: getting-started\ndescription: changed.\n---\n");
+    writeFileSync(join(src, "demo", "skills", "getting-started", "SKILL.md"), "---\nname: getting-started\ndescription: changed.\n---\n");
 
     const calls: { id: string; plugins: string[] }[] = [];
     const fake = (id: string): Agent => ({

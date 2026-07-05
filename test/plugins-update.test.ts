@@ -9,7 +9,7 @@ import { addPlugins } from "../src/commands/install.ts";
 import type { GitRunner } from "../src/sources.ts";
 import type { Agent } from "../src/agents/index.ts";
 import { updatePlugins } from "../src/commands/marketplace.ts";
-import { readLock } from "../src/lock.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
 
 /** A fake codex agent that records every activate() call it receives. */
@@ -112,7 +112,7 @@ test("updatePlugins leaves unchanged plugins untouched (no re-install / no updat
 
     const before = readLock(lockPath(pluginsDir)).plugins;
     const beforeStamps = { sales: before.sales!.updatedAt, finance: before.finance!.updatedAt };
-    const beforeHashes = { sales: before.sales!.folderHash, finance: before.finance!.folderHash };
+    const beforeHashes = { sales: before.sales!.sourceHash, finance: before.finance!.sourceHash };
 
     // Source is byte-identical; a later `now` would be written only if we re-installed.
     await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner, now: "2026-09-09T00:00:00Z" });
@@ -120,8 +120,8 @@ test("updatePlugins leaves unchanged plugins untouched (no re-install / no updat
     const after = readLock(lockPath(pluginsDir)).plugins;
     assert.equal(after.sales!.updatedAt, beforeStamps.sales, "unchanged plugin keeps its updatedAt");
     assert.equal(after.finance!.updatedAt, beforeStamps.finance, "unchanged plugin keeps its updatedAt");
-    assert.equal(after.sales!.folderHash, beforeHashes.sales);
-    assert.equal(after.finance!.folderHash, beforeHashes.finance);
+    assert.equal(after.sales!.sourceHash, beforeHashes.sales);
+    assert.equal(after.finance!.sourceHash, beforeHashes.finance);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -159,6 +159,36 @@ test("updatePlugins does not re-activate agents for unchanged plugins, but does 
       agents: [recordingAgent("codex", busy)],
     });
     assert.deepEqual(busy, [{ id: "codex", plugins: ["sales"] }], "only the changed plugin is re-activated");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins updates disabled payload without activating it", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    const lock = readLock(lockPath(pluginsDir));
+    lock.plugins.sales!.state = "disabled";
+    writeLock(lockPath(pluginsDir), lock);
+
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents: [recordingAgent("codex", calls)],
+    });
+
+    assert.deepEqual(result.remote[0]!.updated, ["sales"]);
+    assert.equal(readLock(lockPath(pluginsDir)).plugins.sales!.state, "disabled");
+    assert.deepEqual(calls, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

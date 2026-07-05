@@ -33,6 +33,13 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /**
+   * Eve subagent targets this skill was installed into, so `update` can
+   * restore the same placement. Each entry is an Eve subagent directory name;
+   * the empty string `''` denotes the root agent (`agent/skills`). Omitted for
+   * non-Eve installs and for plain Eve root installs (treated as `['']`).
+   */
+  subagents?: string[];
 }
 
 /**

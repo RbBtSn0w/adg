@@ -10,6 +10,7 @@
  *   3. skills.sh/api/download → fetch full file contents from cached blob
  */
 
+import { createHash } from 'node:crypto';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
@@ -420,6 +421,15 @@ export interface BlobInstallResult {
   tree: RepoTree;
 }
 
+function computeSnapshotHash(files: SkillSnapshotFile[]): string {
+  const hash = createHash('sha256');
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    hash.update(file.path);
+    hash.update(file.contents);
+  }
+  return hash.digest('hex');
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -549,6 +559,16 @@ export async function tryBlobInstall(
         ? ''
         : skill.mdPath.slice(0, -(1 + 'SKILL.md'.length));
 
+    // A root-level SKILL.md means the repository root is a skill entrypoint,
+    // not that the entire repository is installable skill payload. Some cached
+    // snapshots for root skills contain every repo file; installing those can
+    // dump thousands of unrelated files into .agents/skills/<name>. Keep root
+    // skills to their SKILL.md unless/until the skill spec gains an explicit
+    // include list for supporting files.
+    const files = folderPath
+      ? download!.files
+      : download!.files.filter((file) => file.path.toLowerCase() === 'skill.md');
+
     return {
       name: skill.name,
       description: skill.description,
@@ -557,8 +577,9 @@ export async function tryBlobInstall(
       path: '',
       rawContent: skill.content,
       metadata: skill.metadata,
-      files: download!.files,
-      snapshotHash: download!.hash,
+      files,
+      snapshotHash:
+        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });

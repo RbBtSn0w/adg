@@ -34,7 +34,8 @@ export async function confirmFullInstall(plugins: string[]): Promise<boolean> {
 /**
  * Per-plugin component picker (①). Choose which categories to expose; if skills
  * is kept and the plugin has several, drill in to pick individual skills. Files
- * are still installed in full — this only narrows what the runtime sees.
+ * are materialized into the effective installation; unselected payload stays
+ * only in ADG's internal source cache.
  */
 export async function selectComponentsInteractive(req: SelectComponentsRequest): Promise<PluginSelection> {
   const components = await p.multiselect({

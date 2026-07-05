@@ -1,3 +1,45 @@
+## [0.5.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.6...0.5.0-beta.7) (2026-07-05)
+
+### Fixed
+
+* address release review findings ([e8d7fce](https://github.com/RbBtSn0w/adg/commit/e8d7fce4369b522368c6ce14d263ab12736db5dc))
+
+## [0.5.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.5...0.5.0-beta.6) (2026-07-05)
+
+### Fixed
+
+* typo ([c9ac759](https://github.com/RbBtSn0w/adg/commit/c9ac75974e094ae4a3c06f38cc93741f8e55a5c7))
+
+## [0.5.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.4...0.5.0-beta.5) (2026-07-03)
+
+### Fixed
+
+* make Claude marketplace sync fail open ([#50](https://github.com/RbBtSn0w/adg/issues/50)) ([6047d74](https://github.com/RbBtSn0w/adg/commit/6047d74f38edaf40395328cfe3920b41e8f10a54))
+
+## [0.5.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.3...0.5.0-beta.4) (2026-07-03)
+
+### Added
+
+* add adg self-update wrapper ([#48](https://github.com/RbBtSn0w/adg/issues/48)) ([62751ab](https://github.com/RbBtSn0w/adg/commit/62751ab82e4855e134d892a4f9143af98f1c24cb))
+
+## [0.5.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.2...0.5.0-beta.3) (2026-07-02)
+
+### Fixed
+
+* **telemetry): restore audit/version + chore(vendor:** re-sync skills CLI to v1.5.14 ([#45](https://github.com/RbBtSn0w/adg/issues/45)) ([59082bd](https://github.com/RbBtSn0w/adg/commit/59082bd527eb8f4bc2b9bea4ac4102a591f1ad2d))
+
+## [0.5.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.1...0.5.0-beta.2) (2026-07-02)
+
+### Fixed
+
+* antigravity mcp hook matchers ([#44](https://github.com/RbBtSn0w/adg/issues/44)) ([88e0aaf](https://github.com/RbBtSn0w/adg/commit/88e0aafbd08ba95d44ba2a986755dff481f3c45b))
+
+## [0.5.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.4.0...0.5.0-beta.1) (2026-07-01)
+
+### Added
+
+* implement OpenTelemetry tracing and subprocess instrumentation ([#43](https://github.com/RbBtSn0w/adg/issues/43)) ([0404c5c](https://github.com/RbBtSn0w/adg/commit/0404c5cb51d31b8f3d4541b547c8fe855eb3494d))
+
 ## [0.4.0](https://github.com/RbBtSn0w/adg/compare/0.3.0...0.4.0) (2026-06-29)
 
 ### Added

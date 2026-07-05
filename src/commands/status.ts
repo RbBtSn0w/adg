@@ -3,6 +3,7 @@ import { listPlugins } from "./list.ts";
 import { allAgents, isAgentListFailure, resolveAgents, type Agent, type AgentScope } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { lockPath } from "../paths.ts";
+import { pluginState } from "../types.ts";
 
 /**
  * `adg plugins status` — compare the store against what each agent actually has
@@ -30,6 +31,10 @@ export interface AgentStatus {
   missing: string[];
   /** Enabled in the agent but absent from the store → possible orphan → `unlink`. */
   agentOnly: string[];
+  /** Intentionally disabled in the store and absent from the agent. */
+  disabled: string[];
+  /** Intentionally disabled in the store but still enabled in the agent. */
+  unexpectedlyEnabled: string[];
 }
 
 export interface StatusOptions {
@@ -43,7 +48,10 @@ export interface StatusOptions {
 
 /** Diff the store against each agent's live plugin list. Read-only. */
 export function pluginStatus(opts: StatusOptions): AgentStatus[] {
-  const store = listPlugins(opts.pluginsDir).map((p) => p.name);
+  const plugins = listPlugins(opts.pluginsDir);
+  const enabled = plugins.filter((p) => pluginState(p) === "enabled").map((p) => p.name);
+  const disabled = plugins.filter((p) => pluginState(p) === "disabled").map((p) => p.name);
+  const store = plugins.map((p) => p.name);
   const storeSet = new Set(store);
   // Query every registered agent (not just `detect`ed ones): `detect` is a
   // config-dir heuristic that can miss an installed CLI, and an agent that
@@ -55,7 +63,7 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
   return agents.map((a) => {
     const installed = a.listInstalled?.({ pluginsDir: opts.pluginsDir, plugins: [], scope: opts.scope });
     if (installed === undefined) {
-      return { id: a.id, displayName: a.displayName, queryable: false, inSync: [], missing: [], agentOnly: [] };
+      return { id: a.id, displayName: a.displayName, queryable: false, inSync: [], missing: [], agentOnly: [], disabled: [], unexpectedlyEnabled: [] };
     }
     if (isAgentListFailure(installed)) {
       return {
@@ -67,6 +75,8 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
         inSync: [],
         missing: [],
         agentOnly: [],
+        disabled: [],
+        unexpectedlyEnabled: [],
       };
     }
     const agentSet = new Set(installed);
@@ -82,9 +92,11 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
       id: a.id,
       displayName: a.displayName,
       queryable: true,
-      inSync: store.filter((n) => agentSet.has(n)),
-      missing: store.filter((n) => !agentSet.has(n)),
+      inSync: enabled.filter((n) => agentSet.has(n)),
+      missing: enabled.filter((n) => !agentSet.has(n)),
       agentOnly,
+      disabled: disabled.filter((n) => !agentSet.has(n)),
+      unexpectedlyEnabled: disabled.filter((n) => agentSet.has(n)),
     };
   });
 }

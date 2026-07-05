@@ -1,20 +1,28 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import type { Span } from "@opentelemetry/api";
+import { recordTelemetryEvent } from "./telemetry.ts";
 import { LOCK_VERSION, type LockEntry, type PluginLock } from "./types.ts";
 
 export function emptyLock(): PluginLock {
   return { version: LOCK_VERSION, plugins: {} };
 }
 
-export function readLock(file: string): PluginLock {
+export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): PluginLock {
   if (!existsSync(file)) return emptyLock();
   const raw = JSON.parse(readFileSync(file, "utf8")) as PluginLock;
+  if (typeof raw?.version === "number") {
+    const observed = raw.version === 2 || raw.version === LOCK_VERSION ? raw.version : -1;
+    recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
+  }
   if (typeof raw.version !== "number" || typeof raw.plugins !== "object" || raw.plugins === null) {
     throw new Error(`${file} is not a valid .plugin-lock.json`);
   }
-  // Pre-release policy: a lock from an older format version is fully
-  // regenerable from the plugin directories, so rebuild rather than merge
-  // incompatible entry shapes.
-  if (raw.version !== LOCK_VERSION) return emptyLock();
+  if (raw.version !== LOCK_VERSION) {
+    throw new Error(
+      `${file} uses unsupported lock version ${raw.version}; expected ${LOCK_VERSION}. ` +
+        "Run `adg plugins migrate` with the same scope flag to upgrade it.",
+    );
+  }
   return raw;
 }
 

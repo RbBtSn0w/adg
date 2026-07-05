@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { claudeSkillsDir, lockPath, marketplacePath, pluginDir } from "../paths.ts";
+import { claudeSkillsDir, lockPath, marketplacePath, pluginCacheRoot, pluginDir, pluginSourceCacheDir } from "../paths.ts";
 import { readLock, removeEntry, writeLock } from "../lock.ts";
 import { readMarketplace, removeMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
@@ -24,6 +24,8 @@ export interface RemoveResult {
   name: string;
   /** Plugin directory that was deleted, if it existed. */
   removedDir?: string;
+  /** Complete source snapshot that was deleted, if it existed. */
+  removedCacheDir?: string;
   /** Claude skills symlinks that were cleaned up. */
   unlinked: string[];
   removedFromLock: boolean;
@@ -91,6 +93,15 @@ export function removePlugin(opts: RemoveOptions): RemoveResult {
     pruneEmptyParent(dirname(dir), opts.pluginsDir);
   }
 
+  const cacheDir = pluginSourceCacheDir(opts.pluginsDir, name);
+  let removedCacheDir: string | undefined;
+  if (existsSync(cacheDir)) {
+    rmSync(cacheDir, { recursive: true, force: true });
+    removedCacheDir = cacheDir;
+    const cacheRoot = pluginCacheRoot(opts.pluginsDir);
+    if (existsSync(cacheRoot) && readdirSync(cacheRoot).length === 0) rmSync(cacheRoot, { recursive: true, force: true });
+  }
+
   const removedFromLock = removeEntry(lock, name);
   if (removedFromLock) writeLock(lockFile, lock);
 
@@ -107,7 +118,7 @@ export function removePlugin(opts: RemoveOptions): RemoveResult {
     agents = (opts.agents ?? resolveAgents()).map((a) => a.deactivate(ctx));
   }
 
-  return { name, removedDir, unlinked, removedFromLock, removedFromMarketplace, agents };
+  return { name, removedDir, removedCacheDir, unlinked, removedFromLock, removedFromMarketplace, agents };
 }
 
 /**

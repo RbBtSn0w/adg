@@ -1,9 +1,9 @@
-import { existsSync } from "node:fs";
-import { adaptPlugin } from "./adapt.ts";
-import { selectInstalled } from "./projection.ts";
-import { installedPluginDir } from "../paths.ts";
+import { adaptedFilesForTarget, selectInstalled } from "./projection.ts";
+import { pluginRematerializationSource } from "../paths.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
-import type { AdapterTarget } from "../adapters/index.ts";
+import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
+import { pluginState } from "../types.ts";
+import { installPlugin } from "./install.ts";
 
 /** A single runtime to link into. Any registered adapter target (claude/codex/antigravity). */
 export type LinkTarget = AdapterTarget;
@@ -45,15 +45,28 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
   const agent = opts.agent ?? getAgent(opts.target);
   const adaptTarget = agent?.adaptTarget ?? opts.target;
 
+  const selected = selectInstalled(opts.pluginsDir, opts.names);
+  const disabled = selected.filter((p) => pluginState(p) === "disabled");
+  if (opts.names && disabled.length > 0) {
+    const names = disabled.map((p) => p.name);
+    throw new Error(`disabled plugin(s): ${names.join(", ")}. Run \`adg plugins enable ${names.join(" ")}\`.`);
+  }
+  const enabled = selected.filter((p) => pluginState(p) === "enabled");
   const actions: LinkAction[] = [];
-  for (const p of selectInstalled(opts.pluginsDir, opts.names)) {
-    const dir = installedPluginDir(opts.pluginsDir, p.name, p.origin);
-    if (!existsSync(dir)) continue;
-    const adapted = adaptPlugin(dir, [adaptTarget], p.selection).map((r) => r.file);
-    actions.push({ name: p.name, adapted });
+  for (const p of enabled) {
+    const result = installPlugin({
+      source: pluginRematerializationSource(opts.pluginsDir, p.name, p.origin),
+      pluginsDir: opts.pluginsDir,
+      origin: p.origin,
+      selection: p.selection,
+      targets: [...ADAPTER_TARGETS],
+      forceMaterialize: true,
+    });
+    actions.push({ name: p.name, adapted: adaptedFilesForTarget(result.installedTo, result.adapted, adaptTarget) });
   }
 
   if (!agent) return { target: opts.target, actions };
+  if (actions.length === 0) return { target: opts.target, actions };
 
   const res = agent.activate({
     pluginsDir: opts.pluginsDir,

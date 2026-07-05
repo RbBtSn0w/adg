@@ -9,8 +9,10 @@ import { linkPlugins } from "../commands/link.ts";
 import { unlinkPlugins } from "../commands/unlink.ts";
 import { syncPlugins } from "../commands/sync.ts";
 import { removePlugin } from "../commands/remove.ts";
+import { disablePlugins, enablePlugins } from "../commands/state.ts";
 import { migrateLayout } from "../commands/migrate.ts";
 import { pluginStatus } from "../commands/status.ts";
+import { cleanPluginCache, pluginCacheStatus, prunePluginCache } from "../commands/cache.ts";
 import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult, type ScopeInfo } from "../commands/marketplace.ts";
 import { initScaffold, type InitType } from "../commands/init.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../commands/select-components.ts";
@@ -29,6 +31,7 @@ import {
 } from "../render/plugins.ts";
 import { pluginsListJson, pluginsStatusJson, printJson } from "../render/json.ts";
 import {
+  CACHE_USAGE,
   MARKETPLACE_USAGE,
   PLUGIN_ALIASES,
   PLUGIN_COMMANDS,
@@ -207,6 +210,7 @@ export async function runPlugins(rawVerb: string | undefined, rest: string[]): P
   }
 
   if (verb === "marketplace") return runMarketplace(rest);
+  if (verb === "cache") return runCache(rest);
   return runPluginsVerb(verb, rest, cmd);
 }
 
@@ -299,7 +303,8 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
       for (const res of installed) {
         console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
-        console.log(ui.meta(`  folderHash: ${res.folderHash}`));
+        console.log(ui.meta(`  sourceHash: ${res.sourceHash}`));
+        console.log(ui.meta(`  installedHash: ${res.installedHash}`));
         for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
       }
       for (const line of renderAgentReport(agents, "enabled")) console.log(line);
@@ -337,6 +342,25 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
         if (res.cliSkipped) {
           console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
         }
+      }
+      return;
+    }
+    case "disable":
+    case "enable": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      if (positionals.length === 0) fail(`plugins ${verb} requires at least one <name>`);
+      const sc = await resolveActionScope(values, verb);
+      const result = verb === "disable"
+        ? disablePlugins({ pluginsDir: sc.pluginsDir, names: positionals, scope: sc.agentScope })
+        : enablePlugins({ pluginsDir: sc.pluginsDir, names: positionals, scope: sc.agentScope });
+      for (const name of result.order) {
+        const changed = result.changed.includes(name);
+        console.log(`${changed ? ui.ok(verb === "disable" ? "disabled" : "enabled") : ui.meta("already " + result.state)} ${ui.name(name)}`);
+      }
+      for (const agent of result.agents) {
+        const display = getAgent(agent.agent)?.displayName ?? agent.agent;
+        if (agent.affected.length > 0) console.log(ui.meta(`  ${result.state} in ${display}: ${agent.affected.join(", ")}`));
+        else if (agent.skipped) console.log(ui.warn(`  ${agent.agent} unavailable — run \`adg plugins sync --target ${agent.agent} ${result.order.join(" ")}\` later`));
       }
       return;
     }
@@ -459,9 +483,10 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       const { values } = parseVerb(verb, cmd.flags, rest);
       const sc = await resolveActionScope(values, "migrate");
       const res = migrateLayout(sc.pluginsDir);
+      if (res.lockUpgraded) console.log(`${ui.ok("upgraded")} plugin lock to version 3`);
       for (const m of res.moved) console.log(`${ui.ok("moved")} ${ui.name(m.name)}: ${ui.meta(`${m.from} -> ${m.to}`)}`);
       for (const m of res.missing) console.error(ui.warn(`  ! missing directory for locked plugin: ${m}`));
-      if (res.moved.length === 0) console.log(ui.meta(`nothing to migrate (${res.unchanged.length} already in place)`));
+      if (!res.lockUpgraded && res.moved.length === 0) console.log(ui.meta(`nothing to migrate (${res.unchanged.length} already in place)`));
       return;
     }
     // A verb present in PLUGIN_COMMANDS but missing here (other than `marketplace`,
@@ -574,4 +599,39 @@ async function runMarketplace(args: string[]): Promise<void> {
       process.exit(1);
     }
   }
+}
+
+async function runCache(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  if (sub === undefined || sub === "-h" || sub === "--help" || sub === "help" || wantsHelp(rest)) {
+    console.log(CACHE_USAGE);
+    return;
+  }
+  if (sub === "status") {
+    const { values } = parseVerb("cache", [...SCOPE], rest);
+    const status = pluginCacheStatus(resolveScopeDir(values));
+    console.log(ui.meta(status.root));
+    if (status.entries.length === 0) console.log(ui.meta("cache is empty"));
+    for (const entry of status.entries) {
+      console.log(`${entry.orphan ? ui.warn("orphan") : ui.ok("cached")} ${ui.name(entry.name)} ${ui.meta(`${entry.bytes} bytes`)}`);
+    }
+    console.log(ui.meta(`total: ${status.totalBytes} bytes`));
+    return;
+  }
+  if (sub === "prune") {
+    const { values } = parseVerb("cache", [...SCOPE], rest);
+    const scope = await resolveActionScope(values, "cache prune");
+    const removed = prunePluginCache(scope.pluginsDir);
+    console.log(removed.length > 0 ? `${ui.ok("pruned")} ${removed.join(", ")}` : ui.meta("no orphan cache snapshots"));
+    return;
+  }
+  if (sub === "clean") {
+    const { values } = parseVerb("cache", ["force", ...SCOPE], rest);
+    if (!values.force) fail("cache clean requires --force");
+    const scope = await resolveActionScope(values, "cache clean");
+    cleanPluginCache(scope.pluginsDir);
+    console.log(ui.ok("cache cleaned"));
+    return;
+  }
+  fail(`unknown cache subcommand: ${sub}`);
 }

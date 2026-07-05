@@ -6,7 +6,7 @@ import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { makeCli, skippedResult } from "./base.ts";
+import { makeCli, skippedResult, type RunResult } from "./base.ts";
 import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
 
 /**
@@ -82,10 +82,38 @@ export function writeClaudeCatalog(pluginsDir: string, name: string = claudeMark
   return { file, name };
 }
 
-/** Register the ADG store as a Claude marketplace (add, or update if present). */
-function syncMarketplace(pluginsDir: string, name: string): void {
-  const update = run(["plugin", "marketplace", "update", name]);
-  if (!update.ok) run(["plugin", "marketplace", "add", pluginsDir]);
+/** Parse `claude plugin marketplace list --json` into configured marketplace names. */
+export function parseClaudeMarketplaceList(out: string): string[] {
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) return undefined;
+        const name = (entry as Record<string, unknown>)["name"];
+        return typeof name === "string" ? name : undefined;
+      })
+      .filter((name): name is string => Boolean(name));
+  } catch {
+    return [];
+  }
+}
+
+/** Register or refresh the ADG store as a Claude marketplace, failing open. */
+export function syncMarketplace(
+  pluginsDir: string,
+  name: string,
+  runner: (args: string[]) => RunResult = run,
+): void {
+  const listed = runner(["plugin", "marketplace", "list", "--json"]);
+  if (listed.ok && parseClaudeMarketplaceList(listed.out).includes(name)) {
+    // Claude's marketplace update path can fail on existing installs (for
+    // example, merge-conflict-style failures on older CLI builds). When that
+    // happens, fall back to re-adding the marketplace so the refresh remains
+    // best-effort instead of surfacing a hard EXIT_CODE_1 in the ADG timeline.
+    if (runner(["plugin", "marketplace", "update", name]).ok) return;
+  }
+  runner(["plugin", "marketplace", "add", pluginsDir]);
 }
 
 export const claudeAgent: Agent = {

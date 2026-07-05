@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents } from './agents.ts';
+import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
@@ -11,6 +11,7 @@ import {
   getInstallPath,
   getCanonicalPath,
   getCanonicalSkillsDir,
+  getEveSubagentSkillsDir,
   sanitizeName,
 } from './installer.ts';
 
@@ -67,6 +68,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     await scanDir(getCanonicalSkillsDir(false, cwd));
     for (const agent of Object.values(agents)) {
       await scanDir(join(cwd, agent.skillsDir));
+    }
+    // Eve subagents keep their skills under agent/subagents/<name>/skills.
+    for (const subagent of getEveSubagents(cwd)) {
+      await scanDir(getEveSubagentSkillsDir(subagent, cwd));
     }
   }
 
@@ -132,6 +137,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     targetAgents = Object.keys(agents) as AgentType[];
     spinner.stop(`Targeting ${targetAgents.length} potential agent(s)`);
   }
+  const eveSubagents = !isGlobal && targetAgents.includes('eve') ? getEveSubagents(cwd) : [];
 
   if (!options.yes) {
     console.log();
@@ -178,6 +184,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
         } else {
           pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
+          // Eve skills may also live in subagent directories.
+          if (agentKey === 'eve') {
+            for (const subagent of eveSubagents) {
+              pathsToCleanup.add(join(getEveSubagentSkillsDir(subagent, cwd), sanitizedName));
+            }
+          }
         }
 
         for (const pathToCleanup of pathsToCleanup) {

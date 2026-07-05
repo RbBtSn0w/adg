@@ -102,7 +102,13 @@ function requireGroup(pluginsDir: string, source: string, scope?: ScopeInfo): Ma
   let msg = `no installed source "${source}" in ${where}. Known sources: ${keys}`;
 
   if (scope?.globalDir && scope.globalDir !== pluginsDir) {
-    const inGlobal = marketplaceList({ pluginsDir: scope.globalDir }).some((g) => g.source === source);
+    let inGlobal = false;
+    try {
+      inGlobal = marketplaceList({ pluginsDir: scope.globalDir }).some((g) => g.source === source);
+    } catch {
+      // The global store is only an optional suggestion source. A malformed or
+      // unsupported global lock must not mask the active scope's real error.
+    }
     if (inGlobal) msg += ` — found in global; did you mean \`-g\`?`;
   }
   throw new Error(msg);

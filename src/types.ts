@@ -3,7 +3,7 @@
  */
 
 export const ADG_SCHEMA_VERSION = "adg.plugin/v1";
-export const LOCK_VERSION = 2;
+export const LOCK_VERSION = 3;
 
 export interface AdgAuthor {
   name: string;
@@ -22,6 +22,11 @@ export interface AdgDependency {
   version: string;
 }
 
+export interface SelectionRequirement {
+  components?: ComponentType[];
+  skills?: string[];
+}
+
 export interface AdgManifest {
   schemaVersion: typeof ADG_SCHEMA_VERSION;
   name: string;
@@ -38,6 +43,8 @@ export interface AdgManifest {
   hooks?: string;
   mcpServers?: string;
   dependencies?: AdgDependency[];
+  /** Mandatory payload closure when a component is selected. */
+  selectionDependencies?: Partial<Record<ComponentType, SelectionRequirement>>;
   strict?: boolean;
   homepage?: string;
   changelog?: string;
@@ -64,10 +71,9 @@ export const COMPONENT_TYPES = ["skills", "agents", "commands", "mcp", "hooks", 
 export type ComponentType = (typeof COMPONENT_TYPES)[number];
 
 /**
- * A partial-install selection. It is independent of packaging: the copied/hashed
- * file set is the manifest's declared payload (see `packageFilter`), while this
- * selection only narrows what the generated runtime manifests *expose*. Absent
- * selection = expose everything.
+ * A partial-install selection. It defines both the effective on-disk payload and
+ * the generated runtime manifests. The complete source remains in ADG's cache;
+ * absent selection materializes everything declared by the source manifest.
  */
 export interface PluginSelection {
   /** Component categories to expose. */
@@ -76,17 +82,79 @@ export interface PluginSelection {
   skills?: string[];
 }
 
+/** Canonicalize user intent without adding derived component dependencies. */
+export function normalizePluginSelection(selection: PluginSelection | undefined): PluginSelection | undefined {
+  if (!selection) return undefined;
+  const components = new Set<ComponentType>(selection.components);
+  if (selection.skills !== undefined) components.add("skills");
+  return {
+    components: COMPONENT_TYPES.filter((component) => components.has(component)),
+    ...(selection.skills !== undefined ? { skills: [...new Set(selection.skills)].sort() } : {}),
+  };
+}
+
+/** Expand mandatory component/skill requirements to a stable closure. */
+export function resolveSelectionDependencies(
+  manifest: AdgManifest,
+  selection: PluginSelection | undefined,
+): PluginSelection | undefined {
+  const normalized = normalizePluginSelection(selection);
+  if (!normalized) return undefined;
+  const components = new Set<ComponentType>(normalized.components);
+  let skills = normalized.skills ? new Set(normalized.skills) : undefined;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const component of [...components]) {
+      const requirement = manifest.selectionDependencies?.[component];
+      for (const required of requirement?.components ?? []) {
+        if (!components.has(required)) {
+          components.add(required);
+          changed = true;
+        }
+      }
+      for (const skill of requirement?.skills ?? []) {
+        if (!components.has("skills")) {
+          components.add("skills");
+          skills = new Set();
+          changed = true;
+        }
+        // `skills === undefined` means the user selected every skill, which
+        // already contains any required skill and must remain unrestricted.
+        if (skills && !skills.has(skill)) {
+          skills.add(skill);
+          changed = true;
+        }
+      }
+    }
+  }
+  return {
+    components: COMPONENT_TYPES.filter((component) => components.has(component)),
+    ...(skills ? { skills: [...skills].sort() } : {}),
+  };
+}
+
+export type PluginState = "enabled" | "disabled";
+
 export interface LockEntry {
   /** Upstream provenance the plugin was installed from. */
   origin: PluginSource;
   version: string;
-  /** Content digest of the installed directory (excluding generated adapters). */
-  folderHash: Integrity;
+  /** Content digest of the complete cached source payload. */
+  sourceHash: Integrity;
+  /** Content digest of the effective runtime installation. */
+  installedHash: Integrity;
   installedAt: string;
   updatedAt: string;
   dependencies?: Record<string, string>;
-  /** Partial-install selection; absent means the whole plugin is exposed. */
+  /** Partial-install selection; absent means the whole plugin is installed. */
   selection?: PluginSelection;
+  /** Desired cross-agent projection state. Absent means enabled. */
+  state?: PluginState;
+}
+
+export function pluginState(entry?: LockEntry | null): PluginState {
+  return entry?.state ?? "enabled";
 }
 
 export interface PluginLock {

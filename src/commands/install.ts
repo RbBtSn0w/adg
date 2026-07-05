@@ -1,23 +1,25 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
 import { removePlugin } from "./remove.ts";
-import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
+import { toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
-import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir } from "../paths.ts";
+import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir, pluginSourceCacheDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
 import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
 import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
-import { sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
+import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
+import { effectivePackageFilter, materializePlugin, withPluginSourceCache } from "../materialize.ts";
 
 export interface InstallOneOptions {
   /** Local directory containing the plugin (already fetched). */
@@ -30,7 +32,7 @@ export interface InstallOneOptions {
   targets?: AdapterTarget[];
   now?: string;
   /**
-   * Partial-install selection narrowing what the generated manifests expose.
+   * Partial-install selection narrowing the physical payload and runtime manifests.
    * When omitted, a prior lock entry's selection is reused (so it survives
    * re-installs / upgrades); absent on both = expose everything.
    */
@@ -42,12 +44,16 @@ export interface InstallOneOptions {
    * re-installed every time. The result is reported with `changed: false`.
    */
   skipUnchanged?: boolean;
+  /** Rebuild the effective installation even when source and payload hashes match. */
+  forceMaterialize?: boolean;
 }
 
 export interface InstallResult {
   name: string;
+  version: string;
   installedTo: string;
-  folderHash: string;
+  sourceHash: string;
+  installedHash: string;
   adapted: string[];
   /**
    * True when this install changed the recorded content: a first-time install,
@@ -82,7 +88,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   // Local installs stay flat; remote sources derive a per-marketplace dir from
   // their origin. The default (no origin) is a flat local copy-in.
   const origin: PluginSource =
-    opts.origin ?? { type: "local", path: `./${toPosix(name)}` };
+    opts.origin ?? { type: "local", path: source };
   const dest = pluginDir(opts.pluginsDir, name, origin);
 
   const lockFile = lockPath(opts.pluginsDir);
@@ -95,60 +101,80 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     );
   }
 
-  // Detect-then-update: compute the source's content hash up front (cheap, no
-  // copy) and, when asked, short-circuit if it matches what's already recorded —
-  // so an unchanged upstream source is never re-copied, re-adapted, or re-locked.
-  if (opts.skipUnchanged && prev) {
-    const sourceHash = contentHash(source, manifest);
-    if (prev.folderHash === sourceHash && prev.version === manifest.version) {
-      return { name, installedTo: dest, folderHash: sourceHash, adapted: [], changed: false };
-    }
-  }
-
-  // When the source already lives at the destination (e.g. adapting an
-  // in-repo reference plugin) skip the copy to avoid copying onto itself.
-  // Only the manifest-declared payload is copied (projections included) — dev
-  // cruft like src/ or test/ never ships.
-  if (resolve(dest) !== source) {
-    copyPluginDir(source, dest, packageFilter(manifest, { includeProjections: true }));
-  }
-
   // A new selection wins; otherwise keep whatever a prior install recorded so
   // partial installs survive re-install / `marketplace upgrade`.
-  const selection = opts.selection ?? prev?.selection;
+  const desiredSelection = normalizePluginSelection(opts.selection ?? prev?.selection);
+  const selection = resolveSelectionDependencies(manifest, desiredSelection);
 
-  const targets = opts.targets ?? [...ADAPTER_TARGETS];
-  const adapted = adaptPlugin(dest, targets, selection).map((r) => r.file);
+  const sourceHash = contentHash(source, manifest);
+  const cacheDir = pluginSourceCacheDir(opts.pluginsDir, name);
+  return withPluginSourceCache(source, cacheDir, manifest, (snapshot) => {
+    // Detect-then-update compares the complete source snapshot, never the
+    // selection-pruned runtime installation.
+    if (!opts.forceMaterialize && opts.skipUnchanged && prev
+      && prev.sourceHash === sourceHash && prev.version === manifest.version) {
+      const installedIntact = existsSync(dest)
+        && folderHash(dest, PROJECTION_DIRS, effectivePackageFilter(manifest, selection)) === prev.installedHash;
+      if (installedIntact) {
+        return {
+          name,
+          version: manifest.version,
+          installedTo: dest,
+          sourceHash,
+          installedHash: prev.installedHash,
+          adapted: [],
+          changed: false,
+        };
+      }
+    }
 
-  const hash = contentHash(dest, manifest);
-  const changed = !prev || prev.folderHash !== hash || prev.version !== manifest.version;
+    const targets = opts.targets ?? [...ADAPTER_TARGETS];
+    const adapted: string[] = [];
+    let installedHash = "";
+    materializePlugin({
+      source: snapshot,
+      destination: dest,
+      manifest,
+      selection,
+      build: (staging) => {
+        adapted.push(...adaptPlugin(staging, targets, selection).map((r) => relative(staging, r.file)));
+        installedHash = folderHash(staging, PROJECTION_DIRS, effectivePackageFilter(manifest, selection));
+      },
+    });
+    const adaptedFiles = adapted.map((file) => join(dest, file));
+    const entry: Omit<LockEntry, "installedAt" | "updatedAt"> = {
+      origin,
+      version: manifest.version,
+      sourceHash,
+      installedHash,
+    };
+    if (manifest.dependencies?.length) {
+      entry.dependencies = Object.fromEntries(manifest.dependencies.map((d) => [d.name, d.version]));
+    }
+    if (desiredSelection) entry.selection = desiredSelection;
+    if (prev?.state) entry.state = prev.state;
+    const previousEntry = prev && Object.fromEntries(
+      Object.entries(prev).filter(([key]) => key !== "installedAt" && key !== "updatedAt"),
+    );
+    const changed = !prev || !isDeepStrictEqual(previousEntry, entry);
+    if (changed) {
+      upsertEntry(lock, name, entry, opts.now);
+      writeLock(lockFile, lock);
+    }
 
-  const entry: Omit<LockEntry, "installedAt" | "updatedAt"> = {
-    origin,
-    version: manifest.version,
-    folderHash: hash,
-  };
-  if (manifest.dependencies?.length) {
-    entry.dependencies = Object.fromEntries(manifest.dependencies.map((d) => [d.name, d.version]));
-  }
-  if (selection) entry.selection = selection;
-  upsertEntry(lock, name, entry, opts.now);
-  writeLock(lockFile, lock);
+    const marketFile = marketplacePath(opts.pluginsDir);
+    const fallbackName = opts.marketplaceName ?? basename(opts.pluginsDir);
+    const market = readMarketplace(marketFile, fallbackName);
+    upsertMarketplacePlugin(market, {
+      name,
+      source: { source: "local", path: marketplaceSourcePath(opts.pluginsDir, dest) },
+      policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
+      ...(manifest.category ? { category: manifest.category } : {}),
+    });
+    writeMarketplace(marketFile, market);
 
-  const marketFile = marketplacePath(opts.pluginsDir);
-  const fallbackName = opts.marketplaceName ?? basename(opts.pluginsDir);
-  const market = readMarketplace(marketFile, fallbackName);
-  // marketplace.json is a pure runtime-facing export in the de-facto shape;
-  // version/integrity/provenance live in the lock, not here.
-  upsertMarketplacePlugin(market, {
-    name,
-    source: { source: "local", path: marketplaceSourcePath(opts.pluginsDir, dest) },
-    policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
-    ...(manifest.category ? { category: manifest.category } : {}),
+    return { name, version: manifest.version, installedTo: dest, sourceHash, installedHash, adapted: adaptedFiles, changed };
   });
-  writeMarketplace(marketFile, market);
-
-  return { name, installedTo: dest, folderHash: hash, adapted, changed };
 }
 
 function describe(s: PluginSource): string {
@@ -391,13 +417,14 @@ function reconcileRemotePlugins(
   opts: AddOptions,
   parsed: ReturnType<typeof parseSource>,
   ref: string | undefined,
+  narrowed: boolean,
   desired: Set<string>,
 ): string[] {
   if (parsed.kind === "local") return [];
   // A path/sparse install does not prove the full source shape, so it must not
   // prune sibling plugins from the same repo that were intentionally excluded
   // from the checkout/selection window.
-  if (opts.path || opts.sparse?.length) return [];
+  if (narrowed || opts.sparse?.length) return [];
 
   const lock = readLock(lockPath(opts.pluginsDir));
   const stale = Object.entries(lock.plugins)
@@ -434,13 +461,15 @@ function reconcileRemotePlugins(
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   const parsed = parseSource(opts.spec);
   const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
+  const inferredPath = parsed.kind === "github" ? parsed.path : undefined;
+  const path = opts.path ?? inferredPath;
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
   let cleanup: (() => void) | undefined;
 
   if (parsed.kind === "local") {
     workRoot = resolve(parsed.dir);
-    buildOrigin = (dir) => ({ type: "local", path: `./${toPosix(relative(workRoot, dir)) || basename(dir)}` });
+    buildOrigin = (dir) => ({ type: "local", path: resolve(dir) });
   } else {
     const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
@@ -462,7 +491,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       );
     }
 
-    const selected = await selectPluginNames(opts, candidates, workRoot, converted);
+    const selected = await selectPluginNames({ ...opts, path }, candidates, workRoot, converted);
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -474,7 +503,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       // upstream: don't abort — return what the source still offers so the
       // caller can report the deletions.
       if (opts.missingPlugins === "skip") {
-        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(selected));
+        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(selected));
         return { order: [], installed: [], removed, converted, available };
       }
       throw new Error("no plugins selected");
@@ -495,7 +524,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         }
       }
     }
-    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
+    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(order));
 
     // Snapshot which plugins already existed before this call mutates the lock,
     // so the activation step below can tell brand-new installs from updates.
@@ -523,7 +552,9 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     // path) only re-activate plugins that actually changed — re-running an agent
     // CLI for an untouched plugin is wasted work.
     let agents: AgentSyncResult[] | undefined;
-    const toActivate = opts.skipUnchanged ? installed.filter((r) => r.changed) : installed;
+    const updatedLock = readLock(lockPath(opts.pluginsDir));
+    const eligible = installed.filter((result) => pluginState(updatedLock.plugins[result.name]!) === "enabled");
+    const toActivate = opts.skipUnchanged ? eligible.filter((r) => r.changed) : eligible;
     if (opts.activate && toActivate.length > 0) {
       const resolved = opts.agents ?? resolveAgents(targets);
       const scope = opts.scope ?? "project";

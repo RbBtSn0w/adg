@@ -47,12 +47,12 @@ test("packaged folderHash agrees between source-with-cruft and copied install", 
     folderHash(dir, [".claude-plugin", ".codex-plugin"], packageFilter(manifest, { includeProjections: false }));
   // Install hashes the copied (allowlisted) dest; hashing the source under the
   // same allowlist must agree — in-place and copied installs are identical.
-  assert.equal(res.folderHash, hashSource());
+  assert.equal(res.sourceHash, hashSource());
   // Dev cruft does not move the hash; declared payload does.
   writeFileSync(join(dir, "src", "more.ts"), "export const y = 2;\n");
-  assert.equal(hashSource(), res.folderHash);
+  assert.equal(hashSource(), res.sourceHash);
   writeFileSync(join(dir, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: changed.\n---\n");
-  assert.notEqual(hashSource(), res.folderHash);
+  assert.notEqual(hashSource(), res.sourceHash);
   rmSync(work, { recursive: true });
 });
 

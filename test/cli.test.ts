@@ -8,8 +8,10 @@ import { ADAPTER_TARGETS } from "../src/adapters/index.ts";
 import { installPlugin } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import {
+  CACHE_USAGE,
   MARKETPLACE_USAGE,
   PLUGIN_COMMANDS,
+  TOP_USAGE,
   parseVerb,
   renderPluginsHelp,
   renderVerbHelp,
@@ -229,9 +231,23 @@ test("runPlugins with no verb prints the L1 overview", async () => {
   assert.equal(out, renderPluginsHelp());
 });
 
+test("top-level usage advertises adg update", () => {
+  assert.match(TOP_USAGE, /adg update/);
+  assert.match(MARKETPLACE_USAGE, /adg plugins update/);
+});
+
 test("runPlugins <verb> -h prints that verb's help", async () => {
   const out = await captureLog(() => runPlugins("add", ["-h"]));
   assert.equal(out, renderVerbHelp("add"));
+});
+
+test("plugins help exposes store-level enable and disable commands without target flags", () => {
+  const disable = renderVerbHelp("disable");
+  const enable = renderVerbHelp("enable");
+  assert.match(disable, /adg plugins disable <name\.\.\.>/);
+  assert.match(enable, /adg plugins enable <name\.\.\.>/);
+  assert.doesNotMatch(disable, /--target/);
+  assert.doesNotMatch(enable, /--target/);
 });
 
 test("runPlugins list --json prints parseable JSON only", async () => {
@@ -275,6 +291,18 @@ test("runPlugins marketplace <sub> -h prints the marketplace usage", async () =>
 
   const viaAlias = await captureLog(() => runPlugins("mp", ["-h"]));
   assert.equal(viaAlias, MARKETPLACE_USAGE);
+});
+
+test("runPlugins cache exposes delegated help and status", async () => {
+  assert.equal(await captureLog(() => runPlugins("cache", ["status", "-h"])), CACHE_USAGE);
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-cache-"));
+  try {
+    const out = await captureLog(() => runPlugins("cache", ["status", "--dir", dir]));
+    assert.match(out, /cache is empty/);
+    assert.match(out, /total: 0 bytes/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Capture console.error over an async call, restoring it even on throw.

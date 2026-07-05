@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["bin", "src", "test"]
+  "include": ["bin", "src", "test", "vendor/skills/src"]
 }

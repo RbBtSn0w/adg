@@ -3,7 +3,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runAdd, parseAddOptions } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -27,7 +27,6 @@ function getVersion(): string {
 }
 
 const VERSION = getVersion();
-initTelemetry(VERSION);
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -116,6 +115,9 @@ ${BOLD}Manage Skills:${RESET}
   list, ls             List installed skills
   find [query]         Search for skills interactively
 
+${BOLD}Find Options:${RESET}
+  --owner <owner>        Search only repositories from a GitHub owner
+
 ${BOLD}Updates:${RESET}
   update [skills...]   Update skills to latest versions (alias: upgrade)
 
@@ -136,6 +138,7 @@ ${BOLD}Add Options:${RESET}
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --copy                 Copy files instead of symlinking to agent directories
+  --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
 
@@ -182,6 +185,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
+  ${DIM}$${RESET} skills find react --owner vercel     ${DIM}# search within an owner${RESET}
   ${DIM}$${RESET} skills update
   ${DIM}$${RESET} skills update my-skill             ${DIM}# update a single skill${RESET}
   ${DIM}$${RESET} skills update -g                    ${DIM}# update global skills only${RESET}

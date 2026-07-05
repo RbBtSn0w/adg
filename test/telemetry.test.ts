@@ -1,0 +1,168 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Attributes, Span } from "@opentelemetry/api";
+
+import { readLock } from "../src/lock.ts";
+import { readManifest } from "../src/manifest.ts";
+import { normalizeTraceEndpoint, recordTelemetryEvent } from "../src/telemetry.ts";
+import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { migrateLayout } from "../src/commands/migrate.ts";
+
+interface RecordedEvent {
+  name: string;
+  attributes?: Attributes;
+}
+
+test("normalizeTraceEndpoint appends the trace path exactly once", () => {
+  assert.equal(normalizeTraceEndpoint("https://collector.example.com"), "https://collector.example.com/v1/traces");
+  assert.equal(normalizeTraceEndpoint("https://collector.example.com/"), "https://collector.example.com/v1/traces");
+  assert.equal(normalizeTraceEndpoint("https://collector.example.com/v1/traces"), "https://collector.example.com/v1/traces");
+});
+
+function eventSpan(events: RecordedEvent[]): Pick<Span, "addEvent"> {
+  return {
+    addEvent(name: string, attributes?: Attributes) {
+      events.push({ name, attributes });
+      return this as Span;
+    },
+  };
+}
+
+test("recordTelemetryEvent forwards low-cardinality attributes", () => {
+  const events: RecordedEvent[] = [];
+  recordTelemetryEvent(
+    "adg.manifest.read",
+    { "schema.version": "adg.plugin/v1" },
+    eventSpan(events),
+  );
+  assert.deepEqual(events, [{
+    name: "adg.manifest.read",
+    attributes: { "schema.version": "adg.plugin/v1" },
+  }]);
+});
+
+test("recordTelemetryEvent fails open when a span rejects an event", () => {
+  const span: Pick<Span, "addEvent"> = {
+    addEvent() {
+      throw new Error("exporter failure");
+    },
+  };
+  assert.doesNotThrow(() => recordTelemetryEvent("adg.lock.read", { "format.version": 3 }, span));
+});
+
+test("manifest and lock readers record observed format versions", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const events: RecordedEvent[] = [];
+  const span = eventSpan(events);
+  mkdirSync(join(root, ".agents"), { recursive: true });
+  writeFileSync(join(root, ".agents", ".plugin.json"), JSON.stringify({
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "demo",
+    version: "1.0.0",
+    description: "Demo.",
+  }));
+  const lockFile = join(root, ".plugin-lock.json");
+  writeFileSync(lockFile, JSON.stringify({ version: 3, plugins: {} }));
+
+  readManifest(root, span);
+  readLock(lockFile, span);
+
+  assert.deepEqual(events, [
+    {
+      name: "adg.manifest.read",
+      attributes: { "schema.version": ADG_SCHEMA_VERSION, "manifest.layout": "canonical" },
+    },
+    { name: "adg.lock.read", attributes: { "format.version": 3 } },
+  ]);
+  rmSync(root, { recursive: true });
+});
+
+test("legacy manifest layout is measurable without recording its path", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const events: RecordedEvent[] = [];
+  mkdirSync(join(root, ".adg-plugin"), { recursive: true });
+  writeFileSync(join(root, ".adg-plugin", "plugin.json"), JSON.stringify({
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "demo",
+    version: "1.0.0",
+    description: "Demo.",
+  }));
+
+  readManifest(root, eventSpan(events));
+
+  assert.deepEqual(events, [{
+    name: "adg.manifest.read",
+    attributes: { "schema.version": ADG_SCHEMA_VERSION, "manifest.layout": "legacy" },
+  }]);
+  rmSync(root, { recursive: true });
+});
+
+test("an unsupported lock version is recorded before validation fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const file = join(root, ".plugin-lock.json");
+  const events: RecordedEvent[] = [];
+  writeFileSync(file, JSON.stringify({ version: 2, plugins: {} }));
+
+  assert.throws(() => readLock(file, eventSpan(events)), /unsupported lock version 2/);
+  assert.deepEqual(events, [{ name: "adg.lock.read", attributes: { "format.version": 2 } }]);
+  rmSync(root, { recursive: true });
+});
+
+test("a successful v2 migration records read and transition versions", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const installed = join(root, "demo");
+  const events: RecordedEvent[] = [];
+  mkdirSync(join(installed, ".agents"), { recursive: true });
+  writeFileSync(join(installed, ".agents", ".plugin.json"), JSON.stringify({
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "demo",
+    version: "1.0.0",
+    description: "Demo.",
+  }));
+  writeFileSync(join(root, ".plugin-lock.json"), JSON.stringify({
+    version: 2,
+    plugins: {
+      demo: {
+        origin: { type: "local", path: installed },
+        version: "1.0.0",
+        folderHash: "sha256-legacy",
+        installedAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    },
+  }));
+
+  migrateLayout(root, eventSpan(events));
+
+  assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
+    { name: "adg.lock.read", attributes: { "format.version": 2 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 3 } },
+    { name: "adg.lock.read", attributes: { "format.version": 3 } },
+  ]);
+  rmSync(root, { recursive: true });
+});
+
+test("a failed v2 migration does not report a completed transition", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const events: RecordedEvent[] = [];
+  mkdirSync(join(root, "demo"), { recursive: true });
+  writeFileSync(join(root, ".plugin-lock.json"), JSON.stringify({
+    version: 2,
+    plugins: {
+      demo: {
+        origin: { type: "local", path: join(root, "demo") },
+        version: "1.0.0",
+        folderHash: "sha256-legacy",
+        installedAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    },
+  }));
+
+  assert.throws(() => migrateLayout(root, eventSpan(events)), /manifest/i);
+  assert.equal(events.some((event) => event.name === "adg.lock.migrate"), false);
+  rmSync(root, { recursive: true });
+});

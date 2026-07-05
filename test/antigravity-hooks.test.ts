@@ -266,6 +266,76 @@ test("Antigravity warns and omits unknown tool matchers instead of assuming name
   }
 });
 
+test("Antigravity maps Claude MCP tool matchers correctly to Antigravity format", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-hooks-"));
+  try {
+    writeManifest(dir);
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(
+      join(dir, "hooks", "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "mcp__.*__run_query",
+              hooks: [{ type: "command", command: "printf '{}'" }],
+            },
+          ],
+          PostToolUse: [
+            {
+              matcher: "mcp__.*__find_columns|mcp__.*__get_dataset_columns|mcp__.*__get_dataset",
+              hooks: [{ type: "command", command: "printf '{}'" }],
+            },
+          ],
+        },
+      }),
+    );
+
+    const warnings = writeAntigravityHooks(dir, readManifest(dir));
+
+    assert.equal(warnings.length, 0);
+    assert.ok(existsSync(join(dir, "hooks.json")));
+    const generated = JSON.parse(readFileSync(join(dir, "hooks.json"), "utf8"));
+    const pluginHooks = generated.superpowers;
+    assert.equal(pluginHooks.PreToolUse[0].matcher, "mcp_.*_run_query");
+    assert.equal(
+      pluginHooks.PostToolUse[0].matcher,
+      "mcp_.*_find_columns|mcp_.*_get_dataset_columns|mcp_.*_get_dataset"
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test("Antigravity rejects an mcp__ matcher that maps to an invalid regex", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-hooks-"));
+  try {
+    writeManifest(dir);
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(
+      join(dir, "hooks", "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "mcp__[__run_query",
+              hooks: [{ type: "command", command: "printf '{}'" }],
+            },
+          ],
+        },
+      }),
+    );
+
+    const warnings = writeAntigravityHooks(dir, readManifest(dir));
+
+    assert.ok(warnings.some((warning) => warning.includes('matcher "mcp__[__run_query" cannot be safely mapped')));
+    assert.equal(existsSync(join(dir, "hooks.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Antigravity prefers a native override and removes generated hooks when deselected", () => {
   const dir = makeSuperpowersPlugin();
   try {

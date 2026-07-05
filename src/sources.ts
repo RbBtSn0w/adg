@@ -3,6 +3,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readManifest, findManifestFile } from "./manifest.ts";
 import type { PluginCandidate } from "./deps.ts";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { getTracer, sanitizeArgs } from "./telemetry.ts";
 
 export interface GitHubSource {
   kind: "github";
@@ -11,6 +13,8 @@ export interface GitHubSource {
   owner: string;
   repo: string;
   ref?: string;
+  /** Optional subdirectory inferred from a browser URL to a plugin manifest or folder. */
+  path?: string;
   sourceUrl: string;
 }
 
@@ -23,6 +27,30 @@ export type ParsedSource = GitHubSource | LocalSource;
 
 const GH_SHORTHAND = /^([\w.-]+)\/([\w.-]+?)(?:@(.+))?$/;
 const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:@(.+))?$/;
+const GH_BLOB_URL = /^(?:https?:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/(?:blob|tree)\/([^/]+)\/(.+)$/;
+
+function stripKnownManifestSuffix(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const suffixes = [
+    ".agents/.plugin.json",
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".adg-plugin/plugin.json",
+  ];
+  for (const suffix of suffixes) {
+    if (normalized === suffix) return "";
+    if (normalized.endsWith(`/${suffix}`)) return normalized.slice(0, -(suffix.length + 1));
+  }
+  return normalized;
+}
+
+function decodeGitHubUrlPart(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 /**
  * Parse an install spec into a local directory or a GitHub source.
@@ -33,12 +61,21 @@ const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]
 export function parseSource(spec: string): ParsedSource {
   if (existsSync(spec)) return { kind: "local", dir: spec };
 
-  const url = spec.match(GH_URL);
+  const clean = spec.replace(/[?#].*$/, "");
+  const blob = clean.match(GH_BLOB_URL);
+  if (blob) {
+    const [, owner, repo, ref, path] = blob;
+    const decodedRef = decodeGitHubUrlPart(ref!);
+    const decodedPath = decodeGitHubUrlPart(path!);
+    return { ...gh(owner!, repo!, decodedRef), path: stripKnownManifestSuffix(decodedPath) };
+  }
+
+  const url = clean.match(GH_URL);
   if (url) {
     const [, owner, repo, ref] = url;
     return gh(owner!, repo!, ref);
   }
-  const short = spec.match(GH_SHORTHAND);
+  const short = clean.match(GH_SHORTHAND);
   if (short) {
     const [, owner, repo, ref] = short;
     return gh(owner!, repo!, ref);
@@ -85,7 +122,32 @@ export function cloneGitHub(
 export type GitRunner = (args: string[]) => void;
 
 const defaultGitRunner: GitRunner = (args) => {
-  execFileSync("git", args, { stdio: "pipe" });
+  const tracer = getTracer();
+  return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
+    try {
+      span.setAttribute("process.executable.name", "git");
+      span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
+
+      execFileSync("git", args, { stdio: "pipe" });
+
+      span.setAttribute("process.exit.code", 0);
+    } catch (error: any) {
+      const exitCode = typeof error.status === "number" ? error.status : 1;
+      span.setAttribute("process.exit.code", exitCode);
+      if (typeof error.pid === "number") {
+        span.setAttribute("process.pid", error.pid);
+      }
+      span.setAttribute("error.type", error.code || error.name || `EXIT_CODE_${exitCode}`);
+      span.recordException(error as Error);
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: error.message,
+      });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
 };
 
 /**

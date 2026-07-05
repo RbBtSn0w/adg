@@ -11,8 +11,8 @@ import https from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { compareVersions, prereleaseChannel } from "./semver.ts";
+import { selfUpdateHint, PACKAGE_NAME } from "./self-update.ts";
 
-const PACKAGE_NAME = "@rbbtsn0w/adg";
 // URL-encode the slash in the scoped package name for the npm registry API.
 // The abbreviated packument (vnd.npm.install-v1+json) is small and exposes
 // `dist-tags`, which we need to follow the caller's release channel (e.g. the
@@ -178,13 +178,11 @@ export function checkForUpdate(
 
 /** Format an update notice for display on stderr. */
 export function formatUpdateNotice(currentVersion: string, latestVersion: string): string {
-  // A pre-release suggestion lives on its channel dist-tag (e.g. `beta`), not
-  // `latest`; installing `@latest` would pull the stable release instead of the
-  // advertised version. Pin to the exact version so the right artifact installs.
   const channel = prereleaseChannel(latestVersion);
-  const installTarget = channel ? latestVersion : "latest";
+  const npmTarget = channel ? latestVersion : "latest";
   return (
     `\n  Update available: ${currentVersion} → ${latestVersion}\n` +
-    `  Run: npm install -g ${PACKAGE_NAME}@${installTarget}\n`
+    `  Run: ${selfUpdateHint(latestVersion)}\n` +
+    `  npm: npm install -g ${PACKAGE_NAME}@${npmTarget}\n`
   );
 }

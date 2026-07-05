@@ -7,7 +7,7 @@
   "required": ["version", "plugins"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "description": "Lock file format version.", "const": 2 },
+    "version": { "type": "integer", "description": "Lock file format version.", "const": 3 },
     "plugins": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/lockEntry" }
@@ -20,25 +20,34 @@
   "$defs": {
     "lockEntry": {
       "type": "object",
-      "required": ["origin", "version", "folderHash", "installedAt", "updatedAt"],
+      "required": ["origin", "version", "sourceHash", "installedHash", "installedAt", "updatedAt"],
       "additionalProperties": false,
       "properties": {
         "origin": { "$ref": "#/$defs/source" },
         "version": { "type": "string" },
-        "folderHash": {
+        "sourceHash": {
           "type": "string",
-          "description": "Self-describing content digest, e.g. sha256-<hex>.",
+          "description": "Digest of the complete cached source payload.",
+          "pattern": "^[a-z0-9]+-[0-9a-f]+$"
+        },
+        "installedHash": {
+          "type": "string",
+          "description": "Digest of the effective runtime installation.",
           "pattern": "^[a-z0-9]+-[0-9a-f]+$"
         },
         "installedAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
+        "state": {
+          "enum": ["enabled", "disabled"],
+          "description": "Desired cross-agent projection state. Absent means enabled."
+        },
         "dependencies": {
           "type": "object",
           "additionalProperties": { "type": "string" }
         },
         "selection": {
           "type": "object",
-          "description": "Partial-install selection: which components/skills the generated manifests expose. Absent = expose everything.",
+          "description": "Partial-install selection: which components/skills are physically materialized and exposed. Absent = install everything.",
           "required": ["components"],
           "additionalProperties": false,
           "properties": {

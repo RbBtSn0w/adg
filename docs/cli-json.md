@@ -34,7 +34,8 @@ Shape:
       "name": "apple-skills",
       "version": "1.13.2",
       "source": { "type": "github", "repo": "RbBtSn0w/apple-skills" },
-      "folderHash": "sha256-...",
+      "sourceHash": "sha256-...",
+      "installedHash": "sha256-...",
       "installedAt": "2026-06-26T00:00:00.000Z",
       "updatedAt": "2026-06-26T00:00:00.000Z",
       "path": "/absolute/path/to/.agents/plugins/RbBtSn0w__apple-skills/apple-skills",
@@ -55,7 +56,8 @@ Shape:
         "hooks": 0,
         "apps": 0
       },
-      "partial": false
+      "partial": false,
+      "state": "enabled"
     }
   ]
 }
@@ -71,6 +73,8 @@ Field notes:
 - `counts` mirrors `contents` lengths.
 - `partial` is true when the installed plugin has a stored partial-install
   selection.
+- `state` is always normalized to `enabled` or `disabled`; legacy lock entries
+  without an explicit state are reported as `enabled`.
 
 ## `adg plugins status --json`
 
@@ -88,7 +92,9 @@ Shape:
       "queryable": true,
       "inSync": ["apple-skills"],
       "missing": [],
-      "agentOnly": []
+      "agentOnly": [],
+      "disabled": [],
+      "unexpectedlyEnabled": []
     }
   ]
 }
@@ -105,6 +111,9 @@ Field notes:
   query, `queryError` contains its diagnostic and `recoveryCommand` contains a
   safe repair command when ADG recognizes the failure. Both fields are omitted
   when unavailable.
-- `inSync`, `missing`, and `agentOnly` are name-level comparisons. Content drift
-  is not represented; use `adg plugins sync` when a full runtime refresh is
-  required.
+- `inSync` and `missing` apply only to store-enabled plugins. `disabled` contains
+  store-disabled plugins absent from the runtime as intended;
+  `unexpectedlyEnabled` contains disabled plugins still active in that runtime.
+  `agentOnly` remains reserved for runtime plugins absent from the store.
+  Content drift is not represented; use `adg plugins sync` when a full runtime
+  refresh is required.

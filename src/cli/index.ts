@@ -105,7 +105,7 @@ export type PluginCommand = {
   flags: readonly FlagName[];
   examples?: readonly string[];
   start?: boolean; // tag with "← start here" in the overview
-  delegated?: boolean; // handles its own sub-help (marketplace)
+  delegated?: boolean; // handles its own sub-help (marketplace/cache)
 };
 
 export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
@@ -163,6 +163,20 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     positional: "<name>  an installed plugin name (see `adg plugins list`)",
     flags: ["force", ...SCOPE],
   },
+  disable: {
+    summary: "disable plugins across every runtime (store kept)",
+    synopsis: "adg plugins disable <name...>",
+    positional: "<name...>  installed plugin names (see `adg plugins list`)",
+    blurb: "Keep plugin payloads in the ADG store while removing their projections\nfrom every registered agent. Disabled state survives update and sync.",
+    flags: [...SCOPE],
+  },
+  enable: {
+    summary: "enable stored plugins across every runtime",
+    synopsis: "adg plugins enable <name...>",
+    positional: "<name...>  installed plugin names (see `adg plugins list`)",
+    blurb: "Restore disabled plugins and their dependencies from the ADG store,\nregenerate projections, and activate them in every compatible agent.",
+    flags: [...SCOPE],
+  },
   init: {
     summary: "scaffold a new plugin or marketplace (.agents/ only)",
     synopsis: "adg plugins init <name> [--type plugin|marketplace|all]",
@@ -217,13 +231,19 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     ],
   },
   migrate: {
-    summary: "move flat installs into per-marketplace dirs",
+    summary: "upgrade legacy locks and move flat installs",
     synopsis: "adg plugins migrate",
     flags: [...SCOPE],
   },
   marketplace: {
     summary: "view installed plugins grouped by source",
     synopsis: "adg plugins marketplace <list|sync|upgrade|remove>",
+    flags: [],
+    delegated: true,
+  },
+  cache: {
+    summary: "inspect and garbage-collect source snapshots",
+    synopsis: "adg plugins cache <status|prune|clean>",
     flags: [],
     delegated: true,
   },
@@ -243,6 +263,7 @@ plugin sets — and adapt each to both Claude and Codex runtimes from one manife
 Quick start:
   adg plugins add <owner/repo>     install plugins from a source (guided in a terminal)
   adg plugins list                 see what's installed
+  adg update                       upgrade the ADG CLI itself
 
 Two domains:
   adg plugins <verb>    manage plugins   (run \`adg plugins -h\`)
@@ -269,6 +290,17 @@ Commands:
         Kept as an alias. To pull upstream changes, prefer \`adg plugins update\`.
 
 <source> is a key from \`marketplace list\` (e.g. owner/repo).`;
+
+export const CACHE_USAGE = `adg plugins cache — inspect and garbage-collect complete source snapshots
+
+Commands:
+  adg plugins cache status [--global | --project | --dir <dir>]
+        Show cached snapshots, byte sizes, and orphan state.
+  adg plugins cache prune [--global | --project | --dir <dir>]
+        Delete snapshots that have no corresponding lock entry.
+  adg plugins cache clean --force [--global | --project | --dir <dir>]
+        Delete every source snapshot for the selected store. A later update or
+        add may be required before link/sync can rebuild remote plugins.`;
 
 export function flagLabel(name: FlagName): string {
   const f = FLAGS[name]!;
@@ -306,7 +338,7 @@ Scope (most commands):  --project (default) | --global | --dir <dir>
   --global honors XDG_STATE_HOME / ADG_PLUGINS_HOME. Only the plugins/ subtree is
   touched; AGENTS.md and skills/ are never modified.
   Mutating verbs ask project/global in a terminal when no scope flag is given.
-  sync/link/unlink/remove/migrate/import-skills require one in a non-interactive
+  sync/link/unlink/enable/disable/remove/migrate/import-skills require one in a non-interactive
   run (rather than assuming project); add/update fall back to a safe default. A
   project store that resolves to the global path is auto-promoted to global.`;
 }
