@@ -159,6 +159,6 @@ function isStringArray(v: unknown): v is string[] {
 }
 
 function isSafeRelativePointer(value: string): boolean {
-  if (isAbsolute(value) || /^[A-Za-z]:[/\\]/.test(value) || /^[/\\]{2}/.test(value)) return false;
+  if (isAbsolute(value) || /^[A-Za-z]:/.test(value) || /^[/\\]{2}/.test(value)) return false;
   return !value.replaceAll("\\", "/").split("/").includes("..");
 }

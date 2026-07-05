@@ -9,7 +9,7 @@ import { initPlugin, initScaffold } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
 import { installPlugin } from "../src/commands/install.ts";
 import { updateLock } from "../src/commands/update.ts";
-import { cleanPluginCache, pluginCacheStatus, prunePluginCache } from "../src/commands/cache.ts";
+import { cleanPluginCache, directoryBytes, pluginCacheStatus, prunePluginCache } from "../src/commands/cache.ts";
 import { validatePlugin } from "../src/commands/validate.ts";
 import { type PluginSelection } from "../src/types.ts";
 import { tmp, scaffoldSource } from "./helpers.ts";
@@ -101,6 +101,25 @@ test("an explicit skill subset always implies the skills component", () => {
   rmSync(work, { recursive: true, force: true });
 });
 
+test("array-form skills reject selected names not declared by the manifest", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "array-skills", dir: join(work, "src") });
+  const manifestFile = join(pluginDir, ".agents", ".plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  manifest.skills = ["./skills/getting-started"];
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+
+  assert.throws(
+    () => installPlugin({
+      source: pluginDir,
+      pluginsDir: join(work, "store"),
+      selection: { components: ["skills"], skills: ["missing"] },
+    }),
+    /selected skill\(s\) not declared: missing/,
+  );
+  rmSync(work, { recursive: true, force: true });
+});
+
 test("cache status, prune, and clean manage source snapshots without touching installations", () => {
   const work = tmp();
   const { pluginDir } = initPlugin({ name: "cached", dir: join(work, "src") });
@@ -118,6 +137,12 @@ test("cache status, prune, and clean manage source snapshots without touching in
   cleanPluginCache(store);
   assert.deepEqual(pluginCacheStatus(store).entries, []);
   assert.ok(existsSync(join(store, "cached")), "clean only removes rebuildable cache data");
+  rmSync(work, { recursive: true, force: true });
+});
+
+test("directoryBytes tolerates a cache directory disappearing during inspection", () => {
+  const work = tmp();
+  assert.equal(directoryBytes(join(work, "missing")), 0);
   rmSync(work, { recursive: true, force: true });
 });
 
@@ -172,6 +197,7 @@ test("init -> adapt -> install -> update end to end", () => {
   const store = join(work, "store");
   const res = installPlugin({ source: pluginDir, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
   assert.equal(res.name, "sample");
+  assert.equal(res.version, "0.1.0");
   assert.ok(existsSync(join(store, "sample", ".agents", ".plugin.json")));
 
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));

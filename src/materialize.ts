@@ -27,9 +27,13 @@ function selectedSkillPaths(manifest: AdgManifest, names: readonly string[]): st
   const declared = manifest.skills;
   if (Array.isArray(declared)) {
     const wanted = new Set(names);
-    return declared
+    const selected = declared
       .map(normalizeRelative)
       .filter((path) => wanted.has(basename(path)));
+    const found = new Set(selected.map((path) => basename(path)));
+    const missing = names.filter((name) => !found.has(name));
+    if (missing.length > 0) throw new Error(`selected skill(s) not declared: ${missing.join(", ")}`);
+    return selected;
   }
   const root = normalizeRelative(declared ?? "./skills/");
   return names.map((name) => `${root}/${name}`);

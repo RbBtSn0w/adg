@@ -50,6 +50,7 @@ export interface InstallOneOptions {
 
 export interface InstallResult {
   name: string;
+  version: string;
   installedTo: string;
   sourceHash: string;
   installedHash: string;
@@ -115,6 +116,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     if (!opts.forceMaterialize && opts.skipUnchanged && prev && prev.sourceHash === sourceHash && prev.version === manifest.version && installedIntact) {
       return {
         name,
+        version: manifest.version,
         installedTo: dest,
         sourceHash,
         installedHash: prev.installedHash,
@@ -168,7 +170,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     });
     writeMarketplace(marketFile, market);
 
-    return { name, installedTo: dest, sourceHash, installedHash, adapted: adaptedFiles, changed };
+    return { name, version: manifest.version, installedTo: dest, sourceHash, installedHash, adapted: adaptedFiles, changed };
   });
 }
 

@@ -1,4 +1,4 @@
-import { selectInstalled } from "./projection.ts";
+import { adaptedFilesForTarget, selectInstalled } from "./projection.ts";
 import { pluginRematerializationSource } from "../paths.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
 import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
@@ -62,7 +62,7 @@ export function syncPlugins(opts: SyncOptions): SyncResult {
       targets: [...ADAPTER_TARGETS],
       forceMaterialize: true,
     });
-    actions.push({ name: p.name, adapted: result.adapted.filter((file) => file.includes(`.${adaptTarget}-plugin`) || adaptTarget === "antigravity"), synced: false });
+    actions.push({ name: p.name, adapted: adaptedFilesForTarget(result.installedTo, result.adapted, adaptTarget), synced: false });
   }
 
   if (!agent) return { target: opts.target, actions };

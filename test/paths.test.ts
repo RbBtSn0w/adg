@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { codexMarketplaceRoot, globalPluginsDir, projectPluginsDir, marketplaceSourcePath } from "../src/paths.ts";
+import { codexMarketplaceRoot, globalPluginsDir, projectPluginsDir, marketplaceSourcePath, pluginRematerializationSource } from "../src/paths.ts";
 import { emptyLock, readLock, upsertEntry } from "../src/lock.ts";
 import { tmp } from "./helpers.ts";
 
@@ -42,6 +42,18 @@ test("projectPluginsDir stops at a .git root", () => {
   const nested = join(root, "a", "b");
   mkdirSync(nested, { recursive: true });
   assert.equal(projectPluginsDir(nested), join(root, ".agents", "plugins"));
+  rmSync(root, { recursive: true });
+});
+
+test("pluginRematerializationSource resolves legacy local origins from the store", () => {
+  const root = tmp();
+  const store = join(root, "plugins");
+  const source = join(store, "legacy-source");
+  mkdirSync(source, { recursive: true });
+  assert.equal(
+    pluginRematerializationSource(store, "demo", { type: "local", path: "./legacy-source" }),
+    source,
+  );
   rmSync(root, { recursive: true });
 });
 

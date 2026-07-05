@@ -74,7 +74,10 @@ export function pluginSourceCacheDir(pluginsDir: string, name: string): string {
 export function pluginRematerializationSource(pluginsDir: string, name: string, origin: PluginSource): string {
   const cache = pluginSourceCacheDir(pluginsDir, name);
   if (existsSync(cache)) return cache;
-  if (origin.type === "local" && existsSync(origin.path)) return origin.path;
+  if (origin.type === "local") {
+    const localPath = resolve(pluginsDir, origin.path);
+    if (existsSync(localPath)) return localPath;
+  }
   throw new Error(`source cache missing for "${name}"; run \`adg plugins update\` or re-add the plugin`);
 }
 

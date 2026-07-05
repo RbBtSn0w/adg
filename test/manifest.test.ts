@@ -31,6 +31,11 @@ test("collectIssues rejects component paths that escape the plugin directory", (
   assert.ok(issues.includes("hooks must stay within the plugin directory"));
 });
 
+test("collectIssues rejects Windows drive-relative component paths", () => {
+  const issues = collectIssues({ ...baseManifest, skills: "C:skills" });
+  assert.ok(issues.includes("skills must stay within the plugin directory"));
+});
+
 test("validateManifest throws ManifestError with issues", () => {
   assert.throws(() => validateManifest({}), (err: unknown) => err instanceof ManifestError);
 });

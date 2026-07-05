@@ -16,12 +16,22 @@ export interface PluginCacheStatus {
   totalBytes: number;
 }
 
-function directoryBytes(dir: string): number {
+export function directoryBytes(dir: string): number {
   let total = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) total += directoryBytes(path);
-    else if (entry.isFile()) total += statSync(path).size;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) total += directoryBytes(path);
+      else if (entry.isFile()) {
+        try {
+          total += statSync(path).size;
+        } catch {
+          // A concurrent cache mutation must not make status fail.
+        }
+      }
+    }
+  } catch {
+    // Treat an unreadable or concurrently removed directory as empty.
   }
   return total;
 }

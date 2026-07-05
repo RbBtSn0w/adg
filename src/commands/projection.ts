@@ -1,4 +1,6 @@
 import { listPlugins, type ListedPlugin } from "./list.ts";
+import { relative } from "node:path";
+import type { AdapterTarget } from "../adapters/index.ts";
 
 /**
  * Shared selection for the projection verbs (link / unlink / sync). Resolve which
@@ -24,4 +26,14 @@ export function selectInstalled(pluginsDir: string, names?: string[]): ListedPlu
     picked.push(byName.get(n)!);
   }
   return picked;
+}
+
+/** Keep only the generated manifest reported for one runtime target. */
+export function adaptedFilesForTarget(
+  installedTo: string,
+  files: readonly string[],
+  target: AdapterTarget,
+): string[] {
+  const expected = target === "antigravity" ? "plugin.json" : `.${target}-plugin/plugin.json`;
+  return files.filter((file) => relative(installedTo, file).split("\\").join("/") === expected);
 }

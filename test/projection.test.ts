@@ -209,6 +209,24 @@ test("link with names acts only on the named subset", () => {
   rmSync(work, { recursive: true });
 });
 
+test("link reports only the Antigravity root manifest for that target", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  const res = linkPlugins({ pluginsDir: store, target: "antigravity", agent: fakeAgent("antigravity", recorder()) });
+  assert.deepEqual(res.actions[0]!.adapted, [join(store, "alpha", "plugin.json")]);
+  rmSync(work, { recursive: true });
+});
+
+test("sync reports only the Antigravity root manifest for that target", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  const res = syncPlugins({ pluginsDir: store, target: "antigravity", agent: fakeAgent("antigravity", recorder()) });
+  assert.deepEqual(res.actions[0]!.adapted, [join(store, "alpha", "plugin.json")]);
+  rmSync(work, { recursive: true });
+});
+
 test("link rejects a disabled plugin and points to enable", () => {
   const work = tmp();
   const store = join(work, "store");

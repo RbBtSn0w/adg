@@ -44,8 +44,9 @@ export function updateLock(
   for (const [name, entry] of Object.entries(snapshot.plugins)) {
     if (only && !only.has(name)) continue;
     const installedDir = installedPluginDir(pluginsDir, name, entry.origin);
-    const localSource = entry.origin.type === "local" && resolve(entry.origin.path) !== resolve(installedDir)
-      ? entry.origin.path
+    const resolvedSource = entry.origin.type === "local" ? resolve(pluginsDir, entry.origin.path) : undefined;
+    const localSource = resolvedSource && resolvedSource !== resolve(installedDir)
+      ? resolvedSource
       : undefined;
     const cache = pluginSourceCacheDir(pluginsDir, name);
     const source = localSource && existsSync(localSource) ? localSource : cache;
@@ -62,12 +63,11 @@ export function updateLock(
       skipUnchanged: true,
       now,
     });
-    const current = readLock(lockPath(pluginsDir)).plugins[name]!;
     if (result.changed) changedNames.push(name);
     results.push({
       name,
       changed: result.changed,
-      version: current.version,
+      version: result.version,
       sourceHash: result.sourceHash,
       installedHash: result.installedHash,
     });
