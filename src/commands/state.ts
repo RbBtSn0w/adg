@@ -77,7 +77,6 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
   const { lock, names } = selectedLock(opts);
   const order = enableOrder(lock, names);
   const changed = order.filter((name) => pluginState(lock.plugins[name]!) !== "enabled");
-  const plugins = listPlugins(opts.pluginsDir);
   for (const name of changed) {
     const entry = lock.plugins[name]!;
     installPlugin({
@@ -89,6 +88,7 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
       forceMaterialize: true,
     });
   }
+  const plugins = listPlugins(opts.pluginsDir);
   const updatedLock = readLock(lockPath(opts.pluginsDir));
   for (const name of order) updatedLock.plugins[name]!.state = "enabled";
   if (changed.length > 0) writeLock(lockPath(opts.pluginsDir), updatedLock);

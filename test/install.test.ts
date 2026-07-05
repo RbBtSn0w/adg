@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { readManifest } from "../src/manifest.ts";
+import { readLock } from "../src/lock.ts";
 import { marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
 import { initPlugin, initScaffold } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
@@ -168,6 +169,27 @@ test("failed materialization preserves the previous installation and lock", () =
   assert.equal(readFileSync(join(store, ".plugin-lock.json"), "utf8"), lockBefore);
   assert.equal(readFileSync(cacheManifest, "utf8"), cacheBefore);
   rmSync(work, { recursive: true, force: true });
+});
+
+test("regular reinstall does not hash the existing projection", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "no-eager-hash", dir: join(work, "src") });
+  const store = join(work, "store");
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const installedSkill = join(store, "no-eager-hash", "skills", "getting-started", "SKILL.md");
+  chmodSync(installedSkill, 0o000);
+
+  try {
+    const lock = readLock(join(store, ".plugin-lock.json"));
+    assert.doesNotThrow(() => installPlugin({
+      source: pluginSourceCacheDir(store, "no-eager-hash"),
+      pluginsDir: store,
+      origin: lock.plugins["no-eager-hash"]!.origin,
+    }));
+  } finally {
+    if (existsSync(installedSkill)) chmodSync(installedSkill, 0o600);
+    rmSync(work, { recursive: true, force: true });
+  }
 });
 
 test("materialization drops symlinks that escape the plugin source", () => {

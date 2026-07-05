@@ -169,6 +169,35 @@ test("enable skips activate for agents with no compatible changed plugins", () =
   rmSync(work, { recursive: true });
 });
 
+test("enable computes agent compatibility after rematerialization", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "changing", [], "apps");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.changing!.state = "disabled";
+  writeFileSync(join(store, ".plugin-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+
+  const cache = pluginSourceCacheDir(store, "changing");
+  const manifestFile = join(cache, ".agents", ".plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  delete manifest.apps;
+  manifest.skills = "./skills/";
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  mkdirSync(join(cache, "skills", "hello"), { recursive: true });
+  writeFileSync(join(cache, "skills", "hello", "SKILL.md"), "# hello\n");
+
+  const calls: Calls = { activate: [], deactivate: [] };
+  enablePlugins({
+    pluginsDir: store,
+    names: ["changing"],
+    scope: "project",
+    agents: [agent("codex", calls), agent("claude", calls)],
+  });
+
+  assert.deepEqual(calls.activate, [["changing"], ["changing"]]);
+  rmSync(work, { recursive: true, force: true });
+});
+
 test("enable keeps disabled state when rematerialization fails", () => {
   const work = tmp();
   const store = join(work, "store");

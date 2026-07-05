@@ -111,18 +111,21 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   return withPluginSourceCache(source, cacheDir, manifest, (snapshot) => {
     // Detect-then-update compares the complete source snapshot, never the
     // selection-pruned runtime installation.
-    const installedIntact = existsSync(dest)
-      && folderHash(dest, PROJECTION_DIRS, effectivePackageFilter(manifest, selection)) === prev?.installedHash;
-    if (!opts.forceMaterialize && opts.skipUnchanged && prev && prev.sourceHash === sourceHash && prev.version === manifest.version && installedIntact) {
-      return {
-        name,
-        version: manifest.version,
-        installedTo: dest,
-        sourceHash,
-        installedHash: prev.installedHash,
-        adapted: [],
-        changed: false,
-      };
+    if (!opts.forceMaterialize && opts.skipUnchanged && prev
+      && prev.sourceHash === sourceHash && prev.version === manifest.version) {
+      const installedIntact = existsSync(dest)
+        && folderHash(dest, PROJECTION_DIRS, effectivePackageFilter(manifest, selection)) === prev.installedHash;
+      if (installedIntact) {
+        return {
+          name,
+          version: manifest.version,
+          installedTo: dest,
+          sourceHash,
+          installedHash: prev.installedHash,
+          adapted: [],
+          changed: false,
+        };
+      }
     }
 
     const targets = opts.targets ?? [...ADAPTER_TARGETS];
