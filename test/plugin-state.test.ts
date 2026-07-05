@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { installPlugin } from "../src/commands/install.ts";
 import { disablePlugins, enablePlugins } from "../src/commands/state.ts";
 import { readLock } from "../src/lock.ts";
+import { pluginSourceCacheDir } from "../src/paths.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "../src/agents/index.ts";
 import { ADG_SCHEMA_VERSION, pluginState } from "../src/types.ts";
 import { tmp } from "./helpers.ts";
@@ -54,7 +55,7 @@ function seed(store: string, name: string, dependencies: string[] = [], kind: "s
   installPlugin({ source: src, pluginsDir: store, now: "2026-07-03T00:00:00Z" });
 }
 
-test("legacy lock entries default to enabled and reinstall preserves disabled", () => {
+test("lock entries default to enabled and reinstall preserves disabled", () => {
   const work = tmp();
   const store = join(work, "store");
   seed(store, "alpha");
@@ -63,7 +64,12 @@ test("legacy lock entries default to enabled and reinstall preserves disabled", 
 
   lock.plugins.alpha!.state = "disabled";
   writeFileSync(join(store, ".plugin-lock.json"), JSON.stringify(lock, null, 2) + "\n");
-  installPlugin({ source: join(store, "alpha"), pluginsDir: store, now: "2026-07-04T00:00:00Z" });
+  installPlugin({
+    source: pluginSourceCacheDir(store, "alpha"),
+    pluginsDir: store,
+    origin: lock.plugins.alpha!.origin,
+    now: "2026-07-04T00:00:00Z",
+  });
   lock = readLock(join(store, ".plugin-lock.json"));
   assert.equal(lock.plugins.alpha!.state, "disabled");
   rmSync(work, { recursive: true });
@@ -161,4 +167,50 @@ test("enable skips activate for agents with no compatible changed plugins", () =
     ["claude", ["claude-only"]],
   ]);
   rmSync(work, { recursive: true });
+});
+
+test("enable computes agent compatibility after rematerialization", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "changing", [], "apps");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.changing!.state = "disabled";
+  writeFileSync(join(store, ".plugin-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+
+  const cache = pluginSourceCacheDir(store, "changing");
+  const manifestFile = join(cache, ".agents", ".plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  delete manifest.apps;
+  manifest.skills = "./skills/";
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  mkdirSync(join(cache, "skills", "hello"), { recursive: true });
+  writeFileSync(join(cache, "skills", "hello", "SKILL.md"), "# hello\n");
+
+  const calls: Calls = { activate: [], deactivate: [] };
+  enablePlugins({
+    pluginsDir: store,
+    names: ["changing"],
+    scope: "project",
+    agents: [agent("codex", calls), agent("claude", calls)],
+  });
+
+  assert.deepEqual(calls.activate, [["changing"], ["changing"]]);
+  rmSync(work, { recursive: true, force: true });
+});
+
+test("enable keeps disabled state when rematerialization fails", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "alpha");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.alpha!.state = "disabled";
+  writeFileSync(join(store, ".plugin-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+  rmSync(pluginSourceCacheDir(store, "alpha"), { recursive: true, force: true });
+  const origin = lock.plugins.alpha!.origin;
+  assert.equal(origin.type, "local");
+  if (origin.type === "local") rmSync(origin.path, { recursive: true, force: true });
+
+  assert.throws(() => enablePlugins({ pluginsDir: store, names: ["alpha"], scope: "project", agents: [] }));
+  assert.equal(pluginState(readLock(join(store, ".plugin-lock.json")).plugins.alpha!), "disabled");
+  rmSync(work, { recursive: true, force: true });
 });

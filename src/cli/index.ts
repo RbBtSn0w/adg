@@ -105,7 +105,7 @@ export type PluginCommand = {
   flags: readonly FlagName[];
   examples?: readonly string[];
   start?: boolean; // tag with "← start here" in the overview
-  delegated?: boolean; // handles its own sub-help (marketplace)
+  delegated?: boolean; // handles its own sub-help (marketplace/cache)
 };
 
 export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
@@ -231,13 +231,19 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     ],
   },
   migrate: {
-    summary: "move flat installs into per-marketplace dirs",
+    summary: "upgrade legacy locks and move flat installs",
     synopsis: "adg plugins migrate",
     flags: [...SCOPE],
   },
   marketplace: {
     summary: "view installed plugins grouped by source",
     synopsis: "adg plugins marketplace <list|sync|upgrade|remove>",
+    flags: [],
+    delegated: true,
+  },
+  cache: {
+    summary: "inspect and garbage-collect source snapshots",
+    synopsis: "adg plugins cache <status|prune|clean>",
     flags: [],
     delegated: true,
   },
@@ -284,6 +290,17 @@ Commands:
         Kept as an alias. To pull upstream changes, prefer \`adg plugins update\`.
 
 <source> is a key from \`marketplace list\` (e.g. owner/repo).`;
+
+export const CACHE_USAGE = `adg plugins cache — inspect and garbage-collect complete source snapshots
+
+Commands:
+  adg plugins cache status [--global | --project | --dir <dir>]
+        Show cached snapshots, byte sizes, and orphan state.
+  adg plugins cache prune [--global | --project | --dir <dir>]
+        Delete snapshots that have no corresponding lock entry.
+  adg plugins cache clean --force [--global | --project | --dir <dir>]
+        Delete every source snapshot for the selected store. A later update or
+        add may be required before link/sync can rebuild remote plugins.`;
 
 export function flagLabel(name: FlagName): string {
   const f = FLAGS[name]!;

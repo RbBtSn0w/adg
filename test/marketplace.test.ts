@@ -65,7 +65,8 @@ test("sameSource compares discriminated sources structurally", () => {
 test("marketplace.json is a de-facto export; integrity/version live in the lock", () => {
   const work = tmp();
   const store = join(work, "store");
-  installPlugin({ source: writePlugin(join(work, "src"), "demo"), pluginsDir: store, now: "2026-06-11T00:00:00Z" });
+  const src = writePlugin(join(work, "src"), "demo");
+  installPlugin({ source: src, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
 
   // Export: de-facto shape (Codex-compatible), no schemaVersion/integrity/version.
   const market = JSON.parse(readFileSync(join(store, "marketplace.json"), "utf8"));
@@ -80,8 +81,9 @@ test("marketplace.json is a de-facto export; integrity/version live in the lock"
 
   // Control plane: the lock carries integrity + provenance.
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.ok(lock.plugins.demo.folderHash.startsWith("sha256-"));
-  assert.deepEqual(lock.plugins.demo.origin, { type: "local", path: "./demo" });
+  assert.ok(lock.plugins.demo.sourceHash.startsWith("sha256-"));
+  assert.ok(lock.plugins.demo.installedHash.startsWith("sha256-"));
+  assert.deepEqual(lock.plugins.demo.origin, { type: "local", path: src });
   assert.equal(lock.plugins.demo.version, "1.0.0");
   rmSync(work, { recursive: true });
 });

@@ -66,6 +66,29 @@
         "additionalProperties": false
       }
     },
+    "selectionDependencies": {
+      "type": "object",
+      "description": "Mandatory payload closure for each selected component.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(skills|agents|commands|mcp|hooks|apps)$": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "components": {
+              "type": "array",
+              "items": { "enum": ["skills", "agents", "commands", "mcp", "hooks", "apps"] },
+              "uniqueItems": true
+            },
+            "skills": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    },
     "strict": {
       "type": "boolean",
       "description": "When true, only skills listed in the manifest are exposed; when false, the skills directory is auto-scanned.",
