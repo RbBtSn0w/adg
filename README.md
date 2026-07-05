@@ -79,7 +79,7 @@ runtime, and verify the result. Replace the placeholders before sending it.
 
 ```text
 Set up ADG for this environment and use it to install plugins from
-<OWNER/REPO_OR_LOCAL_PATH>.
+anthropics/knowledge-work-plugins.
 
 Requirements:
 1. Inspect the current environment first. If `adg` is unavailable, install the
