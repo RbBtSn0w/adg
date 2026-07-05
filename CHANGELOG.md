@@ -1,3 +1,10 @@
+
+## [0.5.0](https://github.com/RbBtSn0w/adg/compare/0.4.0...0.5.0) (2026-07-05)
+
+### Added
+
+* Implement OpenTelemetry tracing and enhance plugin management ([#51](https://github.com/RbBtSn0w/adg/issues/51)) ([eca87b4](https://github.com/RbBtSn0w/adg/commit/eca87b449b42139e8e4365970ffbc052c7c1fe02)), closes [#43](https://github.com/RbBtSn0w/adg/issues/43) [#44](https://github.com/RbBtSn0w/adg/issues/44) [#46](https://github.com/RbBtSn0w/adg/issues/46)
+
 ## [0.5.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.5.0-beta.6...0.5.0-beta.7) (2026-07-05)
 
 ### Fixed

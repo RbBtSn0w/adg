@@ -71,6 +71,42 @@ stable output and exit-code contract.
 `adg` is the only command you invoke — no Node build step beyond the global
 install. To hack on the CLI itself, see [Developing from source](#developing-from-source).
 
+## Copy-paste prompt for coding agents
+
+Paste the prompt below into Codex, Claude Code, or another coding agent to have
+it install ADG, add a plugin source, connect the installed plugins to the active
+runtime, and verify the result. Replace the placeholders before sending it.
+
+```text
+Set up ADG for this environment and use it to install plugins from
+anthropics/knowledge-work-plugins.
+
+Requirements:
+1. Inspect the current environment first. If `adg` is unavailable, install the
+   stable `@rbbtsn0w/adg` package with an available supported package manager
+   (`brew install adg` after `brew tap RbBtSn0w/tap`, or
+   `npm install -g @rbbtsn0w/adg`). Do not modify the current project yet.
+2. Use the <GLOBAL_OR_PROJECT> scope explicitly on every mutating command:
+   `--global` for plugins shared across projects, or `--project` for this
+   repository only. Do not rely on interactive prompts.
+3. Inspect the source and installed plugin names, then install the requested
+   plugins. Use `adg plugins add <OWNER/REPO_OR_LOCAL_PATH> --all
+   <SCOPE_FLAG>` unless I list specific plugins or components below.
+4. Connect the installed plugins to <codex|claude|antigravity|all> with
+   `adg plugins link --target <TARGET> <SCOPE_FLAG>`. Let ADG manage runtime
+   projections; do not manually edit or copy files into agent-specific plugin
+   directories.
+5. Verify the setup with `adg plugins list <SCOPE_FLAG>` and
+   `adg plugins status --target <TARGET> <SCOPE_FLAG>`. Report the commands you
+   ran, the installed plugin names, and any remaining drift or errors.
+
+Requested plugins/components (optional): <ALL_OR_LIST>
+```
+
+For example, replace `<GLOBAL_OR_PROJECT>` with `global`, `<SCOPE_FLAG>` with
+`--global`, and `<TARGET>` with `codex` for a personal Codex setup available in
+every project.
+
 ---
 
 # Works with existing ecosystems
