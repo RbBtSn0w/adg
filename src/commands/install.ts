@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -304,16 +304,7 @@ function discoverPlugins(root: string): { candidates: Map<string, PluginCandidat
   for (const native of scanNativePlugins(root)) {
     if (native.kind === "adg") continue;
     const raw = JSON.parse(readFileSync(native.manifestFile, "utf8"));
-    const manifest = fromNativeManifest(raw, native.kind);
-    // A Claude manifest omits `hooks` (Claude auto-loads hooks/hooks.json), and
-    // `walkNative` prefers it over a sibling Codex manifest that *does* declare
-    // hooks — so the reverse-adapt would silently drop the hooks payload. Recover
-    // it from disk: a hooks/ directory means the ADG manifest must declare it, or
-    // packagedRoots won't copy it and every downstream projection loses hooks.
-    const hooksDir = join(native.dir, "hooks");
-    if (!manifest.hooks && existsSync(hooksDir) && statSync(hooksDir).isDirectory()) {
-      manifest.hooks = "./hooks/";
-    }
+    const manifest = fromNativeManifest(raw, native.kind, native.dir);
     writeJson(join(native.dir, ADG_MANIFEST_PATH), manifest);
     converted.push(manifest.name);
   }
@@ -452,6 +443,40 @@ function reconcileRemotePlugins(
   return stale;
 }
 
+function activateInstalled(
+  opts: AddOptions,
+  targets: AdapterTarget[] | undefined,
+  installed: InstallResult[],
+  existingPlugins: Set<string>,
+): AgentSyncResult[] | undefined {
+  const updatedLock = readLock(lockPath(opts.pluginsDir));
+  const eligible = installed.filter((result) => pluginState(updatedLock.plugins[result.name]!) === "enabled");
+  const toActivate = opts.skipUnchanged ? eligible.filter((result) => result.changed) : eligible;
+  if (!opts.activate || toActivate.length === 0) return undefined;
+
+  const resolved = opts.agents ?? resolveAgents(targets);
+  const scope = opts.scope ?? "project";
+  const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
+
+  return resolved.map((agent) => {
+    const queryResult = agent.listInstalled?.(ctxFor([]));
+    const agentInstalled = Array.isArray(queryResult) ? queryResult : undefined;
+    const alreadyInstalled = (name: string) =>
+      agentInstalled !== undefined
+        ? agentInstalled.includes(name)
+        : existingPlugins.has(name);
+    const activateNames = toActivate.filter((result) => !alreadyInstalled(result.name)).map((result) => result.name);
+    const refreshNames = toActivate.filter((result) => alreadyInstalled(result.name)).map((result) => result.name);
+    const parts: AgentSyncResult[] = [];
+    if (activateNames.length > 0) parts.push(agent.activate(ctxFor(activateNames)));
+    if (refreshNames.length > 0) parts.push(agent.refresh(ctxFor(refreshNames)));
+    return parts.reduce<AgentSyncResult>(
+      (acc, result) => ({ agent: result.agent, affected: [...acc.affected, ...result.affected], skipped: acc.skipped && result.skipped }),
+      { agent: agent.id, affected: [], skipped: true },
+    );
+  });
+}
+
 /**
  * The unified install entrypoint. Treats any source as a marketplace: clone or
  * read it, discover every plugin (ADG plus reverse-adapted native), choose a
@@ -551,40 +576,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     // undefined targets = all registered agents. Under skipUnchanged (the update
     // path) only re-activate plugins that actually changed — re-running an agent
     // CLI for an untouched plugin is wasted work.
-    let agents: AgentSyncResult[] | undefined;
-    const updatedLock = readLock(lockPath(opts.pluginsDir));
-    const eligible = installed.filter((result) => pluginState(updatedLock.plugins[result.name]!) === "enabled");
-    const toActivate = opts.skipUnchanged ? eligible.filter((r) => r.changed) : eligible;
-    if (opts.activate && toActivate.length > 0) {
-      const resolved = opts.agents ?? resolveAgents(targets);
-      const scope = opts.scope ?? "project";
-      const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
-      agents = resolved.map((a) => {
-        const queryResult = a.listInstalled?.(ctxFor([]));
-        const agentInstalled = Array.isArray(queryResult) ? queryResult : undefined;
-        const alreadyInstalled = (name: string) =>
-          agentInstalled !== undefined
-            ? agentInstalled.includes(name)
-            : existingPlugins.has(name);
-        // Existing plugins must go through refresh even on an explicit `add`:
-        // agents like Claude cache an installed copy, and their plain install
-        // command is a no-op when the plugin already exists. If the agent can
-        // enumerate live installs, trust that state; otherwise fall back to the
-        // ADG lock to preserve clean-update behavior.
-        const activateNames = toActivate.filter((r) => !alreadyInstalled(r.name)).map((r) => r.name);
-        const refreshNames = toActivate.filter((r) => alreadyInstalled(r.name)).map((r) => r.name);
-        // An agent may run both lifecycles (new installs + updates) in one pass;
-        // merge into the existing affected/skipped contract so downstream report
-        // and consolidation (renderAgentReport, mergeAgentResults) stay unchanged.
-        const parts: AgentSyncResult[] = [];
-        if (activateNames.length > 0) parts.push(a.activate(ctxFor(activateNames)));
-        if (refreshNames.length > 0) parts.push(a.refresh(ctxFor(refreshNames)));
-        return parts.reduce<AgentSyncResult>(
-          (acc, r) => ({ agent: r.agent, affected: [...acc.affected, ...r.affected], skipped: acc.skipped && r.skipped }),
-          { agent: a.id, affected: [], skipped: true },
-        );
-      });
-    }
+    const agents = activateInstalled(opts, targets, installed, existingPlugins);
 
     return { order, installed, removed, converted, available, agents };
   } finally {

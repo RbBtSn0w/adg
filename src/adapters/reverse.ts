@@ -1,3 +1,5 @@
+import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../types.ts";
 import { validateManifest } from "../manifest.ts";
 import { toPosix } from "../fsutil.ts";
@@ -18,7 +20,7 @@ export type NativeKind = "claude" | "codex";
  * emits valid `./skills/<id>` entries instead of leaking bare ids into a Claude
  * manifest.
  */
-export function fromNativeManifest(raw: unknown, kind: NativeKind): AdgManifest {
+export function fromNativeManifest(raw: unknown, kind: NativeKind, pluginDir?: string): AdgManifest {
   if (typeof raw !== "object" || raw === null) {
     throw new Error("native manifest must be a JSON object");
   }
@@ -40,6 +42,7 @@ export function fromNativeManifest(raw: unknown, kind: NativeKind): AdgManifest 
   copyIfString(n, out, "agents");
   copyIfString(n, out, "hooks");
   copyIfString(n, out, "mcpServers");
+  if (typeof out.mcpServers !== "string" && typeof n.mcp === "string") out.mcpServers = n.mcp;
   copyIfString(n, out, "apps");
 
   if (typeof n.author === "object" && n.author !== null) {
@@ -61,6 +64,15 @@ export function fromNativeManifest(raw: unknown, kind: NativeKind): AdgManifest 
   }
 
   manifest.strict = typeof n.strict === "boolean" ? n.strict : true;
+  if (!manifest.hooks && pluginDir) {
+    const hooksDir = join(pluginDir, "hooks");
+    try {
+      if (existsSync(hooksDir) && statSync(hooksDir).isDirectory()) manifest.hooks = "./hooks/";
+    } catch {
+      // hooks inference is best-effort; unreadable or concurrently removed dirs
+      // must not abort reverse-adaptation.
+    }
+  }
 
   return validateManifest(manifest);
 }
