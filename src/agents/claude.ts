@@ -7,7 +7,7 @@ import { readManifest } from "../manifest.ts";
 import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { makeCli, skippedResult, type RunResult } from "./base.ts";
-import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.ts";
+import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentScope, AgentSyncResult } from "./types.ts";
 
 /**
  * Claude Code agent.
@@ -19,6 +19,7 @@ import type { Agent, AgentContext, AgentScope, AgentSyncResult } from "./types.t
  */
 
 const MARKETPLACE = "adg";
+const UNRECOGNIZED_PLUGIN_LIST = "claude plugin list returned unrecognized output";
 
 function claudeHome(env: NodeJS.ProcessEnv): string {
   return env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude");
@@ -104,6 +105,7 @@ export function syncMarketplace(
   pluginsDir: string,
   name: string,
   runner: (args: string[]) => RunResult = run,
+  warn: (message: string) => void = console.warn,
 ): void {
   const listed = runner(["plugin", "marketplace", "list", "--json"]);
   if (listed.ok && parseClaudeMarketplaceList(listed.out).includes(name)) {
@@ -113,7 +115,10 @@ export function syncMarketplace(
     // best-effort instead of surfacing a hard EXIT_CODE_1 in the ADG timeline.
     if (runner(["plugin", "marketplace", "update", name]).ok) return;
   }
-  runner(["plugin", "marketplace", "add", pluginsDir]);
+  const added = runner(["plugin", "marketplace", "add", pluginsDir]);
+  if (!added.ok) {
+    warn(`${UNRECOGNIZED_PLUGIN_LIST.replace("plugin list returned unrecognized output", "failed to sync Claude marketplace")} (${name}): ${added.out.trim() || "claude plugin marketplace add failed without an error message"}`);
+  }
 }
 
 export const claudeAgent: Agent = {
@@ -160,13 +165,51 @@ export const claudeAgent: Agent = {
   // Query Claude's live plugin state for `adg plugins status`, scoped to the
   // ADG marketplace and the requested install scope. `available()` gates the
   // query so an absent CLI is a quiet `undefined` ("unknown").
-  listInstalled(ctx: AgentContext): string[] | undefined {
+  listInstalled(ctx: AgentContext): AgentListResult {
     if (!available()) return undefined;
-    const res = run(["plugin", "list"]);
-    if (!res.ok) return undefined;
-    return parseClaudePluginList(res.out, claudeMarketplaceName(ctx.pluginsDir), ctx.scope);
+    const marketplace = claudeMarketplaceName(ctx.pluginsDir);
+    const jsonRes = run(["plugin", "list", "--json"]);
+    if (jsonRes.ok) {
+      const parsed = parseClaudePluginListJson(jsonRes.out, marketplace, ctx.scope);
+      if (parsed !== undefined) return parsed;
+      return claudeListFailure(jsonRes.out);
+    }
+    const textRes = run(["plugin", "list"]);
+    if (!textRes.ok) return { error: textRes.out.trim() || jsonRes.out.trim() || "claude plugin list failed without an error message" };
+    const fallback = parseClaudePluginList(textRes.out, marketplace, ctx.scope);
+    if (fallback.length > 0 || textRes.out.trim() === "") return fallback;
+    return claudeListFailure(textRes.out);
   },
 };
+
+export function claudeListFailure(out: string): AgentListFailure {
+  const detail = out.trim() || "claude plugin list failed without an error message";
+  return { error: `${UNRECOGNIZED_PLUGIN_LIST}: ${detail}` };
+}
+
+/** Parse `claude plugin list --json` into enabled plugin names for a marketplace + scope. */
+export function parseClaudePluginListJson(out: string, marketplace: string, scope: AgentScope): string[] | undefined {
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of parsed) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id : undefined;
+      const entryScope = typeof record.scope === "string" ? record.scope.toLowerCase() : undefined;
+      const enabled = record.enabled === true;
+      const head = id?.match(/^(\S+?)@([\w.-]+)$/);
+      if (!head || head[2] !== marketplace || entryScope !== scope || !enabled || seen.has(head[1]!)) continue;
+      seen.add(head[1]!);
+      names.push(head[1]!);
+    }
+    return names;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Parse `claude plugin list` output into the *enabled* plugin names from a given

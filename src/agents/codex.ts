@@ -7,6 +7,8 @@ import { readMarketplace, writeMarketplace } from "../marketplace.ts";
 import { makeCli, skippedResult } from "./base.ts";
 import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentSyncResult } from "./types.ts";
 
+const UNRECOGNIZED_PLUGIN_LIST = "codex plugin list returned unrecognized output";
+
 /**
  * Codex agent.
  *
@@ -47,10 +49,19 @@ export function writeCodexMarketplaceName(pluginsDir: string): string {
 }
 
 /** Register the local marketplace root Codex expects for this store. */
-function syncMarketplace(pluginsDir: string, marketplace: string): void {
+export function syncMarketplace(
+  pluginsDir: string,
+  marketplace: string,
+  runner: typeof run = run,
+  warn: (message: string) => void = console.warn,
+): void {
   const root = codexMarketplaceRoot(pluginsDir);
-  const add = run(["plugin", "marketplace", "add", root]);
-  if (!add.ok) run(["plugin", "marketplace", "upgrade", marketplace]);
+  const add = runner(["plugin", "marketplace", "add", root]);
+  if (add.ok) return;
+  const upgraded = runner(["plugin", "marketplace", "upgrade", marketplace]);
+  if (!upgraded.ok) {
+    warn(`failed to sync Codex marketplace (${marketplace}): ${upgraded.out.trim() || add.out.trim() || "codex plugin marketplace sync failed without an error message"}`);
+  }
 }
 
 export const codexAgent: Agent = {
@@ -96,9 +107,17 @@ export const codexAgent: Agent = {
     if (!available()) return undefined;
     const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!mp) return undefined; // no generated marketplace → can't scope the query
-    const res = run(["plugin", "list"]);
-    if (!res.ok) return codexListFailure(res.out);
-    return parseCodexPluginList(res.out, mp);
+    const jsonRes = run(["plugin", "list", "--json"]);
+    if (jsonRes.ok) {
+      const parsed = parseCodexPluginListJson(jsonRes.out, mp);
+      if (parsed !== undefined) return parsed;
+      return codexUnrecognizedListFailure(jsonRes.out);
+    }
+    const textRes = run(["plugin", "list"]);
+    if (!textRes.ok) return codexListFailure(textRes.out || jsonRes.out);
+    const fallback = parseCodexPluginList(textRes.out, mp);
+    if (fallback.length > 0 || textRes.out.trim() === "") return fallback;
+    return codexUnrecognizedListFailure(textRes.out);
   },
 };
 
@@ -110,6 +129,37 @@ export function codexListFailure(out: string): AgentListFailure {
     error: detail,
     ...(staleMarketplace ? { recoveryCommand: `codex plugin marketplace remove ${staleMarketplace[1]}` } : {}),
   };
+}
+
+export function codexUnrecognizedListFailure(out: string): AgentListFailure {
+  const detail = out.trim() || "codex plugin list failed without an error message";
+  return { error: `${UNRECOGNIZED_PLUGIN_LIST}: ${detail}` };
+}
+
+/** Parse `codex plugin list --json` into installed and enabled plugin names for one marketplace. */
+export function parseCodexPluginListJson(out: string, marketplace: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const installed = (parsed as Record<string, unknown>).installed;
+    if (!Array.isArray(installed)) return undefined;
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of installed) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      const name = typeof record.name === "string" ? record.name : undefined;
+      const mp = typeof record.marketplaceName === "string" ? record.marketplaceName : undefined;
+      const isInstalled = record.installed === true;
+      const enabled = record.enabled === true;
+      if (!name || mp !== marketplace || !isInstalled || !enabled || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    return names;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

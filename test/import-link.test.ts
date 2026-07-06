@@ -71,6 +71,14 @@ test("fromNativeManifest maps native MCP fields to ADG mcpServers", () => {
   assert.equal(adg.mcpServers, "./.mcp.json");
 });
 
+test("fromNativeManifest accepts the deprecated native mcp field as an alias", () => {
+  const adg = fromNativeManifest(
+    { name: "mcpkit", version: "1.0.0", description: "MCP.", skills: "./skills/", mcp: "./legacy-mcp.json" },
+    "codex",
+  );
+  assert.equal(adg.mcpServers, "./legacy-mcp.json");
+});
+
 test("fromNativeManifest canonicalizes Windows-style codex skill ids", () => {
   // A native manifest authored on Windows may use backslash separators.
   const adg = fromNativeManifest(
@@ -110,6 +118,17 @@ test("fromNativeManifest defaults missing version and skills", () => {
   const adg = fromNativeManifest({ name: "x" }, "claude");
   assert.equal(adg.version, "0.0.0");
   assert.equal(adg.skills, "./skills/");
+});
+
+test("fromNativeManifest infers hooks from a plugin directory", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "hooks.json"), JSON.stringify({ hooks: {} }));
+
+  const adg = fromNativeManifest({ name: "hooky", version: "1.0.0", description: "Hooks." }, "claude", dir);
+
+  assert.equal(adg.hooks, "./hooks/");
+  rmSync(dir, { recursive: true });
 });
 
 // ---- native → ADG → native round-trips ----

@@ -1,8 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseClaudeMarketplaceList, parseClaudePluginList } from "../src/agents/claude.ts";
-import { codexListFailure, parseCodexPluginList } from "../src/agents/codex.ts";
+import {
+  claudeListFailure,
+  parseClaudeMarketplaceList,
+  parseClaudePluginList,
+  parseClaudePluginListJson,
+} from "../src/agents/claude.ts";
+import { codexListFailure, codexUnrecognizedListFailure, parseCodexPluginList, parseCodexPluginListJson } from "../src/agents/codex.ts";
 
 /**
  * The `listInstalled` parsers are the only place ADG reads each agent CLI's
@@ -54,6 +59,20 @@ test("parseClaudePluginList returns nothing for an unknown marketplace", () => {
   assert.deepEqual(parseClaudePluginList(CLAUDE_OUT, "nope", "project"), []);
 });
 
+test("parseClaudePluginListJson keeps enabled plugins of the given marketplace + scope", () => {
+  const out = JSON.stringify([
+    { id: "apollo@adg", scope: "project", enabled: false },
+    { id: "apple-skills@adg", scope: "project", enabled: true },
+    { id: "apple-skills@adg", scope: "user", enabled: true },
+    { id: "other@somemarket", scope: "project", enabled: true },
+  ]);
+  assert.deepEqual(parseClaudePluginListJson(out, "adg", "project"), ["apple-skills"]);
+});
+
+test("parseClaudePluginListJson returns undefined for invalid json", () => {
+  assert.equal(parseClaudePluginListJson("not json", "adg", "project"), undefined);
+});
+
 test("parseClaudeMarketplaceList extracts marketplace names from json", () => {
   const out = JSON.stringify([
     { name: "adg", source: "directory" },
@@ -66,6 +85,12 @@ test("parseClaudeMarketplaceList extracts marketplace names from json", () => {
 
 test("parseClaudeMarketplaceList returns an empty list for invalid json", () => {
   assert.deepEqual(parseClaudeMarketplaceList("not json"), []);
+});
+
+test("claudeListFailure reports unrecognized plugin-list output loudly", () => {
+  const failure = claudeListFailure("Installed plugins:\n- not-json");
+  assert.match(failure.error, /unrecognized/i);
+  assert.match(failure.error, /Installed plugins/);
 });
 
 // ---- Codex: a `<name>@mp  STATUS  VERSION  PATH` table ----
@@ -93,6 +118,23 @@ test("parseCodexPluginList skips the header, banner, and path lines (no false ma
   assert.deepEqual(parseCodexPluginList(CODEX_OUT, "othermp"), ["foo"]);
 });
 
+test("parseCodexPluginListJson keeps only installed+enabled entries of the given marketplace", () => {
+  const out = JSON.stringify({
+    installed: [
+      { pluginId: "apple-skills@plugins", name: "apple-skills", marketplaceName: "plugins", installed: true, enabled: true },
+      { pluginId: "asc@plugins", name: "asc", marketplaceName: "plugins", installed: true, enabled: true },
+      { pluginId: "muted@plugins", name: "muted", marketplaceName: "plugins", installed: true, enabled: false },
+      { pluginId: "foo@othermp", name: "foo", marketplaceName: "othermp", installed: true, enabled: true },
+    ],
+    available: [{ pluginId: "later@plugins", name: "later", marketplaceName: "plugins", installed: false, enabled: false }],
+  });
+  assert.deepEqual(parseCodexPluginListJson(out, "plugins"), ["apple-skills", "asc"]);
+});
+
+test("parseCodexPluginListJson returns undefined for invalid json", () => {
+  assert.equal(parseCodexPluginListJson("not json", "plugins"), undefined);
+});
+
 test("codexListFailure offers cleanup for a stale ADG project marketplace", () => {
   const failure = codexListFailure(`Error: failed to load configured marketplace snapshot(s):
 - \`adg-86bf8e7a\` at /tmp/project: marketplace root does not contain a supported manifest`);
@@ -105,4 +147,9 @@ test("codexListFailure does not suggest deleting an unrecognized marketplace", (
   const failure = codexListFailure("Error: authentication failed");
   assert.equal(failure.error, "Error: authentication failed");
   assert.equal(failure.recoveryCommand, undefined);
+});
+
+test("codexUnrecognizedListFailure reports unrecognized plugin-list output loudly", () => {
+  const failure = codexUnrecognizedListFailure("PLUGIN STATUS VERSION PATH");
+  assert.match(failure.error, /PLUGIN STATUS VERSION PATH/);
 });

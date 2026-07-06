@@ -181,6 +181,16 @@ async function resolveActionScope(values: ParsedValues, verb: string): Promise<A
   };
 }
 
+function resolveVerbTargets(values: ParsedValues, verb: string): ReturnType<typeof resolveTargets> {
+  return values.target === "all"
+    ? resolveTargets("all")
+    : [requireSingleTarget(values.target, verb)];
+}
+
+function printCliUnavailableNote(target: string, message: string): void {
+  console.log(ui.warn(`note: \`${target}\` CLI not found — ${message}`));
+}
+
 /**
  * Top-level dispatcher for `adg plugins <verb>`: render help, resolve aliases,
  * look the verb up in the command table, then hand off to the per-verb handler
@@ -212,6 +222,123 @@ export async function runPlugins(rawVerb: string | undefined, rest: string[]): P
   if (verb === "marketplace") return runMarketplace(rest);
   if (verb === "cache") return runCache(rest);
   return runPluginsVerb(verb, rest, cmd);
+}
+
+async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
+  const { values, positionals } = parseVerb("add", cmd.flags, rest);
+  const spec = positionals[0];
+  if (!spec) fail("plugins add requires a <plugin-dir | owner/repo[@ref] | github-url>");
+  const tty = process.stdin.isTTY;
+  let global = Boolean(values.global);
+  if (!values.dir && values.global === undefined && values.project === undefined && tty) {
+    global = await selectScopeInteractive();
+  }
+  if (!values.dir) global = promoteGlobalTrap(global);
+  const pluginsDir = values.dir
+    ? resolve(values.dir)
+    : global
+      ? globalPluginsDir()
+      : projectPluginsDir();
+  const only = resolveComponents(values.only);
+  const skillsSubset = values.skill && values.skill.length > 0 ? values.skill : undefined;
+  const narrowed = only !== undefined || skillsSubset !== undefined;
+  const { order, installed, removed, converted, agents } = await addPlugins({
+    spec,
+    pluginsDir,
+    ref: values.ref,
+    sparse: values.sparse,
+    path: values.path,
+    all: values.all,
+    plugins: values.plugin,
+    only,
+    skillsSubset,
+    withDeps: !values["no-deps"],
+    marketplaceName: values["marketplace-name"],
+    targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
+    selectPlugins: tty ? selectPluginsInteractive : undefined,
+    selectTargets: tty && values.target === undefined ? selectTargetsInteractive : undefined,
+    confirmFull: tty && !narrowed ? confirmFullInstall : undefined,
+    selectComponents: tty && !narrowed ? selectComponentsInteractive : undefined,
+    activate: true,
+    scope: global ? "user" : "project",
+  });
+  for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
+  for (const name of removed) console.log(`${ui.warn("removed")} ${ui.name(name)}`);
+  if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
+  for (const res of installed) {
+    console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
+    console.log(ui.meta(`  sourceHash: ${res.sourceHash}`));
+    console.log(ui.meta(`  installedHash: ${res.installedHash}`));
+    for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
+  }
+  for (const line of renderAgentReport(agents, "enabled")) console.log(line);
+}
+
+async function handleLink(rest: string[], cmd: PluginCommand): Promise<void> {
+  const { values, positionals } = parseVerb("link", cmd.flags, rest);
+  const targets = resolveVerbTargets(values, "link");
+  const sc = await resolveActionScope(values, "link");
+  const names = positionals.length > 0 ? positionals : undefined;
+  for (const target of targets) {
+    const res = linkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
+    for (const action of res.actions) {
+      console.log(`${ui.ok("linked")} ${ui.name(action.name)} ${ui.meta(`[${res.target}]`)}${action.linkedTo ? ui.meta(` -> ${action.linkedTo}`) : ""}`);
+      for (const file of action.adapted) console.log(ui.meta(`  adapted: ${file}`));
+    }
+    if (res.cliSkipped) printCliUnavailableNote(target, `manifests were generated, but nothing was enabled in ${target}.`);
+  }
+}
+
+async function handleUnlink(rest: string[], cmd: PluginCommand): Promise<void> {
+  const { values, positionals } = parseVerb("unlink", cmd.flags, rest);
+  const targets = resolveVerbTargets(values, "unlink");
+  const sc = await resolveActionScope(values, "unlink");
+  const names = positionals.length > 0 ? positionals : undefined;
+  for (const target of targets) {
+    const res = unlinkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
+    for (const name of res.unlinked) console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
+    if (res.cliSkipped) {
+      printCliUnavailableNote(target, `nothing was unlinked from ${target}.`);
+    } else if (res.unlinked.length === 0 && targets.length === 1) {
+      console.log(ui.meta(`nothing to unlink from ${target}`));
+    }
+  }
+}
+
+async function handleSync(rest: string[], cmd: PluginCommand): Promise<void> {
+  const { values, positionals } = parseVerb("sync", cmd.flags, rest);
+  const targets = resolveVerbTargets(values, "sync");
+  const sc = await resolveActionScope(values, "sync");
+  const names = positionals.length > 0 ? positionals : undefined;
+  for (const target of targets) {
+    const res = syncPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
+    for (const action of res.actions) {
+      const tail = action.synced ? ui.meta(` -> ${res.target}`) : "";
+      console.log(`${ui.ok("synced")} ${ui.name(action.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
+    }
+    if (res.cliSkipped) printCliUnavailableNote(target, `manifests were regenerated, but nothing was re-synced in ${target}.`);
+  }
+}
+
+async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<void> {
+  const { values, positionals } = parseVerb("update", cmd.flags, rest);
+  const source = positionals[0];
+  for (const sc of await resolveUpdateScopes(values)) {
+    if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+    try {
+      const result = await updatePlugins({
+        pluginsDir: sc.dir,
+        source,
+        all: values.all,
+        activate: true,
+        agentScope: sc.agentScope,
+        scope: { label: sc.label, globalDir: globalPluginsDir() },
+      });
+      printUpdateReport(result);
+    } catch (err) {
+      console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }
 
 async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<void> {
@@ -252,62 +379,7 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       return;
     }
     case "add": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const spec = positionals[0];
-      if (!spec) fail("plugins add requires a <plugin-dir | owner/repo[@ref] | github-url>");
-      const tty = process.stdin.isTTY;
-      // Scope: honor an explicit --dir/--global/--project, else ask in a terminal
-      // (defaulting to project non-interactively).
-      let global = Boolean(values.global);
-      if (!values.dir && values.global === undefined && values.project === undefined && tty) {
-        global = await selectScopeInteractive();
-      }
-      // Guard the home==global trap: installing global plugins at project scope
-      // would pin them to the cwd. Skip for an explicit --dir store.
-      if (!values.dir) global = promoteGlobalTrap(global);
-      const pluginsDir = values.dir
-        ? resolve(values.dir)
-        : global
-          ? globalPluginsDir()
-          : projectPluginsDir();
-      // A source may hold one plugin or a whole marketplace. addPlugins discovers
-      // all of them; in a terminal the user picks scope, then plugins, then agents,
-      // then (unless --only/--skill narrow it) chooses what to install per plugin.
-      // --all / --plugin / --path / --only / --skill narrow non-interactively.
-      const only = resolveComponents(values.only);
-      const skillsSubset = values.skill && values.skill.length > 0 ? values.skill : undefined;
-      const narrowed = only !== undefined || skillsSubset !== undefined;
-      const { order, installed, removed, converted, agents } = await addPlugins({
-        spec,
-        pluginsDir,
-        ref: values.ref,
-        sparse: values.sparse,
-        path: values.path,
-        all: values.all,
-        plugins: values.plugin,
-        only,
-        skillsSubset,
-        withDeps: !values["no-deps"],
-        marketplaceName: values["marketplace-name"],
-        targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
-        selectPlugins: tty ? selectPluginsInteractive : undefined,
-        selectTargets: tty && values.target === undefined ? selectTargetsInteractive : undefined,
-        confirmFull: tty && !narrowed ? confirmFullInstall : undefined,
-        selectComponents: tty && !narrowed ? selectComponentsInteractive : undefined,
-        // Make the install actually usable in the chosen agents, not just stored.
-        activate: true,
-        scope: global ? "user" : "project",
-      });
-      for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
-      for (const name of removed) console.log(`${ui.warn("removed")} ${ui.name(name)}`);
-      if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
-      for (const res of installed) {
-        console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
-        console.log(ui.meta(`  sourceHash: ${res.sourceHash}`));
-        console.log(ui.meta(`  installedHash: ${res.installedHash}`));
-        for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
-      }
-      for (const line of renderAgentReport(agents, "enabled")) console.log(line);
+      await handleAdd(rest, cmd);
       return;
     }
     case "import-skills": {
@@ -327,22 +399,7 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       return;
     }
     case "link": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const targets = values.target === "all"
-        ? resolveTargets("all")
-        : [requireSingleTarget(values.target, "link")];
-      const sc = await resolveActionScope(values, "link");
-      const names = positionals.length > 0 ? positionals : undefined;
-      for (const target of targets) {
-        const res = linkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
-        for (const a of res.actions) {
-          console.log(`${ui.ok("linked")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.linkedTo ? ui.meta(` -> ${a.linkedTo}`) : ""}`);
-          for (const f of a.adapted) console.log(ui.meta(`  adapted: ${f}`));
-        }
-        if (res.cliSkipped) {
-          console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were generated, but nothing was enabled in ${target}.`));
-        }
-      }
+      await handleLink(rest, cmd);
       return;
     }
     case "disable":
@@ -365,63 +422,15 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       return;
     }
     case "unlink": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const targets = values.target === "all"
-        ? resolveTargets("all")
-        : [requireSingleTarget(values.target, "unlink")];
-      const sc = await resolveActionScope(values, "unlink");
-      const names = positionals.length > 0 ? positionals : undefined;
-      for (const target of targets) {
-        const res = unlinkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
-        for (const name of res.unlinked) console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
-        if (res.cliSkipped) {
-          console.log(ui.warn(`note: \`${target}\` CLI not found — nothing was unlinked from ${target}.`));
-        } else if (res.unlinked.length === 0) {
-          if (targets.length === 1) {
-            console.log(ui.meta(`nothing to unlink from ${target}`));
-          }
-        }
-      }
+      await handleUnlink(rest, cmd);
       return;
     }
     case "sync": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const targets = values.target === "all"
-        ? resolveTargets("all")
-        : [requireSingleTarget(values.target, "sync")];
-      const sc = await resolveActionScope(values, "sync");
-      const names = positionals.length > 0 ? positionals : undefined;
-      for (const target of targets) {
-        const res = syncPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
-        for (const a of res.actions) {
-          const tail = a.synced ? ui.meta(` -> ${res.target}`) : "";
-          console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
-        }
-        if (res.cliSkipped) {
-          console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were regenerated, but nothing was re-synced in ${target}.`));
-        }
-      }
+      await handleSync(rest, cmd);
       return;
     }
     case "update": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const source = positionals[0];
-      for (const sc of await resolveUpdateScopes(values)) {
-        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
-        try {
-          const result = await updatePlugins({
-            pluginsDir: sc.dir,
-            source,
-            all: values.all,
-            activate: true,
-            agentScope: sc.agentScope,
-            scope: { label: sc.label, globalDir: globalPluginsDir() },
-          });
-          printUpdateReport(result);
-        } catch (err) {
-          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      await handleUpdate(rest, cmd);
       return;
     }
     case "remove": {
@@ -572,9 +581,7 @@ async function runMarketplace(args: string[]): Promise<void> {
       const { values, positionals } = parseVerb("marketplace", ["target", ...SCOPE], rest);
       const source = positionals[0];
       if (!source) fail("marketplace sync requires a <source>");
-      const targets = values.target === "all"
-        ? resolveTargets("all")
-        : [requireSingleTarget(values.target, "marketplace sync")];
+      const targets = resolveVerbTargets(values, "marketplace sync");
       const sc = await resolveActionScope(values, "marketplace sync");
       for (const target of targets) {
         const res = marketplaceSync({
@@ -588,7 +595,7 @@ async function runMarketplace(args: string[]): Promise<void> {
           console.log(`${ui.ok("synced")} ${ui.name(a.name)} ${ui.meta(`[${res.target}]`)}${a.synced ? ui.meta(` -> ${res.target}`) : ""}`);
         }
         if (res.cliSkipped) {
-          console.log(ui.warn(`note: \`${target}\` CLI not found — manifests were regenerated, but nothing was re-synced in ${target}.`));
+          printCliUnavailableNote(target, `manifests were regenerated, but nothing was re-synced in ${target}.`);
         }
       }
       return;

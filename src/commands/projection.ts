@@ -1,6 +1,9 @@
 import { listPlugins, type ListedPlugin } from "./list.ts";
 import { relative } from "node:path";
 import type { AdapterTarget } from "../adapters/index.ts";
+import { ADAPTER_TARGETS } from "../adapters/index.ts";
+import { installPlugin, type InstallResult } from "./install.ts";
+import { pluginRematerializationSource } from "../paths.ts";
 
 /**
  * Shared selection for the projection verbs (link / unlink / sync). Resolve which
@@ -36,4 +39,20 @@ export function adaptedFilesForTarget(
 ): string[] {
   const expected = target === "antigravity" ? "plugin.json" : `.${target}-plugin/plugin.json`;
   return files.filter((file) => relative(installedTo, file).split("\\").join("/") === expected);
+}
+
+/** Rebuild runtime projections for installed plugins from their cached ADG source. */
+export function rematerializeInstalled(
+  pluginsDir: string,
+  plugins: readonly ListedPlugin[],
+): InstallResult[] {
+  return plugins.map((plugin) =>
+    installPlugin({
+      source: pluginRematerializationSource(pluginsDir, plugin.name, plugin.origin),
+      pluginsDir,
+      origin: plugin.origin,
+      selection: plugin.selection,
+      targets: [...ADAPTER_TARGETS],
+      forceMaterialize: true,
+    }));
 }
