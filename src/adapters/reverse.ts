@@ -66,7 +66,12 @@ export function fromNativeManifest(raw: unknown, kind: NativeKind, pluginDir?: s
   manifest.strict = typeof n.strict === "boolean" ? n.strict : true;
   if (!manifest.hooks && pluginDir) {
     const hooksDir = join(pluginDir, "hooks");
-    if (existsSync(hooksDir) && statSync(hooksDir).isDirectory()) manifest.hooks = "./hooks/";
+    try {
+      if (existsSync(hooksDir) && statSync(hooksDir).isDirectory()) manifest.hooks = "./hooks/";
+    } catch {
+      // hooks inference is best-effort; unreadable or concurrently removed dirs
+      // must not abort reverse-adaptation.
+    }
   }
 
   return validateManifest(manifest);

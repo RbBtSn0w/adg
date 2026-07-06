@@ -117,7 +117,7 @@ export function syncMarketplace(
   }
   const added = runner(["plugin", "marketplace", "add", pluginsDir]);
   if (!added.ok) {
-    warn(`${UNRECOGNIZED_PLUGIN_LIST.replace("plugin list returned unrecognized output", "failed to sync Claude marketplace")} (${name}): ${added.out.trim() || "claude plugin marketplace add failed without an error message"}`);
+    warn(`failed to sync Claude marketplace (${name}): ${added.out.trim() || "claude plugin marketplace add failed without an error message"}`);
   }
 }
 
