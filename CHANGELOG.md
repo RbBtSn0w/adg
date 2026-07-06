@@ -1,3 +1,9 @@
+## [0.6.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.1...0.6.0-beta.2) (2026-07-06)
+
+### Fixed
+
+* harden plugin agent runtime integration ([#57](https://github.com/RbBtSn0w/adg/issues/57)) ([be23048](https://github.com/RbBtSn0w/adg/commit/be2304818ff88aef6273e3f44f7ff8685a6941fb))
+
 ## [0.6.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.5.0...0.6.0-beta.1) (2026-07-05)
 
 ### Added
