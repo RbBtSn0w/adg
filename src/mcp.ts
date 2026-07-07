@@ -14,8 +14,33 @@ export function filterMcpConfig(file: string, allowedNames: string[]): void {
     if (typeof json !== "object" || json === null) {
       throw new Error("MCP config root must be an object");
     }
-    const allowed = new Set(allowedNames);
 
+    // Find and validate all defined server names
+    const definedNames = new Set<string>();
+    let hasMcpServersOrServers = false;
+    for (const key of ["mcpServers", "servers"]) {
+      const servers = (json as Record<string, unknown>)[key];
+      if (servers !== undefined) {
+        if (typeof servers !== "object" || servers === null || Array.isArray(servers)) {
+          throw new Error(`MCP config "${key}" must be an object`);
+        }
+        hasMcpServersOrServers = true;
+        for (const name of Object.keys(servers)) {
+          definedNames.add(name);
+        }
+      }
+    }
+
+    if (allowedNames.length > 0 && !hasMcpServersOrServers) {
+      throw new Error("MCP config does not define any servers");
+    }
+
+    const missing = allowedNames.filter((name) => !definedNames.has(name));
+    if (missing.length > 0) {
+      throw new Error(`selected mcp server(s) not declared: ${missing.join(", ")}`);
+    }
+
+    const allowed = new Set(allowedNames);
     let changed = false;
     for (const key of ["mcpServers", "servers"]) {
       const servers = (json as Record<string, unknown>)[key];
@@ -37,6 +62,7 @@ export function filterMcpConfig(file: string, allowedNames: string[]): void {
       writeFileSync(file, JSON.stringify(json, null, 2), "utf8");
     }
   } catch (err) {
-    throw new Error("Failed to filter MCP config at " + file + ": " + (err as Error).message);
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error("Failed to filter MCP config at " + file + ": " + msg);
   }
 }

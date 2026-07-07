@@ -47,7 +47,7 @@ export interface InstallOneOptions {
   skipUnchanged?: boolean;
   /** Rebuild the effective installation even when source and payload hashes match. */
   forceMaterialize?: boolean;
-  telemetrySpan?: import("@opentelemetry/api").Span;
+  telemetrySpan?: Pick<import("@opentelemetry/api").Span, "addEvent">;
 }
 
 export interface InstallResult {
@@ -85,7 +85,7 @@ function contentHash(dir: string, manifest: AdgManifest): string {
  */
 export function installPlugin(opts: InstallOneOptions): InstallResult {
   const source = resolve(opts.source);
-  const manifest = readManifest(source);
+  const manifest = readManifest(source, opts.telemetrySpan);
   const name = manifest.name;
   // Local installs stay flat; remote sources derive a per-marketplace dir from
   // their origin. The default (no origin) is a flat local copy-in.
