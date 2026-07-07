@@ -10,12 +10,15 @@ export function mcpConfigPath(manifest: AdgManifest): string | undefined {
 export function filterMcpConfig(file: string, allowedNames: string[]): void {
   if (!existsSync(file)) return;
   try {
-    const json = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    const json = JSON.parse(readFileSync(file, "utf8"));
+    if (typeof json !== "object" || json === null) {
+      throw new Error("MCP config root must be an object");
+    }
     const allowed = new Set(allowedNames);
 
     let changed = false;
     for (const key of ["mcpServers", "servers"]) {
-      const servers = json[key];
+      const servers = (json as Record<string, unknown>)[key];
       if (servers && typeof servers === "object" && !Array.isArray(servers)) {
         const obj = servers as Record<string, unknown>;
         const newObj: Record<string, unknown> = {};
@@ -26,14 +29,14 @@ export function filterMcpConfig(file: string, allowedNames: string[]): void {
             changed = true;
           }
         }
-        json[key] = newObj;
+        (json as Record<string, unknown>)[key] = newObj;
       }
     }
 
     if (changed) {
       writeFileSync(file, JSON.stringify(json, null, 2), "utf8");
     }
-  } catch {
-    // Ignore parse/write failures gracefully.
+  } catch (err) {
+    throw new Error("Failed to filter MCP config at " + file + ": " + (err as Error).message);
   }
 }

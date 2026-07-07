@@ -50,7 +50,7 @@ export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addE
   }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     const m = raw as Record<string, unknown>;
-    if (!m.mcpServers && existsSync(join(pluginDir, ".mcp.json"))) {
+    if (m.mcpServers === undefined && existsSync(join(pluginDir, ".mcp.json"))) {
       m.mcpServers = "./.mcp.json";
     }
     const schemaVersion = m.schemaVersion;

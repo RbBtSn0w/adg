@@ -345,10 +345,6 @@ test("validatePlugin flags a missing referenced path", () => {
 test("install filters mcp servers when selection specifies a subset", () => {
   const work = tmp();
   const { pluginDir } = initPlugin({ name: "mcpkit", dir: work, description: "MCP kit." });
-  const mf = join(pluginDir, ".agents", ".plugin.json");
-  const m = JSON.parse(readFileSync(mf, "utf8"));
-  m.mcpServers = "./.mcp.json";
-  writeFileSync(mf, JSON.stringify(m));
   writeFileSync(
     join(pluginDir, ".mcp.json"),
     JSON.stringify({
