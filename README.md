@@ -156,6 +156,20 @@ adg plugins update --global
 adg plugins link --target claude --global
 ```
 
+### Example 3 — `cloudflare/skills` (auto-discovery and selective installation)
+
+A repository containing skills for the Cloudflare Developer Platform. Although the repository doesn't explicitly declare an MCP configuration in its native `.claude-plugin/plugin.json` manifest, it includes a `.mcp.json` file in its root. ADG auto-discovers this file, allowing you to selectively choose which components, skills, or MCP servers to install:
+
+```bash
+# Add the cloudflare plugin globally (interactive guide asks which skills/MCP servers to install)
+adg plugins add https://github.com/cloudflare/skills --global
+
+# Or install it non-interactively, limiting to specific skills and MCP servers:
+adg plugins add https://github.com/cloudflare/skills --global \
+  --skill agents-sdk --skill cloudflare --skill durable-objects \
+  --mcp wrangler-mcp --mcp d1-mcp
+```
+
 > Both repos are pulled by `owner/repo` shorthand over a shallow clone (sparse
 > checkout when `--sparse` is given). Provenance — `{type:"github",repo,ref,path}`
 > — plus a `sha256` integrity hash land in `.plugin-lock.json`, so the install is
