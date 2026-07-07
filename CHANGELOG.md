@@ -1,3 +1,9 @@
+## [0.6.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.2...0.6.0-beta.3) (2026-07-07)
+
+### Added
+
+* mcp selective install ([#58](https://github.com/RbBtSn0w/adg/issues/58)) ([9cdd463](https://github.com/RbBtSn0w/adg/commit/9cdd46377b52bb47025c502b3b9fb8dc80236c3d))
+
 ## [0.6.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.1...0.6.0-beta.2) (2026-07-06)
 
 ### Fixed
