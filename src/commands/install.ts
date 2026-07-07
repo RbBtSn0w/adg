@@ -12,6 +12,7 @@ import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir, pluginSourceCacheDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
 import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
+import { recordTelemetryEvent } from "../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
 import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
@@ -46,6 +47,7 @@ export interface InstallOneOptions {
   skipUnchanged?: boolean;
   /** Rebuild the effective installation even when source and payload hashes match. */
   forceMaterialize?: boolean;
+  telemetrySpan?: Pick<import("@opentelemetry/api").Span, "addEvent">;
 }
 
 export interface InstallResult {
@@ -83,7 +85,7 @@ function contentHash(dir: string, manifest: AdgManifest): string {
  */
 export function installPlugin(opts: InstallOneOptions): InstallResult {
   const source = resolve(opts.source);
-  const manifest = readManifest(source);
+  const manifest = readManifest(source, opts.telemetrySpan);
   const name = manifest.name;
   // Local installs stay flat; remote sources derive a per-marketplace dir from
   // their origin. The default (no origin) is a flat local copy-in.
@@ -105,6 +107,29 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   // partial installs survive re-install / `marketplace upgrade`.
   const desiredSelection = normalizePluginSelection(opts.selection ?? prev?.selection);
   const selection = resolveSelectionDependencies(manifest, desiredSelection);
+
+  if (selection) {
+    const contents = pluginContents(source, manifest);
+    if (selection.skills) {
+      const invalid = selection.skills.filter((s) => !contents.skills.includes(s));
+      if (invalid.length > 0) {
+        throw new Error(`selected skill(s) not declared: ${invalid.join(", ")}`);
+      }
+    }
+    if (selection.mcp) {
+      const invalid = selection.mcp.filter((s) => !contents.mcp.includes(s));
+      if (invalid.length > 0) {
+        throw new Error(`selected mcp server(s) not declared: ${invalid.join(", ")}`);
+      }
+    }
+
+    recordTelemetryEvent("adg.install.selection", {
+      plugin: name,
+      "components.count": selection.components.length,
+      "skills.count": selection.skills ? selection.skills.length : -1,
+      "mcp.count": selection.mcp ? selection.mcp.length : -1,
+    }, opts.telemetrySpan);
+  }
 
   const sourceHash = contentHash(source, manifest);
   const cacheDir = pluginSourceCacheDir(opts.pluginsDir, name);
@@ -258,10 +283,12 @@ export interface AddOptions {
   only?: ComponentType[];
   /** Non-interactive: expose only these skill names (implies skills selected). */
   skillsSubset?: string[];
+  /** Non-interactive: expose only these mcp server names (implies mcp selected). */
+  mcpSubset?: string[];
   /**
    * Interactive gate (the "install everything?" question). Returning false
    * drops into per-plugin component selection. Skipped when only/skillsSubset
-   * are set. Applies only to the user-chosen plugins, not auto-deps.
+   * or mcpSubset are set. Applies only to the user-chosen plugins, not auto-deps.
    */
   confirmFull?: (plugins: string[]) => Promise<boolean> | boolean;
   /** Interactive per-plugin component picker; returns the selection to expose. */
@@ -366,10 +393,11 @@ async function resolveSelections(
 ): Promise<Map<string, PluginSelection>> {
   const selections = new Map<string, PluginSelection>();
 
-  if (opts.only || opts.skillsSubset) {
+  if (opts.only || opts.skillsSubset || opts.mcpSubset) {
     const flagSelection: PluginSelection = {
       components: opts.only ?? [...COMPONENT_TYPES],
       ...(opts.skillsSubset ? { skills: opts.skillsSubset } : {}),
+      ...(opts.mcpSubset ? { mcp: opts.mcpSubset } : {}),
     };
     for (const name of selected) selections.set(name, flagSelection);
     return selections;
@@ -383,7 +411,7 @@ async function resolveSelections(
     const contents = pluginContents(cand.dir, cand.manifest);
     const present = presentComponents(contents);
     // Nothing meaningful to pick: a lone category with at most one member.
-    if (present.length <= 1 && contents.skills.length <= 1) continue;
+    if (present.length <= 1 && contents.skills.length <= 1 && contents.mcp.length <= 1) continue;
     const skillDescription = skillDescriptionLoader(cand.dir, cand.manifest);
     selections.set(name, await opts.selectComponents({ name, contents, present, skillDescription }));
   }

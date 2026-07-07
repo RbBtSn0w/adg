@@ -63,5 +63,17 @@ export async function selectComponentsInteractive(req: SelectComponentsRequest):
     }
   }
 
+  // Drill into individual MCP servers only when mcp is kept and there's a choice.
+  if (chosen.includes("mcp") && req.contents.mcp.length > 1) {
+    const message = `${pc.bold(req.name)} — which MCP servers? ${pc.dim("(space to toggle)")}`;
+    const options = req.contents.mcp.map((s) => ({ value: s, label: s }));
+    const initialValues = [...req.contents.mcp];
+    const servers = await p.multiselect({ message, options, initialValues, required: true });
+    if (!cancelled(servers)) {
+      const picked = servers as string[];
+      if (picked.length !== req.contents.mcp.length) selection.mcp = picked;
+    }
+  }
+
   return selection;
 }

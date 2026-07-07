@@ -10,6 +10,7 @@ import { readManifest } from "../src/manifest.ts";
 import { normalizeTraceEndpoint, recordTelemetryEvent } from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
+import { installPlugin } from "../src/commands/install.ts";
 
 interface RecordedEvent {
   name: string;
@@ -164,5 +165,48 @@ test("a failed v2 migration does not report a completed transition", () => {
 
   assert.throws(() => migrateLayout(root, eventSpan(events)), /manifest/i);
   assert.equal(events.some((event) => event.name === "adg.lock.migrate"), false);
+  rmSync(root, { recursive: true });
+});
+
+test("installPlugin records selection counts in telemetry", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const pluginDir = join(root, "demo");
+  mkdirSync(join(pluginDir, ".agents"), { recursive: true });
+  writeFileSync(join(pluginDir, ".agents", ".plugin.json"), JSON.stringify({
+    schemaVersion: ADG_SCHEMA_VERSION,
+    name: "demo",
+    version: "1.0.0",
+    description: "Demo.",
+    skills: ["./skills/hello"],
+  }));
+  mkdirSync(join(pluginDir, "skills", "hello"), { recursive: true });
+  writeFileSync(join(pluginDir, "skills", "hello", "SKILL.md"), "# Hello");
+
+  const store = join(root, "store");
+  const events: RecordedEvent[] = [];
+  const span = eventSpan(events);
+
+  installPlugin({
+    source: pluginDir,
+    pluginsDir: store,
+    now: "2026-06-11T00:00:00Z",
+    selection: {
+      components: ["skills"],
+      skills: ["hello"],
+    },
+    telemetrySpan: span as any,
+  });
+
+  const selectionEvents = events.filter((e) => e.name === "adg.install.selection");
+  assert.equal(selectionEvents.length, 1);
+  const firstEvent = selectionEvents[0];
+  assert.ok(firstEvent);
+  assert.deepEqual(firstEvent.attributes, {
+    plugin: "demo",
+    "components.count": 1,
+    "skills.count": 1,
+    "mcp.count": -1,
+  });
+
   rmSync(root, { recursive: true });
 });

@@ -49,7 +49,11 @@ export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addE
     throw new ManifestError([`${file} is not valid JSON: ${(err as Error).message}`]);
   }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
-    const schemaVersion = (raw as Record<string, unknown>).schemaVersion;
+    const m = raw as Record<string, unknown>;
+    if (m.mcpServers === undefined && existsSync(join(pluginDir, ".mcp.json"))) {
+      m.mcpServers = "./.mcp.json";
+    }
+    const schemaVersion = m.schemaVersion;
     if (typeof schemaVersion === "string") {
       recordTelemetryEvent("adg.manifest.read", {
         "schema.version": schemaVersion === ADG_SCHEMA_VERSION ? schemaVersion : "other",

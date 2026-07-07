@@ -84,6 +84,8 @@ export function exposedContents(contents: PluginContents, selection: PluginSelec
       out[c] = [];
     } else if (c === "skills" && selection.skills) {
       out[c] = contents.skills.filter((s) => selection.skills!.includes(s));
+    } else if (c === "mcp" && selection.mcp) {
+      out[c] = contents.mcp.filter((s) => selection.mcp!.includes(s));
     } else {
       out[c] = contents[c];
     }
