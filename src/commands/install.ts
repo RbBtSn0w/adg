@@ -109,6 +109,20 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   const selection = resolveSelectionDependencies(manifest, desiredSelection);
 
   if (selection) {
+    const contents = pluginContents(source, manifest);
+    if (selection.skills) {
+      const invalid = selection.skills.filter((s) => !contents.skills.includes(s));
+      if (invalid.length > 0) {
+        throw new Error(`selected skill(s) not declared: ${invalid.join(", ")}`);
+      }
+    }
+    if (selection.mcp) {
+      const invalid = selection.mcp.filter((s) => !contents.mcp.includes(s));
+      if (invalid.length > 0) {
+        throw new Error(`selected mcp server(s) not declared: ${invalid.join(", ")}`);
+      }
+    }
+
     recordTelemetryEvent("adg.install.selection", {
       plugin: name,
       "components.count": selection.components.length,
