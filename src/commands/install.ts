@@ -12,6 +12,7 @@ import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir, pluginSourceCacheDir } from "../paths.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
 import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
+import { recordTelemetryEvent } from "../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
 import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
@@ -46,6 +47,7 @@ export interface InstallOneOptions {
   skipUnchanged?: boolean;
   /** Rebuild the effective installation even when source and payload hashes match. */
   forceMaterialize?: boolean;
+  telemetrySpan?: import("@opentelemetry/api").Span;
 }
 
 export interface InstallResult {
@@ -105,6 +107,15 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
   // partial installs survive re-install / `marketplace upgrade`.
   const desiredSelection = normalizePluginSelection(opts.selection ?? prev?.selection);
   const selection = resolveSelectionDependencies(manifest, desiredSelection);
+
+  if (selection) {
+    recordTelemetryEvent("adg.install.selection", {
+      plugin: name,
+      "components.count": selection.components.length,
+      "skills.count": selection.skills ? selection.skills.length : -1,
+      "mcp.count": selection.mcp ? selection.mcp.length : -1,
+    }, opts.telemetrySpan);
+  }
 
   const sourceHash = contentHash(source, manifest);
   const cacheDir = pluginSourceCacheDir(opts.pluginsDir, name);
