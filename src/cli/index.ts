@@ -44,6 +44,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   author: { type: "string", hint: "<name>", help: "plugin author" },
   type: { type: "string", hint: "plugin|marketplace|all", help: "init: which .agents/ artifact to scaffold (default plugin)" },
   skill: { type: "string", short: "s", multiple: true, hint: "<name>", help: "skill name (init: seed one · add: limit to these)" },
+  mcp: { type: "string", short: "m", multiple: true, hint: "<name>", help: "MCP server name (add: limit to these)" },
   only: { type: "string", hint: "<types>", help: "limit to these component types (skills,agents,commands,mcp,hooks,apps)" },
   as: { type: "string", hint: "<name>", help: "plugin name to wrap the skills as" },
   prefix: { type: "string", hint: "<p>", help: "prefix imported skill names" },
@@ -71,6 +72,7 @@ export type ParsedValues = {
   description?: string;
   author?: string;
   skill?: string[];
+  mcp?: string[];
   type?: string;
   as?: string;
   prefix?: string;
@@ -117,12 +119,13 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
       "In a terminal, add guides you through:  scope → plugins → agents → what to install.\n" +
       "By default it installs everything; choose 'No, let me choose' to pick components,\n" +
       "or pass the flags below to skip any prompt (e.g. for scripts/CI).",
-    flags: ["all", "plugin", "only", "skill", "target", "no-deps", "path", "ref", "sparse", "marketplace-name", ...SCOPE],
+    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "path", "ref", "sparse", "marketplace-name", ...SCOPE],
     examples: [
       "adg plugins add owner/repo                 # guided",
       "adg plugins add owner/repo --all --global  # all plugins, global, non-interactive",
       "adg plugins add owner/repo --only skills   # expose only the skills",
       "adg plugins add owner/repo --skill brainstorming --skill writing-plans",
+      "adg plugins add owner/repo --mcp server-name",
     ],
     start: true,
   },

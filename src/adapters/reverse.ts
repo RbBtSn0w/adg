@@ -42,7 +42,13 @@ export function fromNativeManifest(raw: unknown, kind: NativeKind, pluginDir?: s
   copyIfString(n, out, "agents");
   copyIfString(n, out, "hooks");
   copyIfString(n, out, "mcpServers");
-  if (typeof out.mcpServers !== "string" && typeof n.mcp === "string") out.mcpServers = n.mcp;
+  if (typeof out.mcpServers !== "string") {
+    if (typeof n.mcp === "string") {
+      out.mcpServers = n.mcp;
+    } else if (pluginDir && existsSync(join(pluginDir, ".mcp.json"))) {
+      out.mcpServers = "./.mcp.json";
+    }
+  }
   copyIfString(n, out, "apps");
 
   if (typeof n.author === "object" && n.author !== null) {

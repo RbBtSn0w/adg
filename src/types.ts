@@ -80,6 +80,8 @@ export interface PluginSelection {
   components: ComponentType[];
   /** When "skills" is selected, expose only these skill names (else all). */
   skills?: string[];
+  /** When "mcp" is selected, expose only these mcp server names (else all). */
+  mcp?: string[];
 }
 
 /** Canonicalize user intent without adding derived component dependencies. */
@@ -87,9 +89,11 @@ export function normalizePluginSelection(selection: PluginSelection | undefined)
   if (!selection) return undefined;
   const components = new Set<ComponentType>(selection.components);
   if (selection.skills !== undefined) components.add("skills");
+  if (selection.mcp !== undefined) components.add("mcp");
   return {
     components: COMPONENT_TYPES.filter((component) => components.has(component)),
     ...(selection.skills !== undefined ? { skills: [...new Set(selection.skills)].sort() } : {}),
+    ...(selection.mcp !== undefined ? { mcp: [...new Set(selection.mcp)].sort() } : {}),
   };
 }
 
@@ -131,6 +135,7 @@ export function resolveSelectionDependencies(
   return {
     components: COMPONENT_TYPES.filter((component) => components.has(component)),
     ...(skills ? { skills: [...skills].sort() } : {}),
+    ...(normalized.mcp !== undefined ? { mcp: [...new Set(normalized.mcp)].sort() } : {}),
   };
 }
 

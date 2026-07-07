@@ -241,7 +241,8 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
       : projectPluginsDir();
   const only = resolveComponents(values.only);
   const skillsSubset = values.skill && values.skill.length > 0 ? values.skill : undefined;
-  const narrowed = only !== undefined || skillsSubset !== undefined;
+  const mcpSubset = values.mcp && values.mcp.length > 0 ? values.mcp : undefined;
+  const narrowed = only !== undefined || skillsSubset !== undefined || mcpSubset !== undefined;
   const { order, installed, removed, converted, agents } = await addPlugins({
     spec,
     pluginsDir,
@@ -252,6 +253,7 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
     plugins: values.plugin,
     only,
     skillsSubset,
+    mcpSubset,
     withDeps: !values["no-deps"],
     marketplaceName: values["marketplace-name"],
     targets: values.target !== undefined ? resolveTargets(values.target) : undefined,

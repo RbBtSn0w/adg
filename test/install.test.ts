@@ -341,3 +341,50 @@ test("validatePlugin flags a missing referenced path", () => {
   assert.ok(res.issues.some((i) => i.includes("commands")));
   rmSync(work, { recursive: true });
 });
+
+test("install filters mcp servers when selection specifies a subset", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "mcpkit", dir: work, description: "MCP kit." });
+  const mf = join(pluginDir, ".agents", ".plugin.json");
+  const m = JSON.parse(readFileSync(mf, "utf8"));
+  m.mcpServers = "./.mcp.json";
+  writeFileSync(mf, JSON.stringify(m));
+  writeFileSync(
+    join(pluginDir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        serverA: { command: "node", args: ["a.js"] },
+        serverB: { command: "node", args: ["b.js"] },
+      },
+    }),
+  );
+
+  const store = join(work, "store");
+  installPlugin({
+    source: pluginDir,
+    pluginsDir: store,
+    now: "2026-06-11T00:00:00Z",
+    selection: {
+      components: ["mcp"],
+      mcp: ["serverB"],
+    },
+  });
+  const out = join(store, "mcpkit");
+
+  assert.ok(existsSync(join(out, ".mcp.json")), "mcpServers target ships");
+  const mcpJson = JSON.parse(readFileSync(join(out, ".mcp.json"), "utf8"));
+  assert.deepEqual(mcpJson, {
+    mcpServers: {
+      serverB: { command: "node", args: ["b.js"] },
+    },
+  });
+
+  const antigravity = JSON.parse(readFileSync(join(out, "mcp_config.json"), "utf8"));
+  assert.deepEqual(antigravity, {
+    mcpServers: {
+      serverB: { command: "node", args: ["b.js"] },
+    },
+  });
+
+  rmSync(work, { recursive: true });
+});

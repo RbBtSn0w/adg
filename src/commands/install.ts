@@ -258,10 +258,12 @@ export interface AddOptions {
   only?: ComponentType[];
   /** Non-interactive: expose only these skill names (implies skills selected). */
   skillsSubset?: string[];
+  /** Non-interactive: expose only these mcp server names (implies mcp selected). */
+  mcpSubset?: string[];
   /**
    * Interactive gate (the "install everything?" question). Returning false
    * drops into per-plugin component selection. Skipped when only/skillsSubset
-   * are set. Applies only to the user-chosen plugins, not auto-deps.
+   * or mcpSubset are set. Applies only to the user-chosen plugins, not auto-deps.
    */
   confirmFull?: (plugins: string[]) => Promise<boolean> | boolean;
   /** Interactive per-plugin component picker; returns the selection to expose. */
@@ -366,10 +368,11 @@ async function resolveSelections(
 ): Promise<Map<string, PluginSelection>> {
   const selections = new Map<string, PluginSelection>();
 
-  if (opts.only || opts.skillsSubset) {
+  if (opts.only || opts.skillsSubset || opts.mcpSubset) {
     const flagSelection: PluginSelection = {
       components: opts.only ?? [...COMPONENT_TYPES],
       ...(opts.skillsSubset ? { skills: opts.skillsSubset } : {}),
+      ...(opts.mcpSubset ? { mcp: opts.mcpSubset } : {}),
     };
     for (const name of selected) selections.set(name, flagSelection);
     return selections;
@@ -383,7 +386,7 @@ async function resolveSelections(
     const contents = pluginContents(cand.dir, cand.manifest);
     const present = presentComponents(contents);
     // Nothing meaningful to pick: a lone category with at most one member.
-    if (present.length <= 1 && contents.skills.length <= 1) continue;
+    if (present.length <= 1 && contents.skills.length <= 1 && contents.mcp.length <= 1) continue;
     const skillDescription = skillDescriptionLoader(cand.dir, cand.manifest);
     selections.set(name, await opts.selectComponents({ name, contents, present, skillDescription }));
   }
