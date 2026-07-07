@@ -35,6 +35,10 @@ npm run build
 npm test
 ```
 
+## Telemetry
+
+- **OpenTelemetry (OTel)**: For every new feature or requirement added, ensure you implement corresponding OpenTelemetry instrumentation (spans, events, or metrics) to maintain observability.
+
 ## Do not
 
 - Do not stage, commit, push, or open PRs unless explicitly asked.
