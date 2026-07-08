@@ -7,7 +7,7 @@ import type { Attributes, Span } from "@opentelemetry/api";
 
 import { readLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
-import { normalizeTraceEndpoint, recordTelemetryEvent } from "../src/telemetry.ts";
+import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath } from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
@@ -218,4 +218,18 @@ test("git runner runs successfully and returns nothing", () => {
 
 test("git runner throws on failure", () => {
   assert.throws(() => _defaultGitRunner(["invalid-git-command-zzz"]));
+});
+
+test("sanitizePath redacts homedir and replaces with tilde", () => {
+  import("node:os").then(({ homedir }) => {
+    const home = homedir();
+    if (home) {
+      const testPath = `${home}/some/project/path`;
+      assert.equal(sanitizePath(testPath), "~/some/project/path");
+    }
+    // Safe fallback for null, undefined, empty path, or non-home path
+    assert.equal(sanitizePath(undefined), "");
+    assert.equal(sanitizePath(""), "");
+    assert.equal(sanitizePath("/var/log/syslog"), "/var/log/syslog");
+  });
 });

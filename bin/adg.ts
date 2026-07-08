@@ -8,7 +8,7 @@ import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
 import { TOP_USAGE, fail } from "../src/cli/index.ts";
 import { runPlugins } from "../src/cli/handlers.ts";
-import { getTracer, shutdownTelemetry, sanitizeArgs } from "../src/telemetry.ts";
+import { getTracer, shutdownTelemetry, sanitizeArgs, sanitizePath } from "../src/telemetry.ts";
 import { SpanKind, SpanStatusCode, propagation, context } from "@opentelemetry/api";
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ async function main(argv: string[]): Promise<number | void> {
     let status = 0;
     try {
       span.setAttribute("process.executable.name", "adg");
-      span.setAttribute("process.executable.path", process.argv[1] || process.execPath);
+      span.setAttribute("process.executable.path", sanitizePath(process.argv[1] || process.execPath));
       span.setAttribute("process.pid", process.pid);
       span.setAttribute("process.command_args", sanitizeArgs(["adg", ...argv]));
 

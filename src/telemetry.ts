@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -62,6 +63,19 @@ export async function shutdownTelemetry(): Promise<void> {
       // Silently fail - telemetry should never break CLI exit
     }
   }
+}
+
+export function sanitizePath(path: string | undefined): string {
+  if (!path) return "";
+  try {
+    const home = homedir();
+    if (home && path.startsWith(home)) {
+      return path.replace(home, "~");
+    }
+  } catch {
+    // Fail silently - telemetry should never break CLI behavior
+  }
+  return path;
 }
 
 export function sanitizeArgs(args: string[]): string[] {
