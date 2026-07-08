@@ -104,7 +104,7 @@ export function cloneGitHub(
   dest: string,
   opts: { sparse?: string[]; runner?: GitRunner } = {},
 ): string {
-  const runner = opts.runner ?? defaultGitRunner;
+  const runner = opts.runner ?? _defaultGitRunner;
   const sparse = opts.sparse?.filter(Boolean) ?? [];
 
   const clone = ["clone", "--depth", "1"];
