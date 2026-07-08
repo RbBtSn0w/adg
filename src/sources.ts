@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readManifest, findManifestFile } from "./manifest.ts";
@@ -121,16 +121,34 @@ export function cloneGitHub(
 
 export type GitRunner = (args: string[]) => void;
 
-const defaultGitRunner: GitRunner = (args) => {
+export const _defaultGitRunner: GitRunner = (args) => {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
       span.setAttribute("process.executable.name", "git");
       span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
 
-      execFileSync("git", args, { stdio: "pipe" });
+      const r = spawnSync("git", args, { stdio: "pipe" });
+      if (r.pid !== undefined) {
+        span.setAttribute("process.pid", r.pid);
+      }
 
-      span.setAttribute("process.exit.code", 0);
+      if (r.status !== null) {
+        span.setAttribute("process.exit.code", r.status);
+        if (r.status !== 0) {
+          throw Object.assign(
+            new Error(`git ${args.join(" ")} exited with status ${r.status}`),
+            {
+              status: r.status,
+              pid: r.pid,
+              stderr: r.stderr?.toString(),
+              stdout: r.stdout?.toString(),
+            },
+          );
+        }
+      } else if (r.error) {
+        throw r.error;
+      }
     } catch (error: any) {
       const exitCode = typeof error.status === "number" ? error.status : 1;
       span.setAttribute("process.exit.code", exitCode);

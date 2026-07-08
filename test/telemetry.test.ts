@@ -11,6 +11,7 @@ import { normalizeTraceEndpoint, recordTelemetryEvent } from "../src/telemetry.t
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
+import { _defaultGitRunner } from "../src/sources.ts";
 
 interface RecordedEvent {
   name: string;
@@ -209,4 +210,12 @@ test("installPlugin records selection counts in telemetry", () => {
   });
 
   rmSync(root, { recursive: true });
+});
+
+test("git runner runs successfully and returns nothing", () => {
+  assert.doesNotThrow(() => _defaultGitRunner(["--version"]));
+});
+
+test("git runner throws on failure", () => {
+  assert.throws(() => _defaultGitRunner(["invalid-git-command-zzz"]));
 });
