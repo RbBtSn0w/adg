@@ -70,6 +70,9 @@ export function sanitizePath(path: string | undefined): string {
   if (!path) return "";
   try {
     const trimmed = path.replace(/[\\/]+$/, "");
+    if (trimmed === "" || /^[a-zA-Z]:$/.test(trimmed)) {
+      return "[REDACTED_PATH]";
+    }
     const parts = trimmed.split(/[\\/]+/);
     const base = parts[parts.length - 1] || "";
 

@@ -279,6 +279,13 @@ test("sanitizePath redacts homedir and replaces with tilde, keeping only basenam
   assert.equal(sanitizePath("C:\\Users\\me\\secret\\"), "[REDACTED_PATH]/secret");
   assert.equal(sanitizePath("foo/bar\\baz"), "[REDACTED_PATH]/baz");
 
+  // Root and Windows drive root paths are redacted
+  assert.equal(sanitizePath("/"), "[REDACTED_PATH]");
+  assert.equal(sanitizePath("//"), "[REDACTED_PATH]");
+  assert.equal(sanitizePath("C:\\"), "[REDACTED_PATH]");
+  assert.equal(sanitizePath("C:"), "[REDACTED_PATH]");
+  assert.equal(sanitizePath("\\\\"), "[REDACTED_PATH]");
+
   // Fail-closed catch block test (passing invalid type causing type error/throw)
   assert.equal(sanitizePath(123 as any), "[REDACTED_PATH]");
 });

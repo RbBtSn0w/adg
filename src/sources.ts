@@ -126,14 +126,15 @@ export const defaultGitRunner: GitRunner = (args) => {
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
       span.setAttribute("process.executable.name", "git");
-      span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
+      const sanitizedArgs = sanitizeArgs(["git", ...args]);
+      span.setAttribute("process.command_args", sanitizedArgs);
 
       const r = spawnSync("git", args, { stdio: "pipe" });
       if (r.pid !== undefined) {
         span.setAttribute("process.pid", r.pid);
       }
 
-      const sanitizedCmd = sanitizeArgs(["git", ...args]).join(" ");
+      const sanitizedCmd = sanitizedArgs.join(" ");
 
       if (r.status !== null) {
         span.setAttribute("process.exit.code", r.status);
