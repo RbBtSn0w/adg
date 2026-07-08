@@ -1,3 +1,9 @@
+## [0.6.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.3...0.6.0-beta.4) (2026-07-08)
+
+### Changed
+
+* Enhance OpenTelemetry compliance and improve error handling ([#59](https://github.com/RbBtSn0w/adg/issues/59)) ([0451923](https://github.com/RbBtSn0w/adg/commit/0451923bb5d498825e4a343b9c397a034185979b))
+
 ## [0.6.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.2...0.6.0-beta.3) (2026-07-07)
 
 ### Added
