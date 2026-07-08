@@ -144,8 +144,6 @@ export const defaultGitRunner: GitRunner = (args) => {
               status: r.status,
               pid: r.pid,
               code: `EXIT_CODE_${r.status}`,
-              stderr: r.stderr?.toString(),
-              stdout: r.stdout?.toString(),
             },
           );
         }
@@ -158,8 +156,6 @@ export const defaultGitRunner: GitRunner = (args) => {
             status: -1,
             pid: r.pid,
             code: `SIGNAL_${r.signal}`,
-            stderr: r.stderr?.toString(),
-            stdout: r.stdout?.toString(),
           },
         );
       } else if (r.error) {

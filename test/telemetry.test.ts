@@ -253,6 +253,14 @@ test("sanitizePath redacts homedir and replaces with tilde, keeping only basenam
 
   // Relative paths containing separators are redacted with basename
   assert.equal(sanitizePath("dist/plugins/my-plugin"), "[REDACTED_PATH]/my-plugin");
+
+  // Platform-independent separator-agnostic basename (splitting on both / and \)
+  assert.equal(sanitizePath("C:\\Users\\me\\secret"), "[REDACTED_PATH]/secret");
+  assert.equal(sanitizePath("C:\\Users\\me\\secret\\"), "[REDACTED_PATH]/secret");
+  assert.equal(sanitizePath("foo/bar\\baz"), "[REDACTED_PATH]/baz");
+
+  // Fail-closed catch block test (passing invalid type causing type error/throw)
+  assert.equal(sanitizePath(123 as any), "[REDACTED_PATH]");
 });
 
 test("sanitizeArgs redacts raw paths but keeps options/flags and URLs", () => {

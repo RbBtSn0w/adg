@@ -70,9 +70,12 @@ export function sanitizePath(path: string | undefined): string {
   if (!path) return "";
   try {
     const trimmed = path.replace(/[\\/]+$/, "");
+    const parts = trimmed.split(/[\\/]+/);
+    const base = parts[parts.length - 1] || "";
+
     if (trimmed.startsWith("~")) {
       if (trimmed === "~") return "~";
-      return `~/${basename(trimmed)}`;
+      return `~/${base}`;
     }
 
     const home = homedir();
@@ -82,7 +85,7 @@ export function sanitizePath(path: string | undefined): string {
       const prefix = `${normalizedHome}/`;
       const prefixWin = `${normalizedHome}\\`;
       if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixWin)) {
-        return `~/${basename(trimmed)}`;
+        return `~/${base}`;
       }
     }
 
@@ -93,22 +96,21 @@ export function sanitizePath(path: string | undefined): string {
       const prefix = `${normalizedTemp}/`;
       const prefixWin = `${normalizedTemp}\\`;
       if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixWin)) {
-        return `[TMP]/${basename(trimmed)}`;
+        return `[TMP]/${base}`;
       }
     }
 
     if (isAbsolute(trimmed)) {
-      return `[REDACTED_PATH]/${basename(trimmed)}`;
+      return `[REDACTED_PATH]/${base}`;
     }
 
     if (trimmed.includes("/") || trimmed.includes("\\")) {
-      return `[REDACTED_PATH]/${basename(trimmed)}`;
+      return `[REDACTED_PATH]/${base}`;
     }
     return trimmed;
   } catch {
-    // Fail silently - telemetry should never break CLI behavior
+    return "[REDACTED_PATH]";
   }
-  return path;
 }
 
 function sanitizeSingleValue(val: string, isAfterC: boolean = false): string {
