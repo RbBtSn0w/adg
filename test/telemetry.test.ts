@@ -212,11 +212,12 @@ test("installPlugin records selection counts in telemetry", () => {
   rmSync(root, { recursive: true });
 });
 
-test("git runner runs successfully and returns nothing", () => {
+test("git runner runs successfully and returns nothing (or skips if git is missing)", () => {
   const originalDisable = process.env.DISABLE_TELEMETRY;
   process.env.DISABLE_TELEMETRY = "1";
   try {
-    defaultGitRunner(["--version"]);
+    const res = defaultGitRunner(["--version"]);
+    assert.equal(res, undefined);
   } catch (error: any) {
     if (error.code === "ENOENT") {
       return;
@@ -235,12 +236,15 @@ test("git runner throws on failure", () => {
   const originalDisable = process.env.DISABLE_TELEMETRY;
   process.env.DISABLE_TELEMETRY = "1";
   try {
-    assert.throws(() => defaultGitRunner(["--invalid-option-zzz"]), (err: any) => {
+    try {
+      defaultGitRunner(["--invalid-option-zzz"]);
+      assert.fail("Should have thrown");
+    } catch (err: any) {
       if (err.code === "ENOENT") {
-        return true;
+        return;
       }
-      return true;
-    });
+      assert.ok(typeof err.status === "number" && err.status !== 0, "Error status should be a non-zero number");
+    }
   } finally {
     if (originalDisable === undefined) {
       delete process.env.DISABLE_TELEMETRY;
