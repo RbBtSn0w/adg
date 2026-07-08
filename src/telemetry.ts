@@ -1,5 +1,3 @@
-import { homedir, tmpdir } from "node:os";
-import { isAbsolute } from "node:path";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -66,58 +64,18 @@ export async function shutdownTelemetry(): Promise<void> {
   }
 }
 
+/**
+ * Redact any value that looks like a filesystem path.
+ * Telemetry consumers need the command skeleton (subcommands + flags),
+ * not path details. Returning a fixed placeholder eliminates all
+ * path-related privacy edge cases.
+ */
 export function sanitizePath(path: string | undefined): string {
   if (!path) return "";
-  try {
-    const trimmed = path.replace(/[\\/]+$/, "");
-    if (trimmed === "" || /^[a-zA-Z]:$/.test(trimmed)) {
-      return "[REDACTED_PATH]";
-    }
-    const parts = trimmed.split(/[\\/]+/);
-    const base = parts[parts.length - 1] || "";
-
-    if (trimmed.startsWith("~")) {
-      if (trimmed === "~") return "~";
-      if (!trimmed.includes("/") && !trimmed.includes("\\")) return "~";
-      return `~/${base}`;
-    }
-
-    const home = homedir();
-    if (home) {
-      const normalizedHome = home.replace(/[\\/]+$/, "");
-      if (trimmed === normalizedHome) return "~";
-      const prefix = `${normalizedHome}/`;
-      const prefixWin = `${normalizedHome}\\`;
-      if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixWin)) {
-        return `~/${base}`;
-      }
-    }
-
-    const temp = tmpdir();
-    if (temp) {
-      const normalizedTemp = temp.replace(/[\\/]+$/, "");
-      if (trimmed === normalizedTemp) return "[TMP]";
-      const prefix = `${normalizedTemp}/`;
-      const prefixWin = `${normalizedTemp}\\`;
-      if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixWin)) {
-        return `[TMP]/${base}`;
-      }
-    }
-
-    if (isAbsolute(trimmed)) {
-      return `[REDACTED_PATH]/${base}`;
-    }
-
-    if (trimmed.includes("/") || trimmed.includes("\\")) {
-      return `[REDACTED_PATH]/${base}`;
-    }
-    return trimmed;
-  } catch {
-    return "[REDACTED_PATH]";
-  }
+  return "[PATH]";
 }
 
-function sanitizeSingleValue(val: string, isAfterC: boolean = false): string {
+function sanitizeSingleValue(val: string): string {
   if (
     val.startsWith("ghp_") ||
     val.startsWith("gho_") ||
@@ -142,39 +100,31 @@ function sanitizeSingleValue(val: string, isAfterC: boolean = false): string {
       return "[REDACTED_URL]";
     }
   }
-  if (isAfterC) {
-    return sanitizePath(val);
-  }
   if (
-    (isAbsolute(val) || val.startsWith("~") || val.includes("/") || val.includes("\\")) &&
+    (val.includes("/") || val.includes("\\") || val.startsWith("~")) &&
     !val.startsWith("http://") &&
     !val.startsWith("https://")
   ) {
-    return sanitizePath(val);
+    return "[PATH]";
   }
   return val;
 }
 
 export function sanitizeArgs(args: string[]): string[] {
-  let prevArg = "";
   return args.map((arg) => {
-    let sanitized = arg;
     if (arg.startsWith("-")) {
       const eqIndex = arg.indexOf("=");
       if (eqIndex !== -1) {
         const flag = arg.slice(0, eqIndex);
         const value = arg.slice(eqIndex + 1);
-        const isAfterC = flag === "-C";
-        sanitized = `${flag}=${sanitizeSingleValue(value, isAfterC)}`;
+        return `${flag}=${sanitizeSingleValue(value)}`;
       }
-    } else {
-      const isAfterC = prevArg === "-C";
-      sanitized = sanitizeSingleValue(arg, isAfterC);
+      return arg;
     }
-    prevArg = arg;
-    return sanitized;
+    return sanitizeSingleValue(arg);
   });
 }
+
 
 /** Record a privacy-safe event without allowing telemetry to affect CLI behavior. */
 export function recordTelemetryEvent(

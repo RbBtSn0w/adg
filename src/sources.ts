@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readManifest, findManifestFile } from "./manifest.ts";
@@ -126,51 +126,11 @@ export const defaultGitRunner: GitRunner = (args) => {
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
       span.setAttribute("process.executable.name", "git");
-      const sanitizedArgs = sanitizeArgs(["git", ...args]);
-      span.setAttribute("process.command_args", sanitizedArgs);
+      span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
 
-      const r = spawnSync("git", args, { stdio: "pipe" });
-      if (r.pid !== undefined) {
-        span.setAttribute("process.pid", r.pid);
-      }
+      execFileSync("git", args, { stdio: "pipe" });
 
-      const sanitizedCmd = sanitizedArgs.join(" ");
-
-      if (r.status !== null) {
-        span.setAttribute("process.exit.code", r.status);
-        if (r.status !== 0) {
-          throw Object.assign(
-            new Error(`${sanitizedCmd} exited with status ${r.status}`),
-            {
-              status: r.status,
-              pid: r.pid,
-              code: `EXIT_CODE_${r.status}`,
-            },
-          );
-        }
-      } else if (r.signal !== null) {
-        span.setAttribute("process.exit.code", -1);
-        span.setAttribute("process.exit.signal", r.signal);
-        throw Object.assign(
-          new Error(`${sanitizedCmd} terminated by signal ${r.signal}`),
-          {
-            status: -1,
-            pid: r.pid,
-            code: `SIGNAL_${r.signal}`,
-          },
-        );
-      } else if (r.error) {
-        throw r.error;
-      } else {
-        throw Object.assign(
-          new Error(`${sanitizedCmd} failed with unknown status`),
-          {
-            status: -1,
-            pid: r.pid,
-            code: "UNKNOWN_FAILURE",
-          },
-        );
-      }
+      span.setAttribute("process.exit.code", 0);
     } catch (error: any) {
       const exitCode = typeof error.status === "number" ? error.status : 1;
       span.setAttribute("process.exit.code", exitCode);

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Attributes, Span } from "@opentelemetry/api";
 
@@ -240,83 +240,35 @@ test("git runner throws on failure", () => {
   }
 });
 
-test("sanitizePath redacts homedir and replaces with tilde, keeping only basename", () => {
-  const home = homedir();
-  if (home) {
-    const testPath = `${home}/some/project/path`;
-    assert.equal(sanitizePath(testPath), "~/path");
-
-    // Trailing slash on home dir should redact exactly to "~"
-    assert.equal(sanitizePath(`${home}/`), "~");
-    assert.equal(sanitizePath(`${home}\\`), "~");
-  }
-  const temp = tmpdir();
-  if (temp) {
-    const testTemp = `${temp}/some-temp-file`;
-    assert.equal(sanitizePath(testTemp), "[TMP]/some-temp-file");
-
-    // Trailing slash on temp dir should redact exactly to "[TMP]"
-    assert.equal(sanitizePath(`${temp}/`), "[TMP]");
-    assert.equal(sanitizePath(`${temp}\\`), "[TMP]");
-  }
-  // Safe fallback for null, undefined, empty path
+test("sanitizePath redacts all paths to [PATH]", () => {
   assert.equal(sanitizePath(undefined), "");
   assert.equal(sanitizePath(""), "");
-
-  // Tilde-prefixed paths are kept as tilde-prefixed with basename
-  assert.equal(sanitizePath("~/some/project/path"), "~/path");
-  assert.equal(sanitizePath("~"), "~");
-  assert.equal(sanitizePath("~alice"), "~");
-  assert.equal(sanitizePath("~alice/projects"), "~/projects");
-
-  // Non-home absolute paths are redacted with basename
-  assert.equal(sanitizePath("/var/log/syslog"), "[REDACTED_PATH]/syslog");
-  assert.equal(sanitizePath("/var/log/syslog/"), "[REDACTED_PATH]/syslog");
-
-  // Relative paths containing separators are redacted with basename
-  assert.equal(sanitizePath("dist/plugins/my-plugin"), "[REDACTED_PATH]/my-plugin");
-
-  // Platform-independent separator-agnostic basename (splitting on both / and \)
-  assert.equal(sanitizePath("C:\\Users\\me\\secret"), "[REDACTED_PATH]/secret");
-  assert.equal(sanitizePath("C:\\Users\\me\\secret\\"), "[REDACTED_PATH]/secret");
-  assert.equal(sanitizePath("foo/bar\\baz"), "[REDACTED_PATH]/baz");
-
-  // Root and Windows drive root paths are redacted
-  assert.equal(sanitizePath("/"), "[REDACTED_PATH]");
-  assert.equal(sanitizePath("//"), "[REDACTED_PATH]");
-  assert.equal(sanitizePath("C:\\"), "[REDACTED_PATH]");
-  assert.equal(sanitizePath("C:"), "[REDACTED_PATH]");
-  assert.equal(sanitizePath("\\\\"), "[REDACTED_PATH]");
-
-  // Fail-closed catch block test (passing invalid type causing type error/throw)
-  assert.equal(sanitizePath(123 as any), "[REDACTED_PATH]");
+  assert.equal(sanitizePath("/usr/local/bin"), "[PATH]");
+  assert.equal(sanitizePath("~/projects/secret"), "[PATH]");
+  assert.equal(sanitizePath("C:\\Users\\me"), "[PATH]");
+  assert.equal(sanitizePath("relative/path"), "[PATH]");
+  assert.equal(sanitizePath("plain-filename"), "[PATH]");
 });
 
-test("sanitizeArgs redacts raw paths but keeps options/flags and URLs", () => {
-  const home = homedir();
+test("sanitizeArgs redacts paths and tokens but keeps flags and URLs", () => {
   const input = [
     "clone",
     "--depth",
     "1",
-    "-C",
-    `${home}/some/project`,
     "https://github.com/RbBtSn0w/adg.git",
     "dist/plugins/my-plugin",
-    `--dir=${home}/some/project`,
     "--repo=https://user:pass@github.com/foo.git",
-    "--token=ghp_123456"
+    "--token=ghp_123456",
   ];
   const expected = [
     "clone",
     "--depth",
     "1",
-    "-C",
-    "~/project",
     "https://github.com/RbBtSn0w/adg.git",
-    "[REDACTED_PATH]/my-plugin",
-    "--dir=~/project",
+    "[PATH]",
     "--repo=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
-    "--token=[REDACTED_TOKEN]"
+    "--token=[REDACTED_TOKEN]",
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });
+
