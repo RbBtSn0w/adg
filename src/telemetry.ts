@@ -65,7 +65,7 @@ export async function shutdownTelemetry(): Promise<void> {
 }
 
 /**
- * Redact any value that looks like a filesystem path.
+ * Unconditionally redact any non-empty string passed to it.
  * Telemetry consumers need the command skeleton (subcommands + flags),
  * not path details. Returning a fixed placeholder eliminates all
  * path-related privacy edge cases.

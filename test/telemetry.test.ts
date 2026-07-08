@@ -240,7 +240,7 @@ test("git runner throws on failure", () => {
   }
 });
 
-test("sanitizePath redacts all paths to [PATH]", () => {
+test("sanitizePath unconditionally redacts non-empty strings to [PATH]", () => {
   assert.equal(sanitizePath(undefined), "");
   assert.equal(sanitizePath(""), "");
   assert.equal(sanitizePath("/usr/local/bin"), "[PATH]");
@@ -250,7 +250,7 @@ test("sanitizePath redacts all paths to [PATH]", () => {
   assert.equal(sanitizePath("plain-filename"), "[PATH]");
 });
 
-test("sanitizeArgs redacts paths and tokens but keeps flags and URLs", () => {
+test("sanitizeArgs redacts paths, tokens, and non-http/https URLs, but keeps flags and http/https URLs", () => {
   const input = [
     "clone",
     "--depth",
