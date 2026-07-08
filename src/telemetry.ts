@@ -76,10 +76,7 @@ export function sanitizePath(path: string | undefined): string {
 }
 
 function sanitizeSingleValue(val: string): string {
-  const tokenRegex = /(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)/g;
-  if (tokenRegex.test(val)) {
-    return val.replace(tokenRegex, "[REDACTED_TOKEN]");
-  }
+  let cleaned = val;
   if (val.includes("@") && (val.startsWith("http://") || val.startsWith("https://"))) {
     try {
       const url = new URL(val);
@@ -89,19 +86,23 @@ function sanitizeSingleValue(val: string): string {
       if (url.password) {
         url.password = "[REDACTED]";
       }
-      return url.toString();
+      cleaned = url.toString();
     } catch {
-      return "[REDACTED_URL]";
+      cleaned = "[REDACTED_URL]";
     }
   }
+
+  const tokenRegex = /(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)/g;
+  cleaned = cleaned.replace(tokenRegex, "[REDACTED_TOKEN]");
+
   if (
-    (val.includes("/") || val.includes("\\") || val.startsWith("~")) &&
-    !val.startsWith("http://") &&
-    !val.startsWith("https://")
+    (cleaned.includes("/") || cleaned.includes("\\") || cleaned.startsWith("~")) &&
+    !cleaned.startsWith("http://") &&
+    !cleaned.startsWith("https://")
   ) {
     return "[PATH]";
   }
-  return val;
+  return cleaned;
 }
 
 export function sanitizeArgs(args: string[]): string[] {

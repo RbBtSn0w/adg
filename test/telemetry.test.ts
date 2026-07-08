@@ -260,6 +260,7 @@ test("sanitizeArgs redacts paths and tokens but keeps flags and URLs", () => {
     "--repo=https://user:pass@github.com/foo.git",
     "--token=ghp_123456",
     "Authorization: Bearer ghp_123456",
+    "--repo-token-url=https://user:ghp_123456@github.com/foo.git",
   ];
   const expected = [
     "clone",
@@ -270,6 +271,7 @@ test("sanitizeArgs redacts paths and tokens but keeps flags and URLs", () => {
     "--repo=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
     "--token=[REDACTED_TOKEN]",
     "Authorization: Bearer [REDACTED_TOKEN]",
+    "--repo-token-url=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });
