@@ -104,7 +104,7 @@ export function cloneGitHub(
   dest: string,
   opts: { sparse?: string[]; runner?: GitRunner } = {},
 ): string {
-  const runner = opts.runner ?? _defaultGitRunner;
+  const runner = opts.runner ?? defaultGitRunner;
   const sparse = opts.sparse?.filter(Boolean) ?? [];
 
   const clone = ["clone", "--depth", "1"];
@@ -121,7 +121,7 @@ export function cloneGitHub(
 
 export type GitRunner = (args: string[]) => void;
 
-export const _defaultGitRunner: GitRunner = (args) => {
+export const defaultGitRunner: GitRunner = (args) => {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
@@ -133,21 +133,46 @@ export const _defaultGitRunner: GitRunner = (args) => {
         span.setAttribute("process.pid", r.pid);
       }
 
+      const sanitizedCmd = sanitizeArgs(["git", ...args]).join(" ");
+
       if (r.status !== null) {
         span.setAttribute("process.exit.code", r.status);
         if (r.status !== 0) {
           throw Object.assign(
-            new Error(`git ${args.join(" ")} exited with status ${r.status}`),
+            new Error(`${sanitizedCmd} exited with status ${r.status}`),
             {
               status: r.status,
               pid: r.pid,
+              code: `EXIT_CODE_${r.status}`,
               stderr: r.stderr?.toString(),
               stdout: r.stdout?.toString(),
             },
           );
         }
+      } else if (r.signal !== null) {
+        span.setAttribute("process.exit.code", -1);
+        span.setAttribute("process.exit.signal", r.signal);
+        throw Object.assign(
+          new Error(`${sanitizedCmd} terminated by signal ${r.signal}`),
+          {
+            status: -1,
+            pid: r.pid,
+            code: `SIGNAL_${r.signal}`,
+            stderr: r.stderr?.toString(),
+            stdout: r.stdout?.toString(),
+          },
+        );
       } else if (r.error) {
         throw r.error;
+      } else {
+        throw Object.assign(
+          new Error(`${sanitizedCmd} failed with unknown status`),
+          {
+            status: -1,
+            pid: r.pid,
+            code: "UNKNOWN_FAILURE",
+          },
+        );
       }
     } catch (error: any) {
       const exitCode = typeof error.status === "number" ? error.status : 1;

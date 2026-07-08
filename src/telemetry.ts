@@ -69,8 +69,17 @@ export function sanitizePath(path: string | undefined): string {
   if (!path) return "";
   try {
     const home = homedir();
-    if (home && path.startsWith(home)) {
-      return path.replace(home, "~");
+    if (home) {
+      if (path === home) return "~";
+      const normalizedHome = home.replace(/[\\/]+$/, "");
+      const prefix = `${normalizedHome}/`;
+      const prefixWin = `${normalizedHome}\\`;
+      if (path.startsWith(prefix)) {
+        return `~/${path.slice(prefix.length)}`;
+      }
+      if (path.startsWith(prefixWin)) {
+        return `~/${path.slice(prefixWin.length)}`;
+      }
     }
   } catch {
     // Fail silently - telemetry should never break CLI behavior

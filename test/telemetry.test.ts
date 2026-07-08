@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import type { Attributes, Span } from "@opentelemetry/api";
 
@@ -11,7 +11,7 @@ import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath } from "../s
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
-import { _defaultGitRunner } from "../src/sources.ts";
+import { defaultGitRunner } from "../src/sources.ts";
 
 interface RecordedEvent {
   name: string;
@@ -213,23 +213,21 @@ test("installPlugin records selection counts in telemetry", () => {
 });
 
 test("git runner runs successfully and returns nothing", () => {
-  assert.doesNotThrow(() => _defaultGitRunner(["--version"]));
+  assert.doesNotThrow(() => defaultGitRunner(["--version"]));
 });
 
 test("git runner throws on failure", () => {
-  assert.throws(() => _defaultGitRunner(["invalid-git-command-zzz"]));
+  assert.throws(() => defaultGitRunner(["invalid-git-command-zzz"]));
 });
 
 test("sanitizePath redacts homedir and replaces with tilde", () => {
-  import("node:os").then(({ homedir }) => {
-    const home = homedir();
-    if (home) {
-      const testPath = `${home}/some/project/path`;
-      assert.equal(sanitizePath(testPath), "~/some/project/path");
-    }
-    // Safe fallback for null, undefined, empty path, or non-home path
-    assert.equal(sanitizePath(undefined), "");
-    assert.equal(sanitizePath(""), "");
-    assert.equal(sanitizePath("/var/log/syslog"), "/var/log/syslog");
-  });
+  const home = homedir();
+  if (home) {
+    const testPath = `${home}/some/project/path`;
+    assert.equal(sanitizePath(testPath), "~/some/project/path");
+  }
+  // Safe fallback for null, undefined, empty path, or non-home path
+  assert.equal(sanitizePath(undefined), "");
+  assert.equal(sanitizePath(""), "");
+  assert.equal(sanitizePath("/var/log/syslog"), "/var/log/syslog");
 });
