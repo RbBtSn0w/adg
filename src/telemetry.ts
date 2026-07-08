@@ -78,6 +78,7 @@ export function sanitizePath(path: string | undefined): string {
 
     if (trimmed.startsWith("~")) {
       if (trimmed === "~") return "~";
+      if (!trimmed.includes("/") && !trimmed.includes("\\")) return "~";
       return `~/${base}`;
     }
 
