@@ -119,7 +119,6 @@ async function main(argv: string[]): Promise<number | void> {
     let status = 0;
     try {
       span.setAttribute("process.executable.name", "adg");
-      span.setAttribute("process.executable.path", process.argv[1] || process.execPath);
       span.setAttribute("process.pid", process.pid);
       span.setAttribute("process.command_args", sanitizeArgs(["adg", ...argv]));
 

@@ -121,7 +121,7 @@ export function cloneGitHub(
 
 export type GitRunner = (args: string[]) => void;
 
-const defaultGitRunner: GitRunner = (args) => {
+export const defaultGitRunner: GitRunner = (args) => {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {

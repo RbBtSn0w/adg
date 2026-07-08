@@ -7,10 +7,11 @@ import type { Attributes, Span } from "@opentelemetry/api";
 
 import { readLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
-import { normalizeTraceEndpoint, recordTelemetryEvent } from "../src/telemetry.ts";
+import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath, sanitizeArgs } from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
+import { defaultGitRunner } from "../src/sources.ts";
 
 interface RecordedEvent {
   name: string;
@@ -210,3 +211,94 @@ test("installPlugin records selection counts in telemetry", () => {
 
   rmSync(root, { recursive: true });
 });
+
+test("git runner runs successfully and returns nothing (or skips if git is missing)", () => {
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    const res = defaultGitRunner(["--version"]);
+    assert.equal(res, undefined);
+  } catch (error: any) {
+    if (error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  } finally {
+    if (originalDisable === undefined) {
+      delete process.env.DISABLE_TELEMETRY;
+    } else {
+      process.env.DISABLE_TELEMETRY = originalDisable;
+    }
+  }
+});
+
+test("git runner throws on failure", () => {
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    try {
+      defaultGitRunner(["--invalid-option-zzz"]);
+      assert.fail("Should have thrown");
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        return;
+      }
+      assert.ok(typeof err.status === "number" && err.status !== 0, "Error status should be a non-zero number");
+    }
+  } finally {
+    if (originalDisable === undefined) {
+      delete process.env.DISABLE_TELEMETRY;
+    } else {
+      process.env.DISABLE_TELEMETRY = originalDisable;
+    }
+  }
+});
+
+test("sanitizePath unconditionally redacts non-empty strings to [PATH]", () => {
+  assert.equal(sanitizePath(undefined), "");
+  assert.equal(sanitizePath(""), "");
+  assert.equal(sanitizePath("/usr/local/bin"), "[PATH]");
+  assert.equal(sanitizePath("~/projects/secret"), "[PATH]");
+  assert.equal(sanitizePath("C:\\Users\\me"), "[PATH]");
+  assert.equal(sanitizePath("relative/path"), "[PATH]");
+  assert.equal(sanitizePath("plain-filename"), "[PATH]");
+});
+
+test("sanitizeArgs redacts all custom values except safe subcommand names and flags", () => {
+  const input = [
+    "clone",
+    "--depth",
+    "1",
+    "https://github.com/RbBtSn0w/adg.git",
+    "dist/plugins/my-plugin",
+    "--repo=https://user:pass@github.com/foo.git",
+    "--token=ghp_123456",
+    "Authorization: Bearer ghp_123456",
+    "--repo-token-url=https://user:ghp_123456@github.com/foo.git",
+    "-C/home/user",
+    "-I/usr/include",
+    "C:",
+    "C:\\",
+    "ghp_123456",
+    "github_pat_123456",
+  ];
+  const expected = [
+    "clone",
+    "--depth",
+    "1",
+    "[VALUE]",
+    "[VALUE]",
+    "--repo=[VALUE]",
+    "--token=[VALUE]",
+    "[VALUE]",
+    "--repo-token-url=[VALUE]",
+    "-C[VALUE]",
+    "-I[VALUE]",
+    "[VALUE]",
+    "[VALUE]",
+    "[VALUE]",
+    "[VALUE]",
+  ];
+  assert.deepEqual(sanitizeArgs(input), expected);
+});
+
