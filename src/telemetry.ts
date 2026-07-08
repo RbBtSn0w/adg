@@ -69,6 +69,11 @@ export async function shutdownTelemetry(): Promise<void> {
 export function sanitizePath(path: string | undefined): string {
   if (!path) return "";
   try {
+    if (path.startsWith("~")) {
+      if (path === "~") return "~";
+      return `~/${basename(path)}`;
+    }
+
     const home = homedir();
     if (home) {
       if (path === home) return "~";
@@ -93,7 +98,7 @@ export function sanitizePath(path: string | undefined): string {
         return `[TMP]/${basename(path)}`;
       }
       if (path.startsWith(prefixWin)) {
-        return `[TMP]\\${basename(path)}`;
+        return `[TMP]/${basename(path)}`;
       }
     }
 

@@ -226,10 +226,19 @@ test("sanitizePath redacts homedir and replaces with tilde, keeping only basenam
     const testPath = `${home}/some/project/path`;
     assert.equal(sanitizePath(testPath), "~/path");
   }
+  const temp = tmpdir();
+  if (temp) {
+    const testTemp = `${temp}/some-temp-file`;
+    assert.equal(sanitizePath(testTemp), "[TMP]/some-temp-file");
+  }
   // Safe fallback for null, undefined, empty path
   assert.equal(sanitizePath(undefined), "");
   assert.equal(sanitizePath(""), "");
   
+  // Tilde-prefixed paths are kept as tilde-prefixed with basename
+  assert.equal(sanitizePath("~/some/project/path"), "~/path");
+  assert.equal(sanitizePath("~"), "~");
+
   // Non-home absolute paths are redacted with basename
   assert.equal(sanitizePath("/var/log/syslog"), "[REDACTED_PATH]/syslog");
 
