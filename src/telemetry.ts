@@ -76,6 +76,7 @@ export function sanitizePath(path: string | undefined): string {
 }
 
 export function sanitizeArgs(args: string[]): string[] {
+  const tokenRegex = /(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)/i;
   return args.map((arg) => {
     if (arg.startsWith("-")) {
       const eqIndex = arg.indexOf("=");
@@ -93,6 +94,9 @@ export function sanitizeArgs(args: string[]): string[] {
           return `${arg.slice(0, 2)}[VALUE]`;
         }
       }
+      return "[VALUE]";
+    }
+    if (tokenRegex.test(arg)) {
       return "[VALUE]";
     }
     if (/^[a-zA-Z0-9_-]+$/.test(arg)) {

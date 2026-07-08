@@ -275,6 +275,8 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
     "-I/usr/include",
     "C:",
     "C:\\",
+    "ghp_123456",
+    "github_pat_123456",
   ];
   const expected = [
     "clone",
@@ -288,6 +290,8 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
     "--repo-token-url=[VALUE]",
     "-C[VALUE]",
     "-I[VALUE]",
+    "[VALUE]",
+    "[VALUE]",
     "[VALUE]",
     "[VALUE]",
   ];
