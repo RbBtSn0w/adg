@@ -213,11 +213,31 @@ test("installPlugin records selection counts in telemetry", () => {
 });
 
 test("git runner runs successfully and returns nothing", () => {
-  assert.doesNotThrow(() => defaultGitRunner(["--version"]));
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    assert.doesNotThrow(() => defaultGitRunner(["--version"]));
+  } finally {
+    if (originalDisable === undefined) {
+      delete process.env.DISABLE_TELEMETRY;
+    } else {
+      process.env.DISABLE_TELEMETRY = originalDisable;
+    }
+  }
 });
 
 test("git runner throws on failure", () => {
-  assert.throws(() => defaultGitRunner(["invalid-git-command-zzz"]));
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    assert.throws(() => defaultGitRunner(["invalid-git-command-zzz"]));
+  } finally {
+    if (originalDisable === undefined) {
+      delete process.env.DISABLE_TELEMETRY;
+    } else {
+      process.env.DISABLE_TELEMETRY = originalDisable;
+    }
+  }
 });
 
 test("sanitizePath redacts homedir and replaces with tilde, keeping only basename", () => {

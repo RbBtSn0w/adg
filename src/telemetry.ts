@@ -1,5 +1,5 @@
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, basename } from "node:path";
+import { isAbsolute } from "node:path";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
