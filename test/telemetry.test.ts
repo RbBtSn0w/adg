@@ -250,7 +250,7 @@ test("sanitizePath unconditionally redacts non-empty strings to [PATH]", () => {
   assert.equal(sanitizePath("plain-filename"), "[PATH]");
 });
 
-test("sanitizeArgs redacts paths, tokens, and non-http/https URLs, but keeps flags and http/https URLs", () => {
+test("sanitizeArgs redacts all custom values except safe subcommand names and flags", () => {
   const input = [
     "clone",
     "--depth",
@@ -266,12 +266,12 @@ test("sanitizeArgs redacts paths, tokens, and non-http/https URLs, but keeps fla
     "clone",
     "--depth",
     "1",
-    "https://github.com/RbBtSn0w/adg.git",
-    "[PATH]",
-    "--repo=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
-    "--token=[REDACTED_TOKEN]",
-    "Authorization: Bearer [REDACTED_TOKEN]",
-    "--repo-token-url=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
+    "[VALUE]",
+    "[VALUE]",
+    "--repo=[VALUE]",
+    "--token=[VALUE]",
+    "[VALUE]",
+    "--repo-token-url=[VALUE]",
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });
