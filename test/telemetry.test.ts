@@ -225,11 +225,19 @@ test("sanitizePath redacts homedir and replaces with tilde, keeping only basenam
   if (home) {
     const testPath = `${home}/some/project/path`;
     assert.equal(sanitizePath(testPath), "~/path");
+    
+    // Trailing slash on home dir should redact exactly to "~"
+    assert.equal(sanitizePath(`${home}/`), "~");
+    assert.equal(sanitizePath(`${home}\\`), "~");
   }
   const temp = tmpdir();
   if (temp) {
     const testTemp = `${temp}/some-temp-file`;
     assert.equal(sanitizePath(testTemp), "[TMP]/some-temp-file");
+    
+    // Trailing slash on temp dir should redact exactly to "[TMP]"
+    assert.equal(sanitizePath(`${temp}/`), "[TMP]");
+    assert.equal(sanitizePath(`${temp}\\`), "[TMP]");
   }
   // Safe fallback for null, undefined, empty path
   assert.equal(sanitizePath(undefined), "");
@@ -241,6 +249,7 @@ test("sanitizePath redacts homedir and replaces with tilde, keeping only basenam
 
   // Non-home absolute paths are redacted with basename
   assert.equal(sanitizePath("/var/log/syslog"), "[REDACTED_PATH]/syslog");
+  assert.equal(sanitizePath("/var/log/syslog/"), "[REDACTED_PATH]/syslog");
 
   // Relative paths containing separators are redacted with basename
   assert.equal(sanitizePath("dist/plugins/my-plugin"), "[REDACTED_PATH]/my-plugin");
@@ -255,7 +264,10 @@ test("sanitizeArgs redacts raw paths but keeps options/flags and URLs", () => {
     "-C",
     `${home}/some/project`,
     "https://github.com/RbBtSn0w/adg.git",
-    "dist/plugins/my-plugin"
+    "dist/plugins/my-plugin",
+    `--dir=${home}/some/project`,
+    "--repo=https://user:pass@github.com/foo.git",
+    "--token=ghp_123456"
   ];
   const expected = [
     "clone",
@@ -264,7 +276,10 @@ test("sanitizeArgs redacts raw paths but keeps options/flags and URLs", () => {
     "-C",
     "~/project",
     "https://github.com/RbBtSn0w/adg.git",
-    "[REDACTED_PATH]/my-plugin"
+    "[REDACTED_PATH]/my-plugin",
+    "--dir=~/project",
+    "--repo=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
+    "--token=[REDACTED_TOKEN]"
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });

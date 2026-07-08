@@ -69,87 +69,101 @@ export async function shutdownTelemetry(): Promise<void> {
 export function sanitizePath(path: string | undefined): string {
   if (!path) return "";
   try {
-    if (path.startsWith("~")) {
-      if (path === "~") return "~";
-      return `~/${basename(path)}`;
+    const trimmed = path.replace(/[\\/]+$/, "");
+    if (trimmed.startsWith("~")) {
+      if (trimmed === "~") return "~";
+      return `~/${basename(trimmed)}`;
     }
 
     const home = homedir();
     if (home) {
-      if (path === home) return "~";
       const normalizedHome = home.replace(/[\\/]+$/, "");
+      if (trimmed === normalizedHome) return "~";
       const prefix = `${normalizedHome}/`;
       const prefixWin = `${normalizedHome}\\`;
-      if (path.startsWith(prefix)) {
-        return `~/${basename(path)}`;
-      }
-      if (path.startsWith(prefixWin)) {
-        return `~/${basename(path)}`;
+      if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixWin)) {
+        return `~/${basename(trimmed)}`;
       }
     }
 
     const temp = tmpdir();
     if (temp) {
-      if (path === temp) return "[TMP]";
       const normalizedTemp = temp.replace(/[\\/]+$/, "");
+      if (trimmed === normalizedTemp) return "[TMP]";
       const prefix = `${normalizedTemp}/`;
       const prefixWin = `${normalizedTemp}\\`;
-      if (path.startsWith(prefix)) {
-        return `[TMP]/${basename(path)}`;
-      }
-      if (path.startsWith(prefixWin)) {
-        return `[TMP]/${basename(path)}`;
+      if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixWin)) {
+        return `[TMP]/${basename(trimmed)}`;
       }
     }
 
-    if (isAbsolute(path)) {
-      return `[REDACTED_PATH]/${basename(path)}`;
+    if (isAbsolute(trimmed)) {
+      return `[REDACTED_PATH]/${basename(trimmed)}`;
     }
 
-    if (path.includes("/") || path.includes("\\")) {
-      return `[REDACTED_PATH]/${basename(path)}`;
+    if (trimmed.includes("/") || trimmed.includes("\\")) {
+      return `[REDACTED_PATH]/${basename(trimmed)}`;
     }
+    return trimmed;
   } catch {
     // Fail silently - telemetry should never break CLI behavior
   }
   return path;
 }
 
+function sanitizeSingleValue(val: string, isAfterC: boolean = false): string {
+  if (
+    val.startsWith("ghp_") ||
+    val.startsWith("gho_") ||
+    val.startsWith("ghu_") ||
+    val.startsWith("ghs_") ||
+    val.startsWith("ghr_") ||
+    val.startsWith("github_pat_")
+  ) {
+    return "[REDACTED_TOKEN]";
+  }
+  if (val.includes("@") && (val.startsWith("http://") || val.startsWith("https://"))) {
+    try {
+      const url = new URL(val);
+      if (url.username) {
+        url.username = "[REDACTED]";
+      }
+      if (url.password) {
+        url.password = "[REDACTED]";
+      }
+      return url.toString();
+    } catch {
+      return "[REDACTED_URL]";
+    }
+  }
+  if (isAfterC) {
+    return sanitizePath(val);
+  }
+  if (
+    (isAbsolute(val) || val.startsWith("~") || val.includes("/") || val.includes("\\")) &&
+    !val.startsWith("http://") &&
+    !val.startsWith("https://")
+  ) {
+    return sanitizePath(val);
+  }
+  return val;
+}
+
 export function sanitizeArgs(args: string[]): string[] {
   let prevArg = "";
   return args.map((arg) => {
     let sanitized = arg;
-    if (
-      arg.startsWith("ghp_") ||
-      arg.startsWith("gho_") ||
-      arg.startsWith("ghu_") ||
-      arg.startsWith("ghs_") ||
-      arg.startsWith("ghr_") ||
-      arg.startsWith("github_pat_")
-    ) {
-      sanitized = "[REDACTED_TOKEN]";
-    } else if (arg.includes("@") && (arg.startsWith("http://") || arg.startsWith("https://"))) {
-      try {
-        const url = new URL(arg);
-        if (url.username) {
-          url.username = "[REDACTED]";
-        }
-        if (url.password) {
-          url.password = "[REDACTED]";
-        }
-        sanitized = url.toString();
-      } catch {
-        sanitized = "[REDACTED_URL]";
+    if (arg.startsWith("-")) {
+      const eqIndex = arg.indexOf("=");
+      if (eqIndex !== -1) {
+        const flag = arg.slice(0, eqIndex);
+        const value = arg.slice(eqIndex + 1);
+        const isAfterC = flag === "-C";
+        sanitized = `${flag}=${sanitizeSingleValue(value, isAfterC)}`;
       }
-    } else if (prevArg === "-C") {
-      sanitized = sanitizePath(arg);
-    } else if (
-      (isAbsolute(arg) || arg.startsWith("~") || arg.includes("/") || arg.includes("\\")) &&
-      !arg.startsWith("-") &&
-      !arg.startsWith("http://") &&
-      !arg.startsWith("https://")
-    ) {
-      sanitized = sanitizePath(arg);
+    } else {
+      const isAfterC = prevArg === "-C";
+      sanitized = sanitizeSingleValue(arg, isAfterC);
     }
     prevArg = arg;
     return sanitized;
