@@ -76,15 +76,9 @@ export function sanitizePath(path: string | undefined): string {
 }
 
 function sanitizeSingleValue(val: string): string {
-  if (
-    val.startsWith("ghp_") ||
-    val.startsWith("gho_") ||
-    val.startsWith("ghu_") ||
-    val.startsWith("ghs_") ||
-    val.startsWith("ghr_") ||
-    val.startsWith("github_pat_")
-  ) {
-    return "[REDACTED_TOKEN]";
+  const tokenRegex = /(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)/g;
+  if (tokenRegex.test(val)) {
+    return val.replace(tokenRegex, "[REDACTED_TOKEN]");
   }
   if (val.includes("@") && (val.startsWith("http://") || val.startsWith("https://"))) {
     try {

@@ -230,7 +230,7 @@ test("git runner throws on failure", () => {
   const originalDisable = process.env.DISABLE_TELEMETRY;
   process.env.DISABLE_TELEMETRY = "1";
   try {
-    assert.throws(() => defaultGitRunner(["invalid-git-command-zzz"]));
+    assert.throws(() => defaultGitRunner(["--invalid-option-zzz"]));
   } finally {
     if (originalDisable === undefined) {
       delete process.env.DISABLE_TELEMETRY;
@@ -259,6 +259,7 @@ test("sanitizeArgs redacts paths and tokens but keeps flags and URLs", () => {
     "dist/plugins/my-plugin",
     "--repo=https://user:pass@github.com/foo.git",
     "--token=ghp_123456",
+    "Authorization: Bearer ghp_123456",
   ];
   const expected = [
     "clone",
@@ -268,6 +269,7 @@ test("sanitizeArgs redacts paths and tokens but keeps flags and URLs", () => {
     "[PATH]",
     "--repo=https://%5BREDACTED%5D:%5BREDACTED%5D@github.com/foo.git",
     "--token=[REDACTED_TOKEN]",
+    "Authorization: Bearer [REDACTED_TOKEN]",
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });
