@@ -1,4 +1,5 @@
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { isAbsolute, basename } from "node:path";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -75,11 +76,33 @@ export function sanitizePath(path: string | undefined): string {
       const prefix = `${normalizedHome}/`;
       const prefixWin = `${normalizedHome}\\`;
       if (path.startsWith(prefix)) {
-        return `~/${path.slice(prefix.length)}`;
+        return `~/${basename(path)}`;
       }
       if (path.startsWith(prefixWin)) {
-        return `~/${path.slice(prefixWin.length)}`;
+        return `~/${basename(path)}`;
       }
+    }
+
+    const temp = tmpdir();
+    if (temp) {
+      if (path === temp) return "[TMP]";
+      const normalizedTemp = temp.replace(/[\\/]+$/, "");
+      const prefix = `${normalizedTemp}/`;
+      const prefixWin = `${normalizedTemp}\\`;
+      if (path.startsWith(prefix)) {
+        return `[TMP]/${basename(path)}`;
+      }
+      if (path.startsWith(prefixWin)) {
+        return `[TMP]\\${basename(path)}`;
+      }
+    }
+
+    if (isAbsolute(path)) {
+      return `[REDACTED_PATH]/${basename(path)}`;
+    }
+
+    if (path.includes("/") || path.includes("\\")) {
+      return `[REDACTED_PATH]/${basename(path)}`;
     }
   } catch {
     // Fail silently - telemetry should never break CLI behavior
@@ -88,7 +111,9 @@ export function sanitizePath(path: string | undefined): string {
 }
 
 export function sanitizeArgs(args: string[]): string[] {
+  let prevArg = "";
   return args.map((arg) => {
+    let sanitized = arg;
     if (
       arg.startsWith("ghp_") ||
       arg.startsWith("gho_") ||
@@ -97,9 +122,8 @@ export function sanitizeArgs(args: string[]): string[] {
       arg.startsWith("ghr_") ||
       arg.startsWith("github_pat_")
     ) {
-      return "[REDACTED_TOKEN]";
-    }
-    if (arg.includes("@") && (arg.startsWith("http://") || arg.startsWith("https://"))) {
+      sanitized = "[REDACTED_TOKEN]";
+    } else if (arg.includes("@") && (arg.startsWith("http://") || arg.startsWith("https://"))) {
       try {
         const url = new URL(arg);
         if (url.username) {
@@ -108,12 +132,22 @@ export function sanitizeArgs(args: string[]): string[] {
         if (url.password) {
           url.password = "[REDACTED]";
         }
-        return url.toString();
+        sanitized = url.toString();
       } catch {
-        return "[REDACTED_URL]";
+        sanitized = "[REDACTED_URL]";
       }
+    } else if (prevArg === "-C") {
+      sanitized = sanitizePath(arg);
+    } else if (
+      (isAbsolute(arg) || arg.startsWith("~") || arg.includes("/") || arg.includes("\\")) &&
+      !arg.startsWith("-") &&
+      !arg.startsWith("http://") &&
+      !arg.startsWith("https://")
+    ) {
+      sanitized = sanitizePath(arg);
     }
-    return arg;
+    prevArg = arg;
+    return sanitized;
   });
 }
 
