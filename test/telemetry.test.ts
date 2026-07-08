@@ -266,6 +266,8 @@ test("sanitizePath redacts homedir and replaces with tilde, keeping only basenam
   // Tilde-prefixed paths are kept as tilde-prefixed with basename
   assert.equal(sanitizePath("~/some/project/path"), "~/path");
   assert.equal(sanitizePath("~"), "~");
+  assert.equal(sanitizePath("~alice"), "~");
+  assert.equal(sanitizePath("~alice/projects"), "~/projects");
 
   // Non-home absolute paths are redacted with basename
   assert.equal(sanitizePath("/var/log/syslog"), "[REDACTED_PATH]/syslog");
