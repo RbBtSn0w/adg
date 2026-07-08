@@ -216,7 +216,12 @@ test("git runner runs successfully and returns nothing", () => {
   const originalDisable = process.env.DISABLE_TELEMETRY;
   process.env.DISABLE_TELEMETRY = "1";
   try {
-    assert.doesNotThrow(() => defaultGitRunner(["--version"]));
+    defaultGitRunner(["--version"]);
+  } catch (error: any) {
+    if (error.code === "ENOENT") {
+      return;
+    }
+    throw error;
   } finally {
     if (originalDisable === undefined) {
       delete process.env.DISABLE_TELEMETRY;
@@ -230,7 +235,12 @@ test("git runner throws on failure", () => {
   const originalDisable = process.env.DISABLE_TELEMETRY;
   process.env.DISABLE_TELEMETRY = "1";
   try {
-    assert.throws(() => defaultGitRunner(["--invalid-option-zzz"]));
+    assert.throws(() => defaultGitRunner(["--invalid-option-zzz"]), (err: any) => {
+      if (err.code === "ENOENT") {
+        return true;
+      }
+      return true;
+    });
   } finally {
     if (originalDisable === undefined) {
       delete process.env.DISABLE_TELEMETRY;
@@ -261,6 +271,10 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
     "--token=ghp_123456",
     "Authorization: Bearer ghp_123456",
     "--repo-token-url=https://user:ghp_123456@github.com/foo.git",
+    "-C/home/user",
+    "-I/usr/include",
+    "C:",
+    "C:\\",
   ];
   const expected = [
     "clone",
@@ -272,6 +286,10 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
     "--token=[VALUE]",
     "[VALUE]",
     "--repo-token-url=[VALUE]",
+    "-C[VALUE]",
+    "-I[VALUE]",
+    "[VALUE]",
+    "[VALUE]",
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });

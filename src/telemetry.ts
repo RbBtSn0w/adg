@@ -82,7 +82,18 @@ export function sanitizeArgs(args: string[]): string[] {
       if (eqIndex !== -1) {
         return `${arg.slice(0, eqIndex)}=[VALUE]`;
       }
-      return arg;
+      if (arg.startsWith("--") && /^--[a-zA-Z0-9-]+$/.test(arg)) {
+        return arg;
+      }
+      if (arg.startsWith("-") && !arg.startsWith("--")) {
+        if (/^-[a-zA-Z0-9]$/.test(arg)) {
+          return arg;
+        }
+        if (/^-[a-zA-Z0-9]/.test(arg)) {
+          return `${arg.slice(0, 2)}[VALUE]`;
+        }
+      }
+      return "[VALUE]";
     }
     if (/^[a-zA-Z0-9_-]+$/.test(arg)) {
       return arg;
