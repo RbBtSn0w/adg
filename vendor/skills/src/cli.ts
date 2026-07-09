@@ -388,4 +388,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(0)));
+main()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  })
+  .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));

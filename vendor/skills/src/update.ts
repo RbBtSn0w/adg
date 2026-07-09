@@ -32,9 +32,34 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * our actual TS entry, run via Node's type-stripping (Node >= 22.6), exactly how
  * `adg skills` launches the CLI. See vendor/skills/PROVENANCE.md.
  */
-const SELF_CLI_ENTRY = existsSync(join(__dirname, '../../../bin/adg.ts'))
-  ? join(__dirname, '../../../bin/adg.ts')
-  : join(__dirname, '../../../dist/bin/adg.js');
+export function resolveSelfCliEntry(
+  moduleDir: string = __dirname,
+  exists: (path: string) => boolean = existsSync
+): string {
+  const sourceEntry = join(moduleDir, '../../../bin/adg.ts');
+  if (exists(sourceEntry)) return sourceEntry;
+  return join(moduleDir, '../../../bin/adg.js');
+}
+
+const SELF_CLI_ENTRY = resolveSelfCliEntry();
+
+function recordSelfCliEntrypointMissing(): void {
+  const tracer = getTracer();
+  const span = tracer.startSpan("adg", { kind: SpanKind.CLIENT });
+  try {
+    span.setAttribute("process.executable.name", "adg");
+    span.setAttribute("process.command_args", ["adg", "skills", "add"]);
+    span.setAttribute("process.exit.code", -1);
+    span.setAttribute("error.type", "CLI_ENTRYPOINT_NOT_FOUND");
+    span.recordException(new Error("CLI entrypoint not found"));
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: "CLI entrypoint not found",
+    });
+  } finally {
+    span.end();
+  }
+}
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -507,15 +532,16 @@ export async function updateGlobalSkills(
     const installUrl = buildUpdateInstallSource(update.entry);
 
     const cliEntry = SELF_CLI_ENTRY;
+    const args = ['skills', 'add', installUrl, '-g', '-y'];
     if (!existsSync(cliEntry)) {
       failCount++;
+      recordSelfCliEntrypointMissing();
       console.log(
         `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
       );
       continue;
     }
     const tracer = getTracer();
-    const args = ['skills', 'add', installUrl, '-g', '-y'];
     const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
       try {
         span.setAttribute("process.executable.name", "adg");
@@ -635,6 +661,7 @@ export async function updateProjectSkills(
   const cliEntry = SELF_CLI_ENTRY;
 
   if (!existsSync(cliEntry)) {
+    recordSelfCliEntrypointMissing();
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
     return { successCount, failCount: updatable.length, foundCount: projectSkills.length };
   }
@@ -807,6 +834,7 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   }
   if (totalFail > 0) {
     console.log(`${DIM}Failed to update ${totalFail} skill(s)${RESET}`);
+    process.exitCode = 1;
   }
 
   track({
