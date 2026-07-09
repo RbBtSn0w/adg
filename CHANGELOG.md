@@ -1,3 +1,9 @@
+## [0.6.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.4...0.6.0-beta.5) (2026-07-09)
+
+### Fixed
+
+* report skills update entrypoint failures ([#60](https://github.com/RbBtSn0w/adg/issues/60)) ([6af4eeb](https://github.com/RbBtSn0w/adg/commit/6af4eeb1ec44a6edc8a30a53c4f4e406485f0875))
+
 ## [0.6.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.3...0.6.0-beta.4) (2026-07-08)
 
 ### Changed
