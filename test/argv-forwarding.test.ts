@@ -1,8 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { skillsChildArgv } from "../bin/adg.ts";
 import { selfCliArgv } from "../vendor/skills/src/self-cli.ts";
+import { resolveSelfCliEntry } from "../vendor/skills/src/update.ts";
 
 /**
  * Re-invoking a `.ts` entry under Node must forward `process.execArgv` so the
@@ -46,4 +50,32 @@ test("selfCliArgv: empty execArgv keeps the cli entry first", () => {
     "-g",
     "-y",
   ]);
+});
+
+test("resolveSelfCliEntry: source layout re-invokes the TypeScript ADG entrypoint", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-source-entry-"));
+  try {
+    const moduleDir = join(root, "vendor", "skills", "src");
+    const sourceEntry = join(root, "bin", "adg.ts");
+
+    assert.equal(
+      resolveSelfCliEntry(moduleDir, (path) => path === sourceEntry),
+      sourceEntry
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveSelfCliEntry: published dist layout re-invokes dist/bin/adg.js once", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-dist-entry-"));
+  try {
+    const moduleDir = join(root, "dist", "vendor", "skills", "src");
+    const distEntry = join(root, "dist", "bin", "adg.js");
+
+    assert.equal(resolveSelfCliEntry(moduleDir, () => false), distEntry);
+    assert.ok(!distEntry.includes(`${join("dist", "dist")}`));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
