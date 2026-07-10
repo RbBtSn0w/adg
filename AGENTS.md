@@ -5,6 +5,10 @@ Guidance for AI agents (and humans) contributing to this repository. See
 [docs/branching-and-release.md](docs/branching-and-release.md) for the full
 process.
 
+See [docs/agents-spec.md](docs/agents-spec.md) for the canonical authoring and
+projection model and [docs/hooks-strategy.md](docs/hooks-strategy.md) for the
+standards-first adapter philosophy.
+
 ## Branch & PR rules
 
 - **All pull requests must target the `beta` branch.** Never open a PR against
