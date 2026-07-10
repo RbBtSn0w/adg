@@ -1,3 +1,9 @@
+## [0.6.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.5...0.6.0-beta.6) (2026-07-10)
+
+### Fixed
+
+* Bugfix ([#62](https://github.com/RbBtSn0w/adg/issues/62)) ([9db7d4a](https://github.com/RbBtSn0w/adg/commit/9db7d4ab03f719fe5c85f8f6b84e61d6c48f1e94))
+
 ## [0.6.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.4...0.6.0-beta.5) (2026-07-09)
 
 ### Fixed
