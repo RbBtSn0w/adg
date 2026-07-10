@@ -5,38 +5,6 @@ Guidance for AI agents (and humans) contributing to this repository. See
 [docs/branching-and-release.md](docs/branching-and-release.md) for the full
 process.
 
-## Product and architecture boundaries
-
-- **ADG means Agent Directory Group.** It is a directory packaging and
-  projection layer for multiple agent runtimes, not a runtime-state
-  orchestrator. Keep new abstractions centered on source ingestion, directory
-  layout, reproducible materialization, and runtime-specific projections.
-- ADG owns canonical authoring artifacts, source snapshots, the lock state for
-  its managed store, generated runtime projections, and health diagnostics for
-  those projections. Agent runtimes own their complete marketplace registry,
-  activation policy, private caches, and execution lifecycle.
-- `.agents/.plugin.json` is the authoring source of truth.
-  `.plugin-lock.json` is authoritative only for the ADG-managed directory
-  lifecycle. `marketplace.json`, runtime manifests, installed directories, and
-  agent registries are generated or observed views; they must not become a
-  second ADG control plane.
-- Preserve each runtime's native identity and discovery model. Do not invent a
-  shared ADG marketplace namespace or a universal desired-state model for
-  Codex, Claude, and Antigravity. Store-scoped runtime keys are allowed only
-  when needed to isolate otherwise-colliding directory projections.
-- An adapter must project through the runtime's canonical discovery root and
-  retain enough observed identity to diagnose duplicate ADG projections,
-  marketplace aliases, and root mismatches. `status` remains read-only;
-  mutating verbs may repair only artifacts proven to be ADG-managed. Report
-  foreign runtime state instead of deleting or adopting it.
-- Runtime-specific exports may coexist in one ADG store, but each adapter must
-  expose only its own canonical export/root. Never remove another runtime's
-  valid projection to work around a discovery bug.
-- Every managed effective installation must remain reproducible from an ADG
-  source snapshot plus the lock selection. Do not use the effective
-  installation as its own source or silently continue when the snapshot is
-  unavailable.
-
 See [docs/agents-spec.md](docs/agents-spec.md) for the canonical authoring and
 projection model and [docs/hooks-strategy.md](docs/hooks-strategy.md) for the
 standards-first adapter philosophy.
