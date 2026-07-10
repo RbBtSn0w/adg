@@ -308,11 +308,11 @@ test("claudeMarketplaceName preserves the historical global marketplace name", (
   assert.equal(claudeMarketplaceName(globalPluginsDir()), "adg");
 });
 
-test("codex marketplace naming preserves global and scopes project stores", () => {
+test("codex marketplace naming aligns the global ADG identity and scopes project stores", () => {
   const work = tmp();
   try {
     const store = join(work, "project", ".agents", "plugins");
-    assert.equal(codexMarketplaceName(globalPluginsDir()), "plugins");
+    assert.equal(codexMarketplaceName(globalPluginsDir()), "adg");
     assert.match(codexMarketplaceName(store), /^adg-[0-9a-f]{8}$/);
   } finally {
     rmSync(work, { recursive: true });

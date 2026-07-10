@@ -8,6 +8,7 @@ import { makeCli, skippedResult } from "./base.ts";
 import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentSyncResult } from "./types.ts";
 
 const UNRECOGNIZED_PLUGIN_LIST = "codex plugin list returned unrecognized output";
+const MARKETPLACE = "adg";
 
 /**
  * Codex agent.
@@ -25,15 +26,15 @@ function codexHome(env: NodeJS.ProcessEnv): string {
 const { available, run } = makeCli("codex", { probeArgs: ["plugin", "--help"] });
 
 /**
- * Codex's default global marketplace is historically named `plugins`. Project
- * and explicit stores get a store-scoped name to avoid colliding with a global
- * or another project's configured marketplace.
+ * Keep Codex's global marketplace identity aligned with the Claude projection.
+ * Project and explicit stores get a store-scoped name to avoid colliding with
+ * the global store or another project's configured marketplace.
  */
 export function codexMarketplaceName(pluginsDir: string): string {
   const normalized = resolve(pluginsDir);
-  if (normalized === resolve(globalPluginsDir())) return "plugins";
+  if (normalized === resolve(globalPluginsDir())) return MARKETPLACE;
   const hash = createHash("sha1").update(normalized.split("\\").join("/")).digest("hex").slice(0, 8);
-  return `adg-${hash}`;
+  return `${MARKETPLACE}-${hash}`;
 }
 
 /** Ensure the generated Codex marketplace export uses this store's scoped name. */
