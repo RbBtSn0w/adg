@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readLock } from "../lock.ts";
 import { legacyPluginSourceCacheDir, lockPath, pluginCacheRoot, pluginSourceCacheDir } from "../paths.ts";
 import { resolvePluginSourceSnapshot } from "../source-cache.ts";
@@ -60,7 +60,7 @@ export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
   for (const [name, entry] of Object.entries(lock.plugins)) {
     if (entries.some((item) => item.name === name)) continue;
     const legacy = legacyPluginSourceCacheDir(pluginsDir, name);
-    const localRecoverable = entry.origin.type === "local" && existsSync(join(pluginsDir, entry.origin.path));
+    const localRecoverable = entry.origin.type === "local" && existsSync(resolve(pluginsDir, entry.origin.path));
     const remoteRecoverable = (entry.origin.type === "github" || entry.origin.type === "git") && Boolean(entry.resolvedRevision);
     const hasLegacy = existsSync(legacy);
     entries.push({
@@ -81,10 +81,14 @@ export function restorePluginCache(pluginsDir: string, names?: string[]): string
   const selected = names?.length ? [...new Set(names)] : Object.keys(lock.plugins);
   const missing = selected.filter((name) => !lock.plugins[name]);
   if (missing.length > 0) throw new Error(`not installed: ${missing.join(", ")}. See \`adg plugins list\`.`);
-  return selected.map((name) => {
+  const restored: string[] = [];
+  for (const name of selected) {
+    const cache = pluginSourceCacheDir(pluginsDir, name);
+    const wasPresent = existsSync(cache);
     resolvePluginSourceSnapshot(pluginsDir, name, lock.plugins[name] as LockEntry);
-    return name;
-  });
+    if (!wasPresent) restored.push(name);
+  }
+  return restored;
 }
 
 /** Delete cache snapshots that have no corresponding lock entry. */

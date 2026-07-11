@@ -136,7 +136,7 @@ test("cache status, prune, and clean manage source snapshots without touching in
   assert.deepEqual(prunePluginCache(store), ["orphan"]);
   assert.ok(existsSync(join(store, "cached")));
   cleanPluginCache(store);
-  assert.deepEqual(pluginCacheStatus(store).entries.map((entry) => [entry.name, entry.recovery]), [["cached", "missing-unrecoverable"]]);
+  assert.deepEqual(pluginCacheStatus(store).entries.map((entry) => [entry.name, entry.recovery]), [["cached", "missing-recoverable"]]);
   assert.ok(existsSync(join(store, "cached")), "clean only removes rebuildable cache data");
   rmSync(work, { recursive: true, force: true });
 });
