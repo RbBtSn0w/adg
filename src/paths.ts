@@ -58,7 +58,7 @@ export function marketplacePath(pluginsDir: string): string {
 /**
  * Internal full-source cache for a plugin store. The runtime-facing
  * `pluginsDir` contains only effective installations; complete source payloads
- * live in the sibling cache tree and are never registered with an agent.
+ * live in the OS-managed cache tree and are never registered with an agent.
  */
 export function pluginCacheRoot(
   pluginsDir: string,

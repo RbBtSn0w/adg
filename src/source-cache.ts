@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { folderHash } from "./hash.ts";
 import { readManifest } from "./manifest.ts";
 import { withPluginSourceCache } from "./materialize.ts";
@@ -34,11 +34,16 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
   const temp = mkdtempSync(join(tmpdir(), "adg-cache-restore-"));
   try {
     // Do not check out origin/ref: it is user update intent and can move. Fetch
-    // and detach exactly the commit persisted by the v4 lock instead.
-    runGit(["clone", "--no-checkout", url, temp]);
+    // only the exact commit persisted by the v4 lock instead.
+    runGit(["-C", temp, "init"]);
+    runGit(["-C", temp, "remote", "add", "origin", url]);
     runGit(["-C", temp, "fetch", "--depth", "1", "origin", entry.resolvedRevision]);
     runGit(["-C", temp, "checkout", "--detach", "FETCH_HEAD"]);
-    const source = join(temp, entry.origin.path || ".");
+    const source = resolve(temp, entry.origin.path || ".");
+    const rel = relative(temp, source);
+    if (isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) {
+      throw new Error(`locked source path escapes the repository for "${name}"`);
+    }
     if (!existsSync(source)) throw new Error(`locked source path is missing for "${name}"`);
     assertSourceHash(source, name, entry.sourceHash);
     const manifest = readManifest(source);
@@ -60,6 +65,9 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
  * failure until an explicit update/add records a new revision.
  */
 export function resolvePluginSourceSnapshot(pluginsDir: string, name: string, entry: LockEntry): string {
+  if (!entry || typeof entry !== "object" || !entry.origin || typeof entry.origin !== "object") {
+    throw new Error(`Invalid or missing lock entry for "${name}"`);
+  }
   const cache = pluginSourceCacheDir(pluginsDir, name);
   if (existsSync(cache)) {
     assertSourceHash(cache, name, entry.sourceHash);

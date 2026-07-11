@@ -81,7 +81,7 @@ export function planCodexMarketplaceCleanup(
 ): CodexMarketplaceMigrationPlan {
   const root = resolve(canonicalRoot);
   const legacyMarketplaces = [...config.marketplaces]
-    .filter(([name, source]) => name !== canonicalMarketplace && resolve(source) === root)
+    .filter(([name, source]) => name !== canonicalMarketplace && resolve(root, source) === root)
     .map(([name]) => name)
     .sort();
   const legacySet = new Set(legacyMarketplaces);

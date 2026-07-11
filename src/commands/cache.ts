@@ -43,15 +43,20 @@ export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
   const root = pluginCacheRoot(pluginsDir);
   const lock = readLock(lockPath(pluginsDir));
   const installed = new Set(Object.keys(lock.plugins));
-  const entries: PluginCacheEntry[] = existsSync(root)
-    ? readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-      .map((entry) => {
-        const path = join(root, entry.name);
-        return { name: entry.name, path, bytes: directoryBytes(path), orphan: !installed.has(entry.name), recovery: "present" as const };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-    : [];
+  let entries: PluginCacheEntry[] = [];
+  try {
+    if (existsSync(root)) {
+      entries = readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+        .map((entry) => {
+          const path = join(root, entry.name);
+          return { name: entry.name, path, bytes: directoryBytes(path), orphan: !installed.has(entry.name), recovery: "present" as const };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+  } catch {
+    // Treat an unreadable or concurrently removed directory as empty.
+  }
   for (const [name, entry] of Object.entries(lock.plugins)) {
     if (entries.some((item) => item.name === name)) continue;
     const legacy = legacyPluginSourceCacheDir(pluginsDir, name);
