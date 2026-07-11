@@ -10,6 +10,8 @@ import { recordTelemetryEvent } from "./telemetry.ts";
 import { runGit } from "./sources.ts";
 import type { LockEntry } from "./types.ts";
 
+class SourceCacheIntegrityError extends Error {}
+
 function sourceHash(dir: string): string {
   const manifest = readManifest(dir);
   return folderHash(dir, PROJECTION_DIRS, packageFilter(manifest, { includeProjections: false }));
@@ -18,7 +20,7 @@ function sourceHash(dir: string): string {
 function assertSourceHash(dir: string, name: string, expected: string): void {
   if (sourceHash(dir) !== expected) {
     recordTelemetryEvent("adg.cache.recovery", { outcome: "hash_mismatch" });
-    throw new Error(`source cache integrity mismatch for "${name}"; run \`adg plugins update\` or re-add the plugin`);
+    throw new SourceCacheIntegrityError(`source cache integrity mismatch for "${name}"; run \`adg plugins update\` or re-add the plugin`);
   }
 }
 
@@ -49,7 +51,9 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     const manifest = readManifest(source);
     return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => snapshot);
   } catch (error) {
-    recordTelemetryEvent("adg.cache.recovery", { outcome: "missing_unrecoverable" });
+    if (!(error instanceof SourceCacheIntegrityError)) {
+      recordTelemetryEvent("adg.cache.recovery", { outcome: "missing_unrecoverable" });
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`cannot restore "${name}" at locked revision ${entry.resolvedRevision}: ${message}`);
   } finally {
