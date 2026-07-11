@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { readManifest } from "../src/manifest.ts";
 import { readLock } from "../src/lock.ts";
-import { legacyPluginSourceCacheDir, marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
+import { legacyPluginCacheRoot, legacyPluginSourceCacheDir, marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
 import { initPlugin, initScaffold } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
 import { installPlugin } from "../src/commands/install.ts";
@@ -154,6 +154,21 @@ test("cache status reports legacy snapshot path and size", () => {
   assert.equal(entry.recovery, "legacy");
   assert.equal(entry.path, legacy);
   assert.ok(entry.bytes > 0);
+  rmSync(work, { recursive: true, force: true });
+});
+
+test("cache prune and clean include legacy cache snapshots", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "legacy-clean", dir: join(work, "src") });
+  const store = join(work, "store");
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const orphan = join(legacyPluginCacheRoot(store), "orphan");
+  mkdirSync(orphan, { recursive: true });
+  writeFileSync(join(orphan, "payload"), "orphan");
+  assert.deepEqual(prunePluginCache(store), ["orphan"]);
+  assert.ok(!existsSync(orphan));
+  cleanPluginCache(store);
+  assert.ok(!existsSync(legacyPluginCacheRoot(store)));
   rmSync(work, { recursive: true, force: true });
 });
 
