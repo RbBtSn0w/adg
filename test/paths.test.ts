@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { codexMarketplaceRoot, globalPluginsDir, legacyPluginCacheRoot, marketplaceSourcePath, pluginCacheRoot, pluginRematerializationSource, projectPluginsDir } from "../src/paths.ts";
 import { emptyLock, readLock, upsertEntry } from "../src/lock.ts";
 import { tmp } from "./helpers.ts";
@@ -43,7 +43,7 @@ test("plugin cache uses the platform cache root and keeps stores isolated", () =
     pluginCacheRoot("/one/.agents/plugins", env, "darwin"),
     pluginCacheRoot("/two/.agents/plugins", env, "darwin"),
   );
-  assert.equal(legacyPluginCacheRoot("/one/.agents/plugins"), "/one/.agents/cache/plugins/" + pluginCacheRoot("/one/.agents/plugins", env, "darwin").split("/").at(-1));
+  assert.equal(legacyPluginCacheRoot("/one/.agents/plugins"), "/one/.agents/cache/plugins/" + basename(pluginCacheRoot("/one/.agents/plugins", env, "darwin")));
 });
 
 test("projectPluginsDir stops at a .git root", () => {
