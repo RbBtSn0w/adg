@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath, sanitizeArg
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
-import { defaultGitRunner } from "../src/sources.ts";
+import { defaultGitRunner, runGit } from "../src/sources.ts";
 
 interface RecordedEvent {
   name: string;
@@ -298,6 +299,41 @@ test("git runner throws on failure", () => {
     } else {
       process.env.DISABLE_TELEMETRY = originalDisable;
     }
+  }
+});
+
+/*
+## Test Intent
+### Risk
+Non-capturing Git operations can fail on a valid large repository solely because their unused stdout is buffered by Node's default maxBuffer.
+### Why Automation
+The failure depends on subprocess output size and is not covered by ordinary Git success tests.
+### Why Existing Tests Insufficient
+Existing runner tests only use tiny version/error output and therefore never exercise the buffer boundary.
+### Chosen Layer
+Integration Test - a local Git blob exceeds Node's default buffer without depending on network or a remote repository.
+### Fragility Analysis
+The assertion checks successful non-capturing execution of a known-size Git output; it does not depend on implementation details such as exact stdio options.
+### If Omitted
+Plugin installation and immutable cache recovery can fail on otherwise valid, noisy Git operations.
+*/
+test("git runner does not buffer unused large output", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-git-output-"));
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    execFileSync("git", ["init", root]);
+    writeFileSync(join(root, "large.bin"), Buffer.alloc(2 * 1024 * 1024));
+    execFileSync("git", ["-C", root, "add", "large.bin"]);
+    execFileSync("git", ["-C", root, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "large blob"]);
+    assert.equal(runGit(["-C", root, "show", "HEAD:large.bin"]), undefined);
+  } catch (error: any) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  } finally {
+    if (originalDisable === undefined) delete process.env.DISABLE_TELEMETRY;
+    else process.env.DISABLE_TELEMETRY = originalDisable;
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

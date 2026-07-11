@@ -135,7 +135,7 @@ export function runGit(args: string[], captureOutput = false): string | undefine
 
       const output = execFileSync("git", args, captureOutput
         ? { stdio: "pipe", encoding: "utf8" }
-        : { stdio: "pipe" });
+        : { stdio: "ignore" });
 
       span.setAttribute("process.exit.code", 0);
       return captureOutput ? String(output).trim() : undefined;
