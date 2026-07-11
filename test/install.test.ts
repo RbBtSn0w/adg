@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 import { readManifest } from "../src/manifest.ts";
 import { readLock } from "../src/lock.ts";
-import { marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
+import { legacyPluginSourceCacheDir, marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
 import { initPlugin, initScaffold } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
 import { installPlugin } from "../src/commands/install.ts";
@@ -138,6 +138,22 @@ test("cache status, prune, and clean manage source snapshots without touching in
   cleanPluginCache(store);
   assert.deepEqual(pluginCacheStatus(store).entries.map((entry) => [entry.name, entry.recovery]), [["cached", "missing-unrecoverable"]]);
   assert.ok(existsSync(join(store, "cached")), "clean only removes rebuildable cache data");
+  rmSync(work, { recursive: true, force: true });
+});
+
+test("cache status reports legacy snapshot path and size", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "legacy-status", dir: join(work, "src") });
+  const store = join(work, "store");
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const modern = pluginSourceCacheDir(store, "legacy-status");
+  const legacy = legacyPluginSourceCacheDir(store, "legacy-status");
+  mkdirSync(join(legacy, ".."), { recursive: true });
+  renameSync(modern, legacy);
+  const entry = pluginCacheStatus(store).entries.find((item) => item.name === "legacy-status")!;
+  assert.equal(entry.recovery, "legacy");
+  assert.equal(entry.path, legacy);
+  assert.ok(entry.bytes > 0);
   rmSync(work, { recursive: true, force: true });
 });
 

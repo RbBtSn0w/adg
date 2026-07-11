@@ -203,7 +203,7 @@ test("codex adapter synthesizes and preserves picker short descriptions", () => 
 
   const explicit = toCodexManifest(dir, {
     ...baseManifest,
-    interface: { displayName: "Demo UI", shortDescription: "A concise picker summary." },
+    interface: { displayName: "Demo UI", shortDescription: "  A concise picker summary.  " },
   }).manifest;
   assert.deepEqual(explicit.interface, {
     displayName: "Demo UI",

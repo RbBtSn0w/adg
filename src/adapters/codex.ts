@@ -64,7 +64,7 @@ export function toCodexManifest(
 
   const displayName = typeof manifest.interface?.displayName === "string" ? manifest.interface.displayName : undefined;
   const explicitShortDescription = typeof manifest.interface?.shortDescription === "string" && manifest.interface.shortDescription.trim()
-    ? manifest.interface.shortDescription
+    ? manifest.interface.shortDescription.trim()
     : undefined;
   out.interface = {
     ...(displayName ? { displayName } : {}),

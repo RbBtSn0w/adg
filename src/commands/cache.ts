@@ -62,12 +62,13 @@ export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
     const legacy = legacyPluginSourceCacheDir(pluginsDir, name);
     const localRecoverable = entry.origin.type === "local" && existsSync(join(pluginsDir, entry.origin.path));
     const remoteRecoverable = (entry.origin.type === "github" || entry.origin.type === "git") && Boolean(entry.resolvedRevision);
+    const hasLegacy = existsSync(legacy);
     entries.push({
       name,
-      path: pluginSourceCacheDir(pluginsDir, name),
-      bytes: 0,
+      path: hasLegacy ? legacy : pluginSourceCacheDir(pluginsDir, name),
+      bytes: hasLegacy ? directoryBytes(legacy) : 0,
       orphan: false,
-      recovery: existsSync(legacy) ? "legacy" : (localRecoverable || remoteRecoverable ? "missing-recoverable" : "missing-unrecoverable"),
+      recovery: hasLegacy ? "legacy" : (localRecoverable || remoteRecoverable ? "missing-recoverable" : "missing-unrecoverable"),
     });
   }
   entries.sort((a, b) => a.name.localeCompare(b.name));
