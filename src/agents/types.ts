@@ -11,6 +11,8 @@ export interface AgentContext {
   pluginsDir: string;
   plugins: string[];
   scope: AgentScope;
+  /** Request best-effort cleanup of stale runtime identities after a successful link/sync. */
+  reconcileLegacyAliases?: boolean;
 }
 
 /** Outcome of one agent lifecycle call. */

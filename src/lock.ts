@@ -11,11 +11,16 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
   if (!existsSync(file)) return emptyLock();
   const raw = JSON.parse(readFileSync(file, "utf8")) as PluginLock;
   if (typeof raw?.version === "number") {
-    const observed = raw.version === 2 || raw.version === LOCK_VERSION ? raw.version : -1;
+    const observed = raw.version === 2 || raw.version === 3 || raw.version === LOCK_VERSION ? raw.version : -1;
     recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
   }
   if (typeof raw.version !== "number" || typeof raw.plugins !== "object" || raw.plugins === null) {
     throw new Error(`${file} is not a valid .plugin-lock.json`);
+  }
+  if (raw.version === 3) {
+    // Read compatibility for the immediately preceding format keeps runtime
+    // adapters working before the user runs the explicit migration command.
+    return { ...raw, version: LOCK_VERSION };
   }
   if (raw.version !== LOCK_VERSION) {
     throw new Error(

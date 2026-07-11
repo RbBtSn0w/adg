@@ -15,7 +15,7 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { recordTelemetryEvent } from "../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
-import { cloneGitHub, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
+import { cloneGitHub, gitRevision, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
 import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
@@ -29,6 +29,8 @@ export interface InstallOneOptions {
   pluginsDir: string;
   /** Upstream provenance recorded in the lock; defaults to local copy-in. */
   origin?: PluginSource;
+  /** Immutable remote commit resolved when this source was fetched. */
+  resolvedRevision?: string;
   marketplaceName?: string;
   targets?: AdapterTarget[];
   now?: string;
@@ -172,6 +174,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
       version: manifest.version,
       sourceHash,
       installedHash,
+      ...(opts.resolvedRevision ? { resolvedRevision: opts.resolvedRevision } : {}),
     };
     if (manifest.dependencies?.length) {
       entry.dependencies = Object.fromEntries(manifest.dependencies.map((d) => [d.name, d.version]));
@@ -518,6 +521,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   const path = opts.path ?? inferredPath;
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
+  let resolvedRevision: string | undefined;
   let cleanup: (() => void) | undefined;
 
   if (parsed.kind === "local") {
@@ -528,6 +532,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
     cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
     workRoot = tmp;
+    resolvedRevision = gitRevision(tmp);
     buildOrigin = (dir) => ({
       type: "github",
       repo: parsed.source,
@@ -591,6 +596,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           source: candidate.dir,
           pluginsDir: opts.pluginsDir,
           origin: buildOrigin(candidate.dir),
+          resolvedRevision,
           marketplaceName: opts.marketplaceName,
           targets,
           selection: selections.get(name),

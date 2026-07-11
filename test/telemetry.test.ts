@@ -141,8 +141,8 @@ test("a successful v2 migration records read and transition versions", () => {
 
   assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
     { name: "adg.lock.read", attributes: { "format.version": 2 } },
-    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 3 } },
-    { name: "adg.lock.read", attributes: { "format.version": 3 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 4 } },
+    { name: "adg.lock.read", attributes: { "format.version": 4 } },
   ]);
   rmSync(root, { recursive: true });
 });
@@ -301,4 +301,3 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });
-

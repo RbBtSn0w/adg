@@ -301,6 +301,9 @@ Commands:
         Show cached snapshots, byte sizes, and orphan state.
   adg plugins cache prune [--global | --project | --dir <dir>]
         Delete snapshots that have no corresponding lock entry.
+  adg plugins cache restore [name...] [--global | --project | --dir <dir>]
+        Restore missing snapshots from a verified legacy cache, local source, or
+        the exact remote revision recorded in the lock.
   adg plugins cache clean --force [--global | --project | --dir <dir>]
         Delete every source snapshot for the selected store. A later update or
         add may be required before link/sync can rebuild remote plugins.`;

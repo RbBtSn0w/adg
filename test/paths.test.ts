@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { codexMarketplaceRoot, globalPluginsDir, projectPluginsDir, marketplaceSourcePath, pluginRematerializationSource } from "../src/paths.ts";
+import { codexMarketplaceRoot, globalPluginsDir, legacyPluginCacheRoot, marketplaceSourcePath, pluginCacheRoot, pluginRematerializationSource, projectPluginsDir } from "../src/paths.ts";
 import { emptyLock, readLock, upsertEntry } from "../src/lock.ts";
 import { tmp } from "./helpers.ts";
 
@@ -34,6 +34,16 @@ test("marketplaceSourcePath is relative to a non-canonical store dir (explicit -
 test("globalPluginsDir honors env precedence", () => {
   assert.equal(globalPluginsDir({ ADG_PLUGINS_HOME: "/x" } as NodeJS.ProcessEnv), "/x");
   assert.ok(globalPluginsDir({ XDG_STATE_HOME: "/state" } as NodeJS.ProcessEnv).startsWith("/state"));
+});
+
+test("plugin cache uses the platform cache root and keeps stores isolated", () => {
+  const env = { ADG_CACHE_HOME: "/cache/adg" } as NodeJS.ProcessEnv;
+  assert.match(pluginCacheRoot("/one/.agents/plugins", env, "darwin"), /^\/cache\/adg\/plugins\//);
+  assert.notEqual(
+    pluginCacheRoot("/one/.agents/plugins", env, "darwin"),
+    pluginCacheRoot("/two/.agents/plugins", env, "darwin"),
+  );
+  assert.equal(legacyPluginCacheRoot("/one/.agents/plugins"), "/one/.agents/cache/plugins/" + pluginCacheRoot("/one/.agents/plugins", env, "darwin").split("/").at(-1));
 });
 
 test("projectPluginsDir stops at a .git root", () => {
@@ -70,6 +80,6 @@ test("readLock rejects unsupported versions instead of carrying compatibility co
   const root = tmp();
   const file = join(root, ".plugin-lock.json");
   writeFileSync(file, JSON.stringify({ version: 2, plugins: {} }));
-  assert.throws(() => readLock(file), /unsupported lock version 2; expected 3/);
+  assert.throws(() => readLock(file), /unsupported lock version 2; expected 4/);
   rmSync(root, { recursive: true });
 });

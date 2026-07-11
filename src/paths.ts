@@ -60,9 +60,36 @@ export function marketplacePath(pluginsDir: string): string {
  * `pluginsDir` contains only effective installations; complete source payloads
  * live in the sibling cache tree and are never registered with an agent.
  */
-export function pluginCacheRoot(pluginsDir: string): string {
-  const storeId = createHash("sha1").update(resolve(pluginsDir).split("\\").join("/")).digest("hex").slice(0, 12);
-  return join(dirname(pluginsDir), "cache", "plugins", storeId);
+export function pluginCacheRoot(
+  pluginsDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return join(systemCacheHome(env, platform), "plugins", pluginStoreId(pluginsDir));
+}
+
+/**
+ * OS-managed cache home for ADG. `ADG_CACHE_HOME` is intentionally an escape
+ * hatch for hermetic CI and tests; normal installations use the platform cache
+ * convention rather than the durable `~/.agents` state tree.
+ */
+export function systemCacheHome(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (env.ADG_CACHE_HOME) return env.ADG_CACHE_HOME;
+  if (platform === "darwin") return join(homedir(), "Library", "Caches", "adg");
+  if (platform === "win32") return join(env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "adg");
+  return join(env.XDG_CACHE_HOME || join(homedir(), ".cache"), "adg");
+}
+
+function pluginStoreId(pluginsDir: string): string {
+  return createHash("sha1").update(resolve(pluginsDir).split("\\").join("/")).digest("hex").slice(0, 12);
+}
+
+/** Read-only location used by ADG releases before the system-cache migration. */
+export function legacyPluginCacheRoot(pluginsDir: string): string {
+  return join(dirname(pluginsDir), "cache", "plugins", pluginStoreId(pluginsDir));
 }
 
 /** One replaceable full-source snapshot per installed plugin. */
@@ -70,10 +97,17 @@ export function pluginSourceCacheDir(pluginsDir: string, name: string): string {
   return join(pluginCacheRoot(pluginsDir), name);
 }
 
+/** One legacy snapshot path, retained as a read-only migration source. */
+export function legacyPluginSourceCacheDir(pluginsDir: string, name: string): string {
+  return join(legacyPluginCacheRoot(pluginsDir), name);
+}
+
 /** Resolve a complete payload for rebuilding, falling back to a live local source. */
 export function pluginRematerializationSource(pluginsDir: string, name: string, origin: PluginSource): string {
   const cache = pluginSourceCacheDir(pluginsDir, name);
   if (existsSync(cache)) return cache;
+  const legacyCache = legacyPluginSourceCacheDir(pluginsDir, name);
+  if (existsSync(legacyCache)) return legacyCache;
   if (origin.type === "local") {
     const localPath = resolve(pluginsDir, origin.path);
     if (existsSync(localPath)) return localPath;

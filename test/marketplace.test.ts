@@ -88,6 +88,7 @@ test("marketplace.json is a de-facto export; integrity/version live in the lock"
   rmSync(work, { recursive: true });
 });
 
+
 test("installPlugin rejects a same-name plugin from a different source", () => {
   const work = tmp();
   const store = join(work, "store");

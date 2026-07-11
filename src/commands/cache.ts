@@ -1,13 +1,16 @@
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { readLock } from "../lock.ts";
-import { lockPath, pluginCacheRoot } from "../paths.ts";
+import { legacyPluginSourceCacheDir, lockPath, pluginCacheRoot, pluginSourceCacheDir } from "../paths.ts";
+import { resolvePluginSourceSnapshot } from "../source-cache.ts";
+import type { LockEntry } from "../types.ts";
 
 export interface PluginCacheEntry {
   name: string;
   path: string;
   bytes: number;
   orphan: boolean;
+  recovery?: "present" | "legacy" | "missing-recoverable" | "missing-unrecoverable";
 }
 
 export interface PluginCacheStatus {
@@ -38,17 +41,44 @@ export function directoryBytes(dir: string): number {
 
 export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
   const root = pluginCacheRoot(pluginsDir);
-  const installed = new Set(Object.keys(readLock(lockPath(pluginsDir)).plugins));
-  const entries = existsSync(root)
+  const lock = readLock(lockPath(pluginsDir));
+  const installed = new Set(Object.keys(lock.plugins));
+  const entries: PluginCacheEntry[] = existsSync(root)
     ? readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
       .map((entry) => {
         const path = join(root, entry.name);
-        return { name: entry.name, path, bytes: directoryBytes(path), orphan: !installed.has(entry.name) };
+        return { name: entry.name, path, bytes: directoryBytes(path), orphan: !installed.has(entry.name), recovery: "present" as const };
       })
       .sort((a, b) => a.name.localeCompare(b.name))
     : [];
+  for (const [name, entry] of Object.entries(lock.plugins)) {
+    if (entries.some((item) => item.name === name)) continue;
+    const legacy = legacyPluginSourceCacheDir(pluginsDir, name);
+    const localRecoverable = entry.origin.type === "local" && existsSync(join(pluginsDir, entry.origin.path));
+    const remoteRecoverable = (entry.origin.type === "github" || entry.origin.type === "git") && Boolean(entry.resolvedRevision);
+    entries.push({
+      name,
+      path: pluginSourceCacheDir(pluginsDir, name),
+      bytes: 0,
+      orphan: false,
+      recovery: existsSync(legacy) ? "legacy" : (localRecoverable || remoteRecoverable ? "missing-recoverable" : "missing-unrecoverable"),
+    });
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   return { root, entries, totalBytes: entries.reduce((sum, entry) => sum + entry.bytes, 0) };
+}
+
+/** Restore the selected snapshots with lock-hash verification. */
+export function restorePluginCache(pluginsDir: string, names?: string[]): string[] {
+  const lock = readLock(lockPath(pluginsDir));
+  const selected = names?.length ? [...new Set(names)] : Object.keys(lock.plugins);
+  const missing = selected.filter((name) => !lock.plugins[name]);
+  if (missing.length > 0) throw new Error(`not installed: ${missing.join(", ")}. See \`adg plugins list\`.`);
+  return selected.map((name) => {
+    resolvePluginSourceSnapshot(pluginsDir, name, lock.plugins[name] as LockEntry);
+    return name;
+  });
 }
 
 /** Delete cache snapshots that have no corresponding lock entry. */

@@ -38,6 +38,7 @@
       "type": "object",
       "properties": {
         "displayName": { "type": "string" },
+        "shortDescription": { "type": "string" },
         "icon": { "type": "string" }
       },
       "additionalProperties": true

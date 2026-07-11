@@ -1,6 +1,7 @@
 import { listPlugins } from "./list.ts";
 import { agentsForComponents, resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
-import { lockPath, pluginRematerializationSource } from "../paths.ts";
+import { lockPath } from "../paths.ts";
+import { resolvePluginSourceSnapshot } from "../source-cache.ts";
 import { readLock, writeLock } from "../lock.ts";
 import { pluginState, type ComponentType, type PluginLock, type PluginState } from "../types.ts";
 import { ADAPTER_TARGETS } from "../adapters/index.ts";
@@ -80,9 +81,10 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
   for (const name of changed) {
     const entry = lock.plugins[name]!;
     installPlugin({
-      source: pluginRematerializationSource(opts.pluginsDir, name, entry.origin),
+      source: resolvePluginSourceSnapshot(opts.pluginsDir, name, entry),
       pluginsDir: opts.pluginsDir,
       origin: entry.origin,
+      resolvedRevision: entry.resolvedRevision,
       selection: entry.selection,
       targets: [...ADAPTER_TARGETS],
       forceMaterialize: true,

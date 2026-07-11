@@ -122,15 +122,23 @@ export function cloneGitHub(
 export type GitRunner = (args: string[]) => void;
 
 export const defaultGitRunner: GitRunner = (args) => {
+  runGit(args);
+};
+
+/** Run git under the shared CLI semantic-convention instrumentation. */
+export function runGit(args: string[], captureOutput = false): string | undefined {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
       span.setAttribute("process.executable.name", "git");
       span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
 
-      execFileSync("git", args, { stdio: "pipe" });
+      const output = execFileSync("git", args, captureOutput
+        ? { stdio: "pipe", encoding: "utf8" }
+        : { stdio: "pipe" });
 
       span.setAttribute("process.exit.code", 0);
+      return captureOutput ? String(output).trim() : undefined;
     } catch (error: any) {
       const exitCode = typeof error.status === "number" ? error.status : 1;
       span.setAttribute("process.exit.code", exitCode);
@@ -149,6 +157,17 @@ export const defaultGitRunner: GitRunner = (args) => {
     }
   });
 };
+
+/** Resolve the immutable commit checked out in a cloned worktree. */
+export function gitRevision(dir: string): string | undefined {
+  try {
+    return runGit(["-C", dir, "rev-parse", "HEAD"], true) || undefined;
+  } catch {
+    // Injected/offline clone runners in tests may materialize a plain directory.
+    // Such entries remain legacy until a real update records an immutable commit.
+    return undefined;
+  }
+}
 
 /**
  * Recursively find ADG plugins under `root` (directories containing

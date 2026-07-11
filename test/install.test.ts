@@ -136,7 +136,7 @@ test("cache status, prune, and clean manage source snapshots without touching in
   assert.deepEqual(prunePluginCache(store), ["orphan"]);
   assert.ok(existsSync(join(store, "cached")));
   cleanPluginCache(store);
-  assert.deepEqual(pluginCacheStatus(store).entries, []);
+  assert.deepEqual(pluginCacheStatus(store).entries.map((entry) => [entry.name, entry.recovery]), [["cached", "missing-unrecoverable"]]);
   assert.ok(existsSync(join(store, "cached")), "clean only removes rebuildable cache data");
   rmSync(work, { recursive: true, force: true });
 });
@@ -223,7 +223,7 @@ test("init -> adapt -> install -> update end to end", () => {
   assert.ok(existsSync(join(store, "sample", ".agents", ".plugin.json")));
 
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.equal(lock.version, 3);
+  assert.equal(lock.version, 4);
   assert.equal(lock.plugins.sample.sourceHash, res.sourceHash);
   assert.equal(lock.plugins.sample.installedHash, res.installedHash);
   assert.ok(res.sourceHash.startsWith("sha256-"));
