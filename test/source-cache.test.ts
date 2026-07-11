@@ -97,6 +97,52 @@ test("source snapshot repopulates the system cache from a verified local origin"
 /*
 ## Test Intent
 ### Risk
+Legacy and local recovery can fail after cache lookup (for example, while parsing or materializing a source) without recording a terminal recovery outcome.
+### Why Automation
+The missing telemetry is only observable across the recovery branch and its active span; a successful restore test cannot prove failure accounting.
+### Why Existing Tests Insufficient
+Existing recovery tests cover successful legacy adoption and local restoration, but not malformed source payloads after the cache is missing.
+### Chosen Layer
+Integration Test - temporary plugin stores exercise both recovery branches with deterministic malformed manifests.
+### Fragility Analysis
+The test asserts only the public recovery outcome and error surface, not internal helper calls or filesystem paths.
+### If Omitted
+Corrupted legacy/local sources would silently disappear from recovery telemetry and distort cache reliability measurements.
+*/
+test("failed legacy and local recovery records an unrecoverable outcome", () => {
+  for (const mode of ["legacy", "local"] as const) {
+    const work = tmp();
+    const store = join(work, "store");
+    const { pluginDir } = initPlugin({ name: `${mode}-failure`, dir: join(work, "source") });
+    installPlugin({ source: pluginDir, pluginsDir: store });
+    const entry = readLock(join(store, ".plugin-lock.json")).plugins[`${mode}-failure`]!;
+    rmSync(pluginSourceCacheDir(store, `${mode}-failure`), { recursive: true, force: true });
+    const source = mode === "legacy" ? legacyPluginSourceCacheDir(store, `${mode}-failure`) : pluginDir;
+    if (mode === "legacy") {
+      mkdirSync(join(source, ".."), { recursive: true });
+      cpSync(pluginDir, source, { recursive: true });
+    }
+    rmSync(join(source, ".agents", ".plugin.json"), { force: true });
+    const events: RecordedEvent[] = [];
+    let thrown: unknown;
+    try {
+      withEventSpan(eventSpan(events), () => resolvePluginSourceSnapshot(store, `${mode}-failure`, entry));
+    } catch (error) {
+      thrown = error;
+    }
+    assert.ok(thrown instanceof Error);
+    assert.match(thrown.message, /Invalid ADG manifest/);
+    assert.deepEqual(events.filter((event) => event.name === "adg.cache.recovery"), [{
+      name: "adg.cache.recovery",
+      attributes: { outcome: "missing_unrecoverable" },
+    }]);
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+/*
+## Test Intent
+### Risk
 A remote snapshot whose contents do not match its locked hash can be reported as both a hash mismatch and an unrecoverable missing cache, which inflates recovery telemetry and hides the actual failure mode.
 ### Why Automation
 The regression requires the exact remote-restore failure path and cannot be proven by inspecting the two event calls independently.

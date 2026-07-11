@@ -24,6 +24,12 @@ function assertSourceHash(dir: string, name: string, expected: string): void {
   }
 }
 
+function recordRecoveryFailure(error: unknown): void {
+  if (!(error instanceof SourceCacheIntegrityError)) {
+    recordTelemetryEvent("adg.cache.recovery", { outcome: "missing_unrecoverable" });
+  }
+}
+
 function remoteUrl(entry: LockEntry): string | undefined {
   if (entry.origin.type === "github") return `https://github.com/${entry.origin.repo}.git`;
   if (entry.origin.type === "git") return entry.origin.url;
@@ -51,9 +57,7 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     const manifest = readManifest(source);
     return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => snapshot);
   } catch (error) {
-    if (!(error instanceof SourceCacheIntegrityError)) {
-      recordTelemetryEvent("adg.cache.recovery", { outcome: "missing_unrecoverable" });
-    }
+    recordRecoveryFailure(error);
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`cannot restore "${name}" at locked revision ${entry.resolvedRevision}: ${message}`);
   } finally {
@@ -82,27 +86,37 @@ export function resolvePluginSourceSnapshot(pluginsDir: string, name: string, en
 
   const legacy = legacyPluginSourceCacheDir(pluginsDir, name);
   if (existsSync(legacy)) {
-    assertSourceHash(legacy, name, entry.sourceHash);
-    const manifest = readManifest(legacy);
-    const adopted = withPluginSourceCache(legacy, cache, manifest, (snapshot) => {
-      assertSourceHash(snapshot, name, entry.sourceHash);
-      return snapshot;
-    });
-    recordTelemetryEvent("adg.cache.recovery", { outcome: "adopted_legacy" });
-    return adopted;
+    try {
+      assertSourceHash(legacy, name, entry.sourceHash);
+      const manifest = readManifest(legacy);
+      const adopted = withPluginSourceCache(legacy, cache, manifest, (snapshot) => {
+        assertSourceHash(snapshot, name, entry.sourceHash);
+        return snapshot;
+      });
+      recordTelemetryEvent("adg.cache.recovery", { outcome: "adopted_legacy" });
+      return adopted;
+    } catch (error) {
+      recordRecoveryFailure(error);
+      throw error;
+    }
   }
 
   if (entry.origin.type === "local") {
     const local = resolve(pluginsDir, entry.origin.path);
     if (existsSync(local)) {
-      assertSourceHash(local, name, entry.sourceHash);
-      const manifest = readManifest(local);
-      const restored = withPluginSourceCache(local, cache, manifest, (snapshot) => {
-        assertSourceHash(snapshot, name, entry.sourceHash);
-        return snapshot;
-      });
-      recordTelemetryEvent("adg.cache.recovery", { outcome: "restored_local" });
-      return restored;
+      try {
+        assertSourceHash(local, name, entry.sourceHash);
+        const manifest = readManifest(local);
+        const restored = withPluginSourceCache(local, cache, manifest, (snapshot) => {
+          assertSourceHash(snapshot, name, entry.sourceHash);
+          return snapshot;
+        });
+        recordTelemetryEvent("adg.cache.recovery", { outcome: "restored_local" });
+        return restored;
+      } catch (error) {
+        recordRecoveryFailure(error);
+        throw error;
+      }
     }
   }
 
