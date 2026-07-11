@@ -147,6 +147,21 @@ test("a successful v2 migration records read and transition versions", () => {
   rmSync(root, { recursive: true });
 });
 
+test("a successful v3 migration records v3 as an observed format", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const events: RecordedEvent[] = [];
+  writeFileSync(join(root, ".plugin-lock.json"), JSON.stringify({ version: 3, plugins: {} }));
+
+  migrateLayout(root, eventSpan(events));
+
+  assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
+    { name: "adg.lock.read", attributes: { "format.version": 3 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 4 } },
+    { name: "adg.lock.read", attributes: { "format.version": 4 } },
+  ]);
+  rmSync(root, { recursive: true });
+});
+
 test("a failed v2 migration does not report a completed transition", () => {
   const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
   const events: RecordedEvent[] = [];

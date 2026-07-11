@@ -109,7 +109,7 @@ function migrateLock(pluginsDir: string, telemetrySpan?: Pick<Span, "addEvent">)
   if (!raw || typeof raw !== "object") throw new Error(`${file} is not a valid lock file`);
   if (raw.version === LOCK_VERSION) return false;
   if (typeof raw?.version === "number") {
-    recordTelemetryEvent("adg.lock.read", { "format.version": raw.version === 2 ? 2 : -1 }, telemetrySpan);
+    recordTelemetryEvent("adg.lock.read", { "format.version": raw.version === 2 || raw.version === 3 ? raw.version : -1 }, telemetrySpan);
   }
   if (raw.version === 3 && typeof raw.plugins === "object" && raw.plugins !== null) {
     // v3 has the same payload model; v4 adds optional immutable provenance.
