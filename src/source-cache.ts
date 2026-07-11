@@ -91,8 +91,13 @@ export function resolvePluginSourceSnapshot(pluginsDir: string, name: string, en
     const local = resolve(pluginsDir, entry.origin.path);
     if (existsSync(local)) {
       assertSourceHash(local, name, entry.sourceHash);
+      const manifest = readManifest(local);
+      const restored = withPluginSourceCache(local, cache, manifest, (snapshot) => {
+        assertSourceHash(snapshot, name, entry.sourceHash);
+        return snapshot;
+      });
       recordTelemetryEvent("adg.cache.recovery", { outcome: "restored_local" });
-      return local;
+      return restored;
     }
   }
 

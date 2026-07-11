@@ -7,7 +7,7 @@
   "required": ["version", "plugins"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "description": "Lock file format version.", "const": 4 },
+    "version": { "type": "integer", "description": "Lock file format version.", "enum": [3, 4] },
     "plugins": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/lockEntry" }

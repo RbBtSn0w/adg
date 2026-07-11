@@ -38,3 +38,17 @@ test("source snapshot rejects a cache whose full-payload hash no longer matches 
   assert.throws(() => resolvePluginSourceSnapshot(store, "tampered-cache", entry), /source cache integrity mismatch/);
   rmSync(work, { recursive: true, force: true });
 });
+
+test("source snapshot repopulates the system cache from a verified local origin", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  const { pluginDir } = initPlugin({ name: "local-cache", dir: join(work, "source") });
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const entry = readLock(join(store, ".plugin-lock.json")).plugins["local-cache"]!;
+  const cache = pluginSourceCacheDir(store, "local-cache");
+  rmSync(cache, { recursive: true, force: true });
+
+  assert.equal(resolvePluginSourceSnapshot(store, "local-cache", entry), cache);
+  assert.ok(existsSync(cache));
+  rmSync(work, { recursive: true, force: true });
+});
