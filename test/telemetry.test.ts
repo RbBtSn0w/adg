@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Attributes, Span } from "@opentelemetry/api";
 
-import { readLock } from "../src/lock.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
 import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath, sanitizeArgs } from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
@@ -78,6 +78,38 @@ test("manifest and lock readers record observed format versions", () => {
       attributes: { "schema.version": ADG_SCHEMA_VERSION, "manifest.layout": "canonical" },
     },
     { name: "adg.lock.read", attributes: { "format.version": 3 } },
+  ]);
+  rmSync(root, { recursive: true });
+});
+
+/*
+## Test Intent
+### Risk
+A v3 lock can be transparently upgraded to v4 by ordinary write commands, making real migrations invisible to telemetry.
+### Why Automation
+The bug requires the read-then-write interaction across two lock API calls; a migration-command test does not exercise it.
+### Why Existing Tests Insufficient
+Existing telemetry tests cover explicit `migrate`, but not compatibility reads followed by a normal persistence path.
+### Chosen Layer
+Unit Test - the lock reader/writer transition is deterministic and has no filesystem or agent runtime dependency beyond a temp lock file.
+### Fragility Analysis
+The assertion targets the persisted lock version and public telemetry event, not internal migration bookkeeping.
+### If Omitted
+Production lock upgrades continue to be undercounted, defeating the telemetry-based legacy-removal decision.
+*/
+test("persisting a compatibility-read v3 lock records its implicit migration", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const file = join(root, ".plugin-lock.json");
+  const events: RecordedEvent[] = [];
+  writeFileSync(file, JSON.stringify({ version: 3, plugins: {} }));
+
+  const lock = readLock(file, eventSpan(events));
+  writeLock(file, lock, eventSpan(events));
+
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 4);
+  assert.deepEqual(events, [
+    { name: "adg.lock.read", attributes: { "format.version": 3 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 4 } },
   ]);
   rmSync(root, { recursive: true });
 });

@@ -102,7 +102,7 @@ The lock records two hashes: `sourceHash` covers the complete cached payload and
 `installedHash` covers the effective selection. Runtime projections are excluded
 from both hashes so re-adapting does not churn content identity.
 
-The cache is scoped by a stable store id under the store's sibling
+The cache is scoped by a stable store id under the OS-managed
 system cache tree (`~/Library/Caches/adg/plugins/` on macOS,
 `$XDG_CACHE_HOME/adg/plugins/` on Linux). `adg plugins cache status` reports
 its contents, `cache restore` recreates missing snapshots from the exact lock
