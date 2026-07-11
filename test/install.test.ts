@@ -157,6 +157,21 @@ test("cache status reports legacy snapshot path and size", () => {
   rmSync(work, { recursive: true, force: true });
 });
 
+/*
+## Test Intent
+### Risk
+Pre-migration source snapshots can become unbounded disk usage if cache maintenance only sees the new system cache.
+### Why Automation
+The behavior spans both cache roots and destructive lifecycle commands; inspection cannot prove orphan cleanup leaves recoverable state intact.
+### Why Existing Tests Insufficient
+The existing cache test covers only system-cache snapshots and cannot detect legacy-root leaks.
+### Chosen Layer
+Integration Test - install, status, prune, and clean share the real path derivation and filesystem lifecycle.
+### Fragility Analysis
+The test asserts public cache command effects and does not depend on platform cache paths or timing.
+### If Omitted
+Users with historical ADG installations can retain unreachable cache data indefinitely.
+*/
 test("cache prune and clean include legacy cache snapshots", () => {
   const work = tmp();
   const { pluginDir } = initPlugin({ name: "legacy-clean", dir: join(work, "src") });

@@ -50,7 +50,8 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => snapshot);
   } catch (error) {
     recordTelemetryEvent("adg.cache.recovery", { outcome: "missing_unrecoverable" });
-    throw new Error(`cannot restore "${name}" at locked revision ${entry.resolvedRevision}: ${(error as Error).message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`cannot restore "${name}" at locked revision ${entry.resolvedRevision}: ${message}`);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

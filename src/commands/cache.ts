@@ -50,6 +50,14 @@ function cacheDirectories(root: string): string[] {
   }
 }
 
+function removeRootIfEmpty(root: string): void {
+  try {
+    if (existsSync(root) && readdirSync(root).length === 0) rmSync(root, { recursive: true, force: true });
+  } catch {
+    // A concurrent cache mutation or unreadable directory must not make prune fail.
+  }
+}
+
 export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
   const root = pluginCacheRoot(pluginsDir);
   const lock = readLock(lockPath(pluginsDir));
@@ -59,9 +67,8 @@ export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
     if (existsSync(root)) {
       entries = cacheDirectories(root)
         .map((name) => {
-          const entry = { name };
-          const path = join(root, entry.name);
-          return { name: entry.name, path, bytes: directoryBytes(path), orphan: !installed.has(entry.name), recovery: "present" as const };
+          const path = join(root, name);
+          return { name, path, bytes: directoryBytes(path), orphan: !installed.has(name), recovery: "present" as const };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -119,8 +126,8 @@ export function prunePluginCache(pluginsDir: string): string[] {
   for (const name of cacheDirectories(legacyRoot)) {
     if (!installed.has(name)) rmSync(legacyPluginSourceCacheDir(pluginsDir, name), { recursive: true, force: true });
   }
-  if (existsSync(status.root) && readdirSync(status.root).length === 0) rmSync(status.root, { recursive: true, force: true });
-  if (existsSync(legacyRoot) && readdirSync(legacyRoot).length === 0) rmSync(legacyRoot, { recursive: true, force: true });
+  removeRootIfEmpty(status.root);
+  removeRootIfEmpty(legacyRoot);
   return [...new Set(removed.map((entry) => entry.name))];
 }
 
