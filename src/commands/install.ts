@@ -247,6 +247,9 @@ export interface AddOptions {
   nonInteractive?: boolean;
   /** Last-known structural description, used when remote metadata lookup fails. */
   defaultDescription?: string;
+  /** Internal remote checkout reuse for marketplace updates. */
+  preparedSourceDir?: string;
+  preparedResolvedRevision?: string;
   /** Restrict a GitHub checkout to these sub-paths (sparse checkout). */
   sparse?: string[];
   /** Injectable git clone runner (for offline testing). */
@@ -537,7 +540,11 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   let defaultDescription: string | undefined;
   let structuralName: string | undefined;
 
-  if (parsed.kind === "local") {
+  if (opts.preparedSourceDir) {
+    workRoot = resolve(opts.preparedSourceDir);
+    resolvedRevision = opts.preparedResolvedRevision;
+    buildOrigin = (dir) => ({ type: "github", repo: parsed.kind === "github" ? parsed.source : opts.spec, ...(sourceRef ? { ref: sourceRef } : {}), path: toPosix(relative(workRoot, originDirOverride ?? dir)) || "." });
+  } else if (parsed.kind === "local") {
     workRoot = resolve(parsed.dir);
     buildOrigin = (dir) => ({ type: "local", path: resolve(originDirOverride ?? dir) });
   } else {
