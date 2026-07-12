@@ -358,6 +358,41 @@ test("git runner does not buffer unused large output", () => {
   }
 });
 
+/*
+## Test Intent
+### Risk
+Captured Git output can contain meaningful leading whitespace. Removing it changes the helper's public return value before a caller can interpret it.
+### Why Automation
+Only an actual Git subprocess verifies that the output-normalization boundary preserves content rather than just a mocked string.
+### Why Existing Tests Insufficient
+Existing Git runner coverage checks failure and large uncaptured output, but not captured output with significant whitespace.
+### Chosen Layer
+Integration Test - a tiny local Git repository exercises the exported helper's real capture path.
+### Fragility Analysis
+The assertion depends only on Git returning committed file contents, not on temporary paths, command order, or telemetry internals.
+### If Omitted
+A future refactor can silently strip user-visible data from every captured Git command.
+*/
+test("git runner preserves leading whitespace in captured output", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-git-whitespace-"));
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    execFileSync("git", ["init", root]);
+    writeFileSync(join(root, "value.txt"), "  preserved leading whitespace\n");
+    execFileSync("git", ["-C", root, "add", "value.txt"]);
+    execFileSync("git", ["-C", root, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "whitespace"]);
+    assert.equal(runGit(["-C", root, "show", "HEAD:value.txt"], true), "  preserved leading whitespace");
+  } catch (error: any) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  } finally {
+    if (originalDisable === undefined) delete process.env.DISABLE_TELEMETRY;
+    else process.env.DISABLE_TELEMETRY = originalDisable;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("sanitizePath unconditionally redacts non-empty strings to [PATH]", () => {
   assert.equal(sanitizePath(undefined), "");
   assert.equal(sanitizePath(""), "");

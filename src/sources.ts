@@ -144,7 +144,7 @@ export function runGit(args: string[], captureOutput = false): string | undefine
         : { stdio: "ignore" });
 
       span.setAttribute("process.exit.code", 0);
-      return captureOutput ? String(output).trim() : undefined;
+      return captureOutput ? String(output).trimEnd() : undefined;
     } catch (error: any) {
       const exitCode = typeof error.status === "number" ? error.status : 1;
       span.setAttribute("process.exit.code", exitCode);
