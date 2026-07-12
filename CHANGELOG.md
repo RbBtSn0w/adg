@@ -1,3 +1,9 @@
+## [0.6.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.6...0.6.0-beta.7) (2026-07-12)
+
+### Fixed
+
+* harden Codex plugin cache recovery ([#63](https://github.com/RbBtSn0w/adg/issues/63)) ([77cdb3b](https://github.com/RbBtSn0w/adg/commit/77cdb3b0f9759c3ddcb074916718c4ba074f867f))
+
 ## [0.6.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.5...0.6.0-beta.6) (2026-07-10)
 
 ### Fixed
