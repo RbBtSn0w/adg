@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { installedPluginDir, lockPath, pluginSourceCacheDir } from "../paths.ts";
 import { readLock } from "../lock.ts";

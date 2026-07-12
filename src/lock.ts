@@ -21,7 +21,7 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
     const observed = parsed.version === 2 || parsed.version === 3 || parsed.version === 4 || parsed.version === LOCK_VERSION ? parsed.version : -1;
     recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
   }
-  if (typeof parsed.version !== "number" || typeof parsed.plugins !== "object" || parsed.plugins === null) {
+  if (typeof parsed.version !== "number" || typeof parsed.plugins !== "object" || parsed.plugins === null || Array.isArray(parsed.plugins)) {
     throw new Error(`${file} is not a valid .plugin-lock.json`);
   }
   if (parsed.version === 3 || parsed.version === 4) {
