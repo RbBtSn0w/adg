@@ -155,7 +155,7 @@ export function reconcileCodexMarketplaceAliases(opts: CodexMarketplaceMigration
     }
   }
 
-  const hasLegacy = plan.legacyPluginCount > 0 || plan.orphanPluginCount > 0;
+  const hasLegacy = plan.legacyMarketplaces.length > 0 || plan.legacyPluginCount > 0 || plan.orphanPluginCount > 0;
   const hasDeferredLegacy = plan.legacyMarketplaces.some((marketplace) => !marketplaceCommands.some((command) => command[3] === marketplace));
   const outcome: CodexMarketplaceMigrationOutcome = failed
     ? "partial"

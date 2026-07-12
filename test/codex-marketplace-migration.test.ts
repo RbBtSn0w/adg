@@ -177,3 +177,51 @@ enabled = true
     "migration.outcome": "completed",
   });
 });
+
+/*
+## Test Intent
+### Risk
+Removing an empty same-root legacy marketplace can be reported as "none", hiding a successful cleanup action from migration telemetry.
+### Why Automation
+The outcome depends on the planner's interaction with the executor; manual Codex configuration testing would be destructive and cannot reliably assert telemetry fields.
+### Why Existing Tests Insufficient
+Existing outcome tests cover aliases that contain plugin identities and orphan-only plugin cleanup, but not a removable empty marketplace.
+### Chosen Layer
+Unit Test - parsing, cleanup planning, and reported outcome are deterministic with an injected command runner.
+### Fragility Analysis
+The assertion observes public CLI command arguments and result/telemetry values, not parser or control-flow internals.
+### If Omitted
+Successful cleanup can be indistinguishable from no migration work in operational telemetry.
+*/
+test("reports an empty legacy marketplace cleanup as completed", () => {
+  const commands: string[][] = [];
+  const reports: Array<Record<string, string | number>> = [];
+  const result = reconcileCodexMarketplaceAliases({
+    pluginsDir: "/Users/snow/.agents/plugins",
+    marketplace: "adg",
+    plugins: [],
+    readConfig: () => `
+[marketplaces.plugins]
+source = "/Users/snow"
+
+[marketplaces.adg]
+source = "/Users/snow"
+`,
+    run: (command) => {
+      commands.push(command);
+      return { ok: true, out: "" };
+    },
+    report: (attributes) => reports.push(attributes),
+  });
+
+  assert.deepEqual(commands, [["plugin", "marketplace", "remove", "plugins"]]);
+  assert.equal(result.outcome, "completed");
+  assert.deepEqual(reports[0], {
+    "legacy.marketplace_count": 1,
+    "legacy.plugin_count": 0,
+    "legacy.orphan_plugin_count": 0,
+    "migration.removed_plugin_count": 0,
+    "migration.removed_marketplace_count": 1,
+    "migration.outcome": "completed",
+  });
+});
