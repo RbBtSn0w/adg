@@ -1,6 +1,6 @@
 import type { AdapterTarget } from "../adapters/index.ts";
 import { gitRemoteRevision, type GitRunner } from "../sources.ts";
-import { cloneGitHub, gitRevision, parseSource } from "../sources.ts";
+import { cloneGitHub, gitRevision, parseGitHubSource } from "../sources.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -237,8 +237,7 @@ export async function updatePlugins(
       const available = new Set<string>();
       const checkout = mkdtempSync(join(tmpdir(), "adg-marketplace-update-"));
       try {
-        const parsed = parseSource(group.source);
-        if (parsed.kind !== "github") throw new Error(`unsupported remote source ${group.source}`);
+        const parsed = parseGitHubSource(group.source);
         cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
         const resolvedRevision = gitRevision(checkout);
         for (const request of requests) {

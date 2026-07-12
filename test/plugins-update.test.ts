@@ -101,6 +101,26 @@ test("updatePlugins reports unchanged when the source is identical", async () =>
   }
 });
 
+test("updatePlugins treats a GitHub marketplace key as remote when a matching CWD path exists", async () => {
+  const root = scratch();
+  const originalCwd = process.cwd();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    mkdirSync(join(root, "acme", "market"), { recursive: true });
+    process.chdir(root);
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    assert.deepEqual(result.remote[0]!.unchanged, ["sales"]);
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("updatePlugins avoids cloning when a revision probe matches the stored revision", async () => {
   const root = scratch();
   try {

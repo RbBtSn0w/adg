@@ -74,6 +74,16 @@ function decodeGitHubUrlPart(value: string): string {
 export function parseSource(spec: string): ParsedSource {
   if (existsSync(spec)) return { kind: "local", dir: spec };
 
+  try {
+    return parseGitHubSource(spec);
+  } catch {
+    throw new Error(`cannot parse install source: "${spec}" (expected a local path or owner/repo[@ref])`);
+  }
+}
+
+/** Parse a GitHub source without allowing an existing CWD path to override it. */
+export function parseGitHubSource(spec: string): GitHubSource {
+
   const clean = spec.replace(/[?#].*$/, "");
   const blob = clean.match(GH_BLOB_URL);
   if (blob) {
@@ -93,7 +103,7 @@ export function parseSource(spec: string): ParsedSource {
     const [, owner, repo, ref] = short;
     return gh(owner!, repo!, ref);
   }
-  throw new Error(`cannot parse install source: "${spec}" (expected a local path or owner/repo[@ref])`);
+  throw new Error(`cannot parse GitHub source: "${spec}" (expected owner/repo[@ref] or a github.com URL)`);
 }
 
 function gh(owner: string, repo: string, ref?: string): GitHubSource {
