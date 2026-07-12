@@ -42,9 +42,9 @@ their matching defaults, while omitted fields inherit valid standard locations.
 For structural sources, `--as` sets a stable installed identity and `--only`
 limits both the stored payload and runtime exposure. In non-interactive runs,
 discovered hooks or MCP require explicit `--only`. Default DSL applies only to
-the source root; `--path` requires an explicit `.agents/.plugin.json`.
-It is not a monorepo convention: every member of a multi-plugin repository must
-declare its own `.agents/.plugin.json`, and `--path` only selects such a member.
+the source root. It is not a monorepo convention: every member of a
+multi-plugin repository must declare its own `.agents/.plugin.json` and be
+selected with `--plugin` or `--all`.
 
 ---
 
@@ -281,9 +281,9 @@ adg plugins add plugins/my-plugin --project        # <repo>/.agents/plugins
 adg plugins add plugins/my-plugin --global         # ~/.agents/plugins
 adg plugins add plugins/asc --dir plugins          # explicit target dir
 
-# add from GitHub (shorthand, @ref, or full URL); --path selects an explicit plugin root
+# add from GitHub (shorthand, @ref, or full URL)
 adg plugins add owner/repo --dir plugins
-adg plugins add owner/repo@v0.1.0 --path plugins/asc --dir plugins
+adg plugins add owner/repo@v0.1.0 --plugin asc --dir plugins
 adg plugins add https://github.com/owner/repo.git --ref main --dir plugins
 adg plugins add plugins/asc --dir plugins --no-deps   # skip transitive deps
 

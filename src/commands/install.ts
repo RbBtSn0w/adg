@@ -22,7 +22,6 @@ import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { effectivePackageFilter, materializePlugin, withPluginSourceCache } from "../materialize.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
-import { resolveSourcePath } from "../source-path.ts";
 
 export interface InstallOneOptions {
   /** Local directory containing the plugin (already fetched). */
@@ -274,13 +273,11 @@ export interface AddOptions {
    * always (re)installs.
    */
   skipUnchanged?: boolean;
-  /** Install the single plugin at this sub-path. */
-  path?: string;
   /** Resolve and install transitive plugin dependencies. Default true. */
   withDeps?: boolean;
   /**
    * Interactive picker, used only when the source holds multiple plugins and
-   * none of all/plugins/path narrowed the selection. Returns chosen names.
+   * none of all/plugins narrowed the selection. Returns chosen names.
    */
   selectPlugins?: (choices: PluginChoice[]) => Promise<string[]> | string[];
 
@@ -358,7 +355,6 @@ function discoverPlugins(root: string): { candidates: Map<string, PluginCandidat
 async function selectPluginNames(
   opts: AddOptions,
   candidates: Map<string, PluginCandidate>,
-  workRoot: string,
   converted: string[],
 ): Promise<string[]> {
   const names = [...candidates.keys()];
@@ -369,12 +365,6 @@ async function selectPluginNames(
       throw new Error(`plugin(s) not found in source: ${missing.join(", ")}.\nAvailable: ${names.join(", ")}`);
     }
     return opts.plugins.filter((p) => candidates.has(p));
-  }
-  if (opts.path) {
-    const target = resolve(join(workRoot, opts.path));
-    const hit = [...candidates.values()].find((c) => resolve(c.dir) === target);
-    if (!hit) throw new Error(`no plugin found at --path ${opts.path}`);
-    return [hit.manifest.name];
   }
   if (opts.all || candidates.size === 1) return names;
 
@@ -452,14 +442,12 @@ function reconcileRemotePlugins(
   opts: AddOptions,
   parsed: ReturnType<typeof parseSource>,
   ref: string | undefined,
-  narrowed: boolean,
   desired: Set<string>,
 ): string[] {
   if (parsed.kind === "local") return [];
-  // A path/sparse install does not prove the full source shape, so it must not
-  // prune sibling plugins from the same repo that were intentionally excluded
-  // from the checkout/selection window.
-  if (narrowed || opts.sparse?.length) return [];
+  // A sparse checkout does not prove the full source shape, so it must not
+  // prune sibling plugins from the same repo that were intentionally excluded.
+  if (opts.sparse?.length) return [];
 
   const lock = readLock(lockPath(opts.pluginsDir));
   const stale = Object.entries(lock.plugins)
@@ -524,7 +512,7 @@ function activateInstalled(
 /**
  * The unified install entrypoint. Treats any source as a marketplace: clone or
  * read it, discover every plugin (ADG plus reverse-adapted native), choose a
- * subset (--all / --plugin / --path / sole plugin / interactive picker), then
+ * subset (--all / --plugin / sole plugin / interactive picker), then
  * install the selection in dependency-first order.
  */
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
@@ -532,8 +520,9 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   // persisted owner/repo key as GitHub even when the caller's CWD shadows it.
   const parsed = opts.preparedSourceDir ? parseGitHubSource(opts.spec) : parseSource(opts.spec);
   const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
-  const inferredPath = parsed.kind === "github" ? parsed.path : undefined;
-  const path = opts.path ?? inferredPath;
+  if (parsed.kind === "github" && parsed.path) {
+    throw new Error("GitHub subdirectory sources are not supported; define a marketplace and select with --plugin or --all");
+  }
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
   let resolvedRevision: string | undefined;
@@ -565,13 +554,9 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   }
 
   try {
-    if (path) resolveSourcePath(workRoot, path);
     let { candidates, converted } = discoverPlugins(workRoot);
     const existingLock = readLock(lockPath(opts.pluginsDir));
-    if (candidates.size === 0 && path) {
-      throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
-    }
-    if ((path || candidates.size > 0) && opts.as) {
+    if (candidates.size > 0 && opts.as) {
       throw new Error("--as is only supported for a default structural plugin source");
     }
     if (candidates.size === 0) {
@@ -598,7 +583,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       })();
     }
 
-    const selected = structuralName ? [structuralName] : await selectPluginNames({ ...opts, path }, candidates, workRoot, converted);
+    const selected = structuralName ? [structuralName] : await selectPluginNames(opts, candidates, converted);
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -610,7 +595,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       // upstream: don't abort — return what the source still offers so the
       // caller can report the deletions.
       if (opts.missingPlugins === "skip") {
-        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(selected));
+        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(selected));
         return { order: [], installed: [], removed, converted, available };
       }
       throw new Error("no plugins selected");
@@ -637,7 +622,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     if (definitionSwitches.length > 0) {
       throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
     }
-    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(order));
+    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
 
     // Snapshot which plugins already existed before this call mutates the lock,
     // so the activation step below can tell brand-new installs from updates.

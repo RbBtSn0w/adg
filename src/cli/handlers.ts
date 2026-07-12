@@ -249,7 +249,6 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
     pluginsDir,
     ref: values.ref,
     sparse: values.sparse,
-    path: values.path,
     all: values.all,
     plugins: values.plugin,
     only,
@@ -385,7 +384,7 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
     }
     case "inspect": {
       const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const result = await inspectSource({ spec: positionals[0] ?? process.cwd(), path: values.path, ref: values.ref });
+      const result = await inspectSource({ spec: positionals[0] ?? process.cwd(), ref: values.ref });
       if (values.json) console.log(JSON.stringify(result, null, 2));
       else console.log(`${ui.ok("inspected")} ${ui.name(result.manifest.name)} ${ui.meta(`[${result.kind}] ${result.components.join(", ") || "no components"}`)}`);
       return;

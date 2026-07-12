@@ -6,7 +6,6 @@ import { resolveDefaultDsl } from "../default-dsl.ts";
 import type { AdgManifest } from "../types.ts";
 import { pluginContents } from "../components.ts";
 import { cloneGitHub, parseSource, type GitRunner } from "../sources.ts";
-import { resolveSourcePath } from "../source-path.ts";
 
 export interface PluginInspection {
   kind: "default-dsl" | "manifest";
@@ -27,27 +26,18 @@ export function inspectPlugin(root: string, metadata?: { name: string; descripti
 }
 
 /** Resolve a local or GitHub source without creating a store, lock, or projection. */
-export async function inspectSource(opts: { spec: string; path?: string; ref?: string; gitRunner?: GitRunner }): Promise<PluginInspection> {
+export async function inspectSource(opts: { spec: string; ref?: string; gitRunner?: GitRunner }): Promise<PluginInspection> {
   const parsed = parseSource(opts.spec);
   if (parsed.kind === "local") {
-    const root = resolveSourcePath(parsed.dir, opts.path ?? ".");
-    if (opts.path && !findManifestFile(root)) {
-      throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
-    }
-    return inspectPlugin(root);
+    return inspectPlugin(parsed.dir);
   }
+  if (parsed.path) throw new Error("GitHub subdirectory sources are not supported; define a marketplace and select with --plugin or --all");
 
   const staging = mkdtempSync(join(tmpdir(), "adg-inspect-"));
   try {
     cloneGitHub({ ...parsed, ref: opts.ref ?? parsed.ref }, staging, { runner: opts.gitRunner });
-    const selectedPath = opts.path ?? parsed.path;
-    const root = resolveSourcePath(staging, selectedPath ?? ".");
-    if (selectedPath && !findManifestFile(root)) {
-      throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
-    }
-    const identity = selectedPath ? basename(root) : parsed.repo;
-    const result = inspectPlugin(root, { name: identity, description: identity });
-    return { ...result, root: opts.path ?? parsed.path ?? "." };
+    const result = inspectPlugin(staging, { name: parsed.repo, description: parsed.repo });
+    return { ...result, root: "." };
   } finally {
     rmSync(staging, { recursive: true, force: true });
   }

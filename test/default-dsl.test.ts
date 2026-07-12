@@ -9,7 +9,6 @@ import { readManifest } from "../src/manifest.ts";
 import { updateLock } from "../src/commands/update.ts";
 import { readLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
-import { resolveSourcePath } from "../src/source-path.ts";
 
 function scratch(): string { return mkdtempSync(join(tmpdir(), "adg-default-dsl-")); }
 function skill(root: string, name = "release"): void {
@@ -137,14 +136,6 @@ test("default DSL rejects component symlinks while manifest inheritance only pro
   }
 });
 
-test("source paths reject Windows UNC and drive-qualified inputs", () => {
-  const root = scratch();
-  try {
-    assert.throws(() => resolveSourcePath(root, "\\\\server\\share\\plugin"), /path must stay within the source root/);
-    assert.throws(() => resolveSourcePath(root, "C:\\plugin"), /path must stay within the source root/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
 test("addPlugins installs a raw skills repository as a default plugin", async () => {
   const root = scratch();
   const store = join(root, "store");
@@ -154,50 +145,6 @@ test("addPlugins installs a raw skills repository as a default plugin", async ()
     assert.equal(result.installed.length, 1);
     assert.ok(result.installed[0]!.name.startsWith("adg-default-dsl-"));
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("addPlugins rejects a structural subdirectory supplied through --path", async () => {
-  const root = scratch();
-  const store = join(root, "store");
-  try {
-    const source = join(root, "packages", "release-tools");
-    skill(source, "ship");
-    await assert.rejects(
-      () => addPlugins({ spec: root, path: "packages/release-tools", as: "release-tools", pluginsDir: store, targets: ["codex"], now: "2026-07-12T00:00:00Z" }),
-      /Default DSL only supports the source root/,
-    );
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("addPlugins selects an explicit manifest supplied through --path", async () => {
-  const root = scratch();
-  const store = join(root, "store");
-  try {
-    const source = join(root, "packages", "release-tools");
-    skill(source, "ship");
-    mkdirSync(join(source, ".agents"), { recursive: true });
-    writeFileSync(join(source, ".agents", ".plugin.json"), JSON.stringify({
-      schemaVersion: "adg.plugin/v1", name: "release-tools", version: "1.0.0", description: "Release tools.",
-    }));
-    const result = await addPlugins({
-      spec: root,
-      path: "packages/release-tools",
-      pluginsDir: store,
-      targets: ["codex"],
-      now: "2026-07-12T00:00:00Z",
-    });
-    assert.deepEqual(result.order, ["release-tools"]);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("addPlugins rejects a --path that escapes the source root", async () => {
-  const parent = scratch();
-  try {
-    const source = join(parent, "source");
-    skill(source);
-    skill(join(parent, "outside"));
-    await assert.rejects(() => addPlugins({ spec: source, path: "../outside", pluginsDir: join(parent, "store") }), /path must stay within the source root/);
-  } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("explicit manifest inherits standard component mappings it omits", () => {

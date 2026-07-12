@@ -67,12 +67,11 @@ authoring artifact:
 A repository may omit `.agents/.plugin.json` when it follows the fixed Default
 DSL: `skills/<name>/SKILL.md`, `hooks/hooks.json`, and/or `.mcp.json`. ADG
 derives one plugin only from the source root; it does not recursively guess
-other directories. A `--path` subdirectory must contain an explicit
-`.agents/.plugin.json`.
+other directories.
 
 Default DSL is not available to a member directory of a multi-plugin repository.
-For a marketplace, give every member its own `.agents/.plugin.json`; `--path`
-then selects that explicit member rather than inferring one from its layout.
+For a marketplace, give every member its own `.agents/.plugin.json`; consumers
+select that explicit member with `--plugin` rather than by source subdirectory.
 
 Add `.agents/.plugin.json` for non-standard paths or metadata. Its `skills`,
 `hooks`, and `mcpServers` fields replace their respective defaults; omitted

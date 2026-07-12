@@ -321,7 +321,7 @@ test("github add (injected clone) records github provenance", async () => {
   const { order } = await addPlugins({
     spec: "RbBtSn0w/plugins",
     ref: "v0.1.0",
-    path: "plugins/asc",
+    plugins: ["asc"],
     pluginsDir: store,
     gitRunner,
     now: "2026-06-11T00:00:00Z",
@@ -343,7 +343,7 @@ test("github add (injected clone) records github provenance", async () => {
   rmSync(work, { recursive: true });
 });
 
-test("github add accepts a blob URL to a native manifest and installs the containing plugin", async () => {
+test("github add selects an explicitly declared plugin from a marketplace source", async () => {
   const work = tmp();
   const remote = join(work, "remote");
   const pluginRoot = join(remote, "honeycomb");
@@ -365,7 +365,8 @@ test("github add accepts a blob URL to a native manifest and installs the contai
 
   const store = join(work, "store");
   const { order, installed } = await addPlugins({
-    spec: "https://github.com/owner/repo/blob/main/honeycomb/.agents/.plugin.json",
+    spec: "owner/repo",
+    plugins: ["honeycomb"],
     pluginsDir: store,
     gitRunner,
     now: "2026-06-11T00:00:00Z",
@@ -375,6 +376,19 @@ test("github add accepts a blob URL to a native manifest and installs the contai
   assert.equal(installed.length, 1);
   assert.ok(existsSync(join(installed[0]!.installedTo, ".agents", ".plugin.json")));
   rmSync(work, { recursive: true });
+});
+
+test("github add rejects a subdirectory URL as a plugin selector", async () => {
+  const work = tmp();
+  try {
+    await assert.rejects(
+      () => addPlugins({
+        spec: "https://github.com/owner/repo/tree/main/plugins/demo",
+        pluginsDir: join(work, "store"),
+      }),
+      /GitHub subdirectory sources are not supported/,
+    );
+  } finally { rmSync(work, { recursive: true, force: true }); }
 });
 
 test("scanNativePlugins resolves Claude before Codex when both coexist", () => {
