@@ -25,7 +25,7 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
     throw new Error(`${file} is not a valid .plugin-lock.json`);
   }
   if (parsed.version === 3 || parsed.version === 4) {
-    // Read compatibility for the immediately preceding format keeps runtime
+    // Read compatibility for the retained v3 and v4 formats keeps runtime
     // adapters working before the user runs the explicit migration command.
     const upgraded = { ...parsed, version: LOCK_VERSION };
     pendingLockMigrations.set(upgraded, parsed.version);

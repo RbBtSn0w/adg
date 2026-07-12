@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -557,9 +557,12 @@ test("updatePlugins surfaces a source that cannot be fetched", async () => {
     const boom: GitRunner = () => {
       throw new Error("network down");
     };
+    const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("adg-marketplace-update-")));
     const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner: boom });
     assert.equal(results[0]!.failed !== undefined, true, "failure is recorded, not thrown");
     assert.deepEqual(results[0]!.updated, []);
+    const leaked = readdirSync(tmpdir()).filter((name) => name.startsWith("adg-marketplace-update-") && !before.has(name));
+    assert.deepEqual(leaked, [], "failed checkouts are removed before reporting the source failure");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

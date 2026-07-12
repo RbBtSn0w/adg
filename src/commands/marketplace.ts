@@ -236,11 +236,12 @@ export async function updatePlugins(
       const installed = [] as Awaited<ReturnType<typeof addPlugins>>["installed"];
       const available = new Set<string>();
       const checkout = mkdtempSync(join(tmpdir(), "adg-marketplace-update-"));
-      const parsed = parseSource(group.source);
-      if (parsed.kind !== "github") throw new Error(`unsupported remote source ${group.source}`);
-      cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
-      const resolvedRevision = gitRevision(checkout);
-      try { for (const request of requests) {
+      try {
+        const parsed = parseSource(group.source);
+        if (parsed.kind !== "github") throw new Error(`unsupported remote source ${group.source}`);
+        cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
+        const resolvedRevision = gitRevision(checkout);
+        for (const request of requests) {
         const result = await addPlugins({
           spec: group.source,
           pluginsDir: opts.pluginsDir,
@@ -265,7 +266,8 @@ export async function updatePlugins(
         installed.push(...result.installed);
         result.available.forEach((name) => available.add(name));
         if (result.agents) remoteAgents.push(...result.agents);
-      }} finally { rmSync(checkout, { recursive: true, force: true }); }
+        }
+      } finally { rmSync(checkout, { recursive: true, force: true }); }
       const availableSet = available;
       const installedNow = new Set(installed.map((r) => r.name));
       remote.push({
