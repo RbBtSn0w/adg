@@ -102,9 +102,11 @@ The lock records two hashes: `sourceHash` covers the complete cached payload and
 `installedHash` covers the effective selection. Runtime projections are excluded
 from both hashes so re-adapting does not churn content identity.
 
-The cache is scoped by a stable store id under the store's sibling
-`cache/plugins/` tree. `adg plugins cache status` reports its contents,
-`cache prune` removes orphan snapshots, and `cache clean --force` removes all
+The cache is scoped by a stable store id under the OS-managed
+system cache tree (`~/Library/Caches/adg/plugins/` on macOS,
+`$XDG_CACHE_HOME/adg/plugins/` on Linux). `adg plugins cache status` reports
+its contents, `cache restore` recreates missing snapshots from the exact lock
+revision, `cache prune` removes orphan snapshots, and `cache clean --force` removes all
 snapshots. A missing remote snapshot must be restored with `plugins update` or
 `plugins add`; a still-available local source is used directly as fallback.
 

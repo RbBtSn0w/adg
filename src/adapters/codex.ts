@@ -4,6 +4,7 @@ import type { AdgManifest, PluginSelection } from "../types.ts";
 import { resolveProjectedSkills } from "../skills.ts";
 import { isExposed } from "../components.ts";
 import { mcpConfigPath } from "../mcp.ts";
+import { recordTelemetryEvent } from "../telemetry.ts";
 import type { AdapterResult } from "./index.ts";
 
 /**
@@ -60,6 +61,18 @@ export function toCodexManifest(
     description: manifest.description,
     skills,
   };
+
+  const displayName = typeof manifest.interface?.displayName === "string" ? manifest.interface.displayName : undefined;
+  const explicitShortDescription = typeof manifest.interface?.shortDescription === "string" && manifest.interface.shortDescription.trim()
+    ? manifest.interface.shortDescription.trim()
+    : undefined;
+  out.interface = {
+    ...(displayName ? { displayName } : {}),
+    shortDescription: explicitShortDescription ?? manifest.description,
+  };
+  recordTelemetryEvent("adg.codex.interface", {
+    "interface.short_description_source": explicitShortDescription ? "explicit" : "manifest",
+  });
 
   if (manifest.author) out.author = manifest.author;
   if (manifest.homepage) out.homepage = manifest.homepage;

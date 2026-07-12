@@ -3,7 +3,7 @@
  */
 
 export const ADG_SCHEMA_VERSION = "adg.plugin/v1";
-export const LOCK_VERSION = 3;
+export const LOCK_VERSION = 4;
 
 export interface AdgAuthor {
   name: string;
@@ -13,6 +13,7 @@ export interface AdgAuthor {
 
 export interface AdgInterface {
   displayName?: string;
+  shortDescription?: string;
   icon?: string;
   [key: string]: unknown;
 }
@@ -147,6 +148,8 @@ export interface LockEntry {
   version: string;
   /** Content digest of the complete cached source payload. */
   sourceHash: Integrity;
+  /** Immutable remote commit used to create this snapshot (v4+ remote entries). */
+  resolvedRevision?: string;
   /** Content digest of the effective runtime installation. */
   installedHash: Integrity;
   installedAt: string;

@@ -74,7 +74,7 @@ authoring artifact:
   "author": { "name": "You", "url": "…", "email": "…" },
   "license": "MIT",
   "category": "Developer Tools",
-  "interface": { "displayName": "ASC", "icon": "asc.png" },
+  "interface": { "displayName": "ASC", "shortDescription": "Ship App Store releases with asc.", "icon": "asc.png" },
 
   // ── Components: path pointers, never inlined content ──
   "skills":   "./skills/",                     // string (root dir) | string[] (explicit paths)
@@ -108,7 +108,7 @@ authoring artifact:
 | `author` | `{ name, url?, email? }` | | |
 | `license` | string | | SPDX id, e.g. `MIT`. |
 | `category` | string | | Free-form, e.g. `Developer Tools`. |
-| `interface` | `{ displayName?, icon? }` | | Presentation only. |
+| `interface` | `{ displayName?, shortDescription?, icon? }` | | Presentation metadata. Codex uses `shortDescription` in its plugin picker; when omitted, ADG uses the manifest `description`. |
 | `skills` | string \| string[] | | Root dir (auto-scan) or explicit skill paths. |
 | `commands` | string | | Directory of slash-command `.md` files. |
 | `agents` | string | | Directory of sub-agent `.md` files. |

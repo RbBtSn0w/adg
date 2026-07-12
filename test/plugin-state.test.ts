@@ -185,6 +185,7 @@ test("enable computes agent compatibility after rematerialization", () => {
   writeFileSync(manifestFile, JSON.stringify(manifest));
   mkdirSync(join(cache, "skills", "hello"), { recursive: true });
   writeFileSync(join(cache, "skills", "hello", "SKILL.md"), "# hello\n");
+  installPlugin({ source: cache, pluginsDir: store, origin: lock.plugins.changing!.origin });
 
   const calls: Calls = { activate: [], deactivate: [] };
   enablePlugins({

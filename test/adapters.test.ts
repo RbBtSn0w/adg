@@ -171,6 +171,47 @@ test("codex adapter (strict) keeps the skills root (dir-form pass-through)", () 
   rmSync(dir, { recursive: true });
 });
 
+/*
+## Test Intent
+### Risk
+Codex's native plugin picker uses `interface.shortDescription`, while ADG used
+to emit only the long task-routing description. Plugins without custom UI
+metadata therefore render their marketplace name instead of useful copy.
+
+### Why Automation
+The defect is a deterministic manifest-projection boundary and must remain
+correct for every future ADG plugin, not only the currently installed catalog.
+
+### Why Existing Tests Insufficient
+Existing Codex adapter tests assert skills, hooks, and MCP projection but never
+exercise the native interface payload.
+
+### Chosen Layer
+Unit Test - projection is pure and this is the narrowest regression boundary.
+
+### Fragility Analysis
+Assertions cover only documented native interface fields and avoid relying on
+JSON serialization order or the picker UI.
+
+### If Omitted
+New ADG plugins can silently regress to showing `adg` in Codex's picker.
+*/
+test("codex adapter synthesizes and preserves picker short descriptions", () => {
+  const dir = tmp();
+  const synthesized = toCodexManifest(dir, baseManifest).manifest;
+  assert.deepEqual(synthesized.interface, { shortDescription: "Demo plugin." });
+
+  const explicit = toCodexManifest(dir, {
+    ...baseManifest,
+    interface: { displayName: "Demo UI", shortDescription: "  A concise picker summary.  " },
+  }).manifest;
+  assert.deepEqual(explicit.interface, {
+    displayName: "Demo UI",
+    shortDescription: "A concise picker summary.",
+  });
+  rmSync(dir, { recursive: true });
+});
+
 test("strict adapters default an omitted skills field to the ./skills/ root", () => {
   const dir = tmp();
   mkdirSync(join(dir, "skills", "one"), { recursive: true });

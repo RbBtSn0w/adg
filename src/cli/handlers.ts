@@ -12,7 +12,7 @@ import { removePlugin } from "../commands/remove.ts";
 import { disablePlugins, enablePlugins } from "../commands/state.ts";
 import { migrateLayout } from "../commands/migrate.ts";
 import { pluginStatus } from "../commands/status.ts";
-import { cleanPluginCache, pluginCacheStatus, prunePluginCache } from "../commands/cache.ts";
+import { cleanPluginCache, pluginCacheStatus, prunePluginCache, restorePluginCache } from "../commands/cache.ts";
 import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult, type ScopeInfo } from "../commands/marketplace.ts";
 import { initScaffold, type InitType } from "../commands/init.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../commands/select-components.ts";
@@ -622,7 +622,8 @@ async function runCache(args: string[]): Promise<void> {
     console.log(ui.meta(status.root));
     if (status.entries.length === 0) console.log(ui.meta("cache is empty"));
     for (const entry of status.entries) {
-      console.log(`${entry.orphan ? ui.warn("orphan") : ui.ok("cached")} ${ui.name(entry.name)} ${ui.meta(`${entry.bytes} bytes`)}`);
+      const label = entry.orphan ? ui.warn("orphan") : entry.recovery === "present" ? ui.ok("cached") : ui.warn(entry.recovery ?? "cached");
+      console.log(`${label} ${ui.name(entry.name)} ${ui.meta(`${entry.bytes} bytes`)}`);
     }
     console.log(ui.meta(`total: ${status.totalBytes} bytes`));
     return;
@@ -640,6 +641,13 @@ async function runCache(args: string[]): Promise<void> {
     const scope = await resolveActionScope(values, "cache clean");
     cleanPluginCache(scope.pluginsDir);
     console.log(ui.ok("cache cleaned"));
+    return;
+  }
+  if (sub === "restore") {
+    const { values, positionals } = parseVerb("cache", [...SCOPE], rest);
+    const scope = await resolveActionScope(values, "cache restore");
+    const restored = restorePluginCache(scope.pluginsDir, positionals);
+    console.log(restored.length > 0 ? `${ui.ok("restored")} ${restored.join(", ")}` : ui.meta("no source snapshots to restore"));
     return;
   }
   fail(`unknown cache subcommand: ${sub}`);

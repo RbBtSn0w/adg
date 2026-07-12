@@ -1,13 +1,16 @@
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readLock } from "../lock.ts";
-import { lockPath, pluginCacheRoot } from "../paths.ts";
+import { legacyPluginCacheRoot, legacyPluginSourceCacheDir, lockPath, pluginCacheRoot, pluginSourceCacheDir } from "../paths.ts";
+import { resolvePluginSourceSnapshot } from "../source-cache.ts";
+import type { LockEntry } from "../types.ts";
 
 export interface PluginCacheEntry {
   name: string;
   path: string;
   bytes: number;
   orphan: boolean;
+  recovery?: "present" | "legacy" | "missing-recoverable" | "missing-unrecoverable";
 }
 
 export interface PluginCacheStatus {
@@ -36,19 +39,81 @@ export function directoryBytes(dir: string): number {
   return total;
 }
 
+function cacheDirectories(root: string): string[] {
+  try {
+    if (!existsSync(root)) return [];
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+function removeRootIfEmpty(root: string): void {
+  try {
+    if (existsSync(root) && readdirSync(root).length === 0) rmSync(root, { recursive: true, force: true });
+  } catch {
+    // A concurrent cache mutation or unreadable directory must not make prune fail.
+  }
+}
+
 export function pluginCacheStatus(pluginsDir: string): PluginCacheStatus {
   const root = pluginCacheRoot(pluginsDir);
-  const installed = new Set(Object.keys(readLock(lockPath(pluginsDir)).plugins));
-  const entries = existsSync(root)
-    ? readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-      .map((entry) => {
-        const path = join(root, entry.name);
-        return { name: entry.name, path, bytes: directoryBytes(path), orphan: !installed.has(entry.name) };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-    : [];
+  const lock = readLock(lockPath(pluginsDir));
+  const installed = new Set(Object.keys(lock.plugins));
+  let entries: PluginCacheEntry[] = [];
+  try {
+    if (existsSync(root)) {
+      entries = cacheDirectories(root)
+        .map((name) => {
+          const path = join(root, name);
+          return { name, path, bytes: directoryBytes(path), orphan: !installed.has(name), recovery: "present" as const };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+  } catch {
+    // Treat an unreadable or concurrently removed directory as empty.
+  }
+  for (const [name, entry] of Object.entries(lock.plugins)) {
+    if (entries.some((item) => item.name === name)) continue;
+    const legacy = legacyPluginSourceCacheDir(pluginsDir, name);
+    const localRecoverable = entry.origin.type === "local" && existsSync(resolve(pluginsDir, entry.origin.path));
+    const remoteRecoverable = (entry.origin.type === "github" || entry.origin.type === "git") && Boolean(entry.resolvedRevision);
+    const hasLegacy = existsSync(legacy);
+    entries.push({
+      name,
+      path: hasLegacy ? legacy : pluginSourceCacheDir(pluginsDir, name),
+      bytes: hasLegacy ? directoryBytes(legacy) : 0,
+      orphan: false,
+      recovery: hasLegacy ? "legacy" : (localRecoverable || remoteRecoverable ? "missing-recoverable" : "missing-unrecoverable"),
+    });
+  }
+  const seen = new Set(entries.map((entry) => entry.name));
+  for (const name of cacheDirectories(legacyPluginCacheRoot(pluginsDir))) {
+    if (seen.has(name)) continue;
+    if (installed.has(name)) continue;
+    const path = legacyPluginSourceCacheDir(pluginsDir, name);
+    entries.push({ name, path, bytes: directoryBytes(path), orphan: true, recovery: "legacy" });
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   return { root, entries, totalBytes: entries.reduce((sum, entry) => sum + entry.bytes, 0) };
+}
+
+/** Restore the selected snapshots with lock-hash verification. */
+export function restorePluginCache(pluginsDir: string, names?: string[]): string[] {
+  const lock = readLock(lockPath(pluginsDir));
+  const selected = names?.length ? [...new Set(names)] : Object.keys(lock.plugins);
+  const missing = selected.filter((name) => !lock.plugins[name]);
+  if (missing.length > 0) throw new Error(`not installed: ${missing.join(", ")}. See \`adg plugins list\`.`);
+  const restored: string[] = [];
+  for (const name of selected) {
+    const cache = pluginSourceCacheDir(pluginsDir, name);
+    const wasPresent = existsSync(cache);
+    resolvePluginSourceSnapshot(pluginsDir, name, lock.plugins[name] as LockEntry);
+    if (!wasPresent) restored.push(name);
+  }
+  return restored;
 }
 
 /** Delete cache snapshots that have no corresponding lock entry. */
@@ -56,11 +121,18 @@ export function prunePluginCache(pluginsDir: string): string[] {
   const status = pluginCacheStatus(pluginsDir);
   const removed = status.entries.filter((entry) => entry.orphan);
   for (const entry of removed) rmSync(entry.path, { recursive: true, force: true });
-  if (existsSync(status.root) && readdirSync(status.root).length === 0) rmSync(status.root, { recursive: true, force: true });
-  return removed.map((entry) => entry.name);
+  const installed = new Set(Object.keys(readLock(lockPath(pluginsDir)).plugins));
+  const legacyRoot = legacyPluginCacheRoot(pluginsDir);
+  for (const name of cacheDirectories(legacyRoot)) {
+    if (!installed.has(name)) rmSync(legacyPluginSourceCacheDir(pluginsDir, name), { recursive: true, force: true });
+  }
+  removeRootIfEmpty(status.root);
+  removeRootIfEmpty(legacyRoot);
+  return [...new Set(removed.map((entry) => entry.name))];
 }
 
 /** Delete every rebuildable source snapshot for this store. */
 export function cleanPluginCache(pluginsDir: string): void {
   rmSync(pluginCacheRoot(pluginsDir), { recursive: true, force: true });
+  rmSync(legacyPluginCacheRoot(pluginsDir), { recursive: true, force: true });
 }

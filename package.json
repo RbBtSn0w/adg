@@ -24,7 +24,9 @@
   "scripts": {
     "adg": "node ./bin/adg.ts",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --noCheck && node -e \"require('fs').chmodSync('dist/bin/adg.js',0o755)\"",
-    "test": "node --test 'test/**/*.test.ts'",
+    "test": "node scripts/run-tests.mjs \"test/**/*.test.ts\" test/cache-sandbox.test.mjs",
+    "test:codex-sandbox": "node --test test/codex-sandbox.test.mjs",
+    "test:cache-sandbox": "node --test test/cache-sandbox.test.mjs",
     "check:vendor-deps": "node scripts/check-vendor-deps.mjs",
     "audit:prod": "npm audit --omit=dev",
     "typecheck": "tsc --noEmit",

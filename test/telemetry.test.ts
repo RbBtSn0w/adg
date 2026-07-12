@@ -1,17 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Attributes, Span } from "@opentelemetry/api";
 
-import { readLock } from "../src/lock.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
 import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath, sanitizeArgs } from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
-import { defaultGitRunner } from "../src/sources.ts";
+import { defaultGitRunner, gitErrorType, runGit } from "../src/sources.ts";
 
 interface RecordedEvent {
   name: string;
@@ -82,6 +83,38 @@ test("manifest and lock readers record observed format versions", () => {
   rmSync(root, { recursive: true });
 });
 
+/*
+## Test Intent
+### Risk
+A v3 lock can be transparently upgraded to v4 by ordinary write commands, making real migrations invisible to telemetry.
+### Why Automation
+The bug requires the read-then-write interaction across two lock API calls; a migration-command test does not exercise it.
+### Why Existing Tests Insufficient
+Existing telemetry tests cover explicit `migrate`, but not compatibility reads followed by a normal persistence path.
+### Chosen Layer
+Unit Test - the lock reader/writer transition is deterministic and has no filesystem or agent runtime dependency beyond a temp lock file.
+### Fragility Analysis
+The assertion targets the persisted lock version and public telemetry event, not internal migration bookkeeping.
+### If Omitted
+Production lock upgrades continue to be undercounted, defeating the telemetry-based legacy-removal decision.
+*/
+test("persisting a compatibility-read v3 lock records its implicit migration", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const file = join(root, ".plugin-lock.json");
+  const events: RecordedEvent[] = [];
+  writeFileSync(file, JSON.stringify({ version: 3, plugins: {} }));
+
+  const lock = readLock(file, eventSpan(events));
+  writeLock(file, lock, eventSpan(events));
+
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 4);
+  assert.deepEqual(events, [
+    { name: "adg.lock.read", attributes: { "format.version": 3 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 4 } },
+  ]);
+  rmSync(root, { recursive: true });
+});
+
 test("legacy manifest layout is measurable without recording its path", () => {
   const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
   const events: RecordedEvent[] = [];
@@ -141,8 +174,23 @@ test("a successful v2 migration records read and transition versions", () => {
 
   assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
     { name: "adg.lock.read", attributes: { "format.version": 2 } },
-    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 3 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 4 } },
+    { name: "adg.lock.read", attributes: { "format.version": 4 } },
+  ]);
+  rmSync(root, { recursive: true });
+});
+
+test("a successful v3 migration records v3 as an observed format", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-telemetry-"));
+  const events: RecordedEvent[] = [];
+  writeFileSync(join(root, ".plugin-lock.json"), JSON.stringify({ version: 3, plugins: {} }));
+
+  migrateLayout(root, eventSpan(events));
+
+  assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
     { name: "adg.lock.read", attributes: { "format.version": 3 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 4 } },
+    { name: "adg.lock.read", attributes: { "format.version": 4 } },
   ]);
   rmSync(root, { recursive: true });
 });
@@ -254,6 +302,97 @@ test("git runner throws on failure", () => {
   }
 });
 
+/*
+## Test Intent
+### Risk
+Git subprocess failure spans can report an unhelpful or non-string error.type, making CLI telemetry unsuitable for grouping failures.
+### Why Automation
+The error-type contract is a telemetry semantic convention and must remain stable across spawn and exit failures.
+### Why Existing Tests Insufficient
+Existing runner tests verify that failures throw, but do not assert the normalized telemetry classification.
+### Chosen Layer
+Unit Test - error classification is pure and does not require a real subprocess or exporter.
+### Fragility Analysis
+The test asserts the public low-cardinality values, not error object internals beyond the documented code/status inputs.
+### If Omitted
+Non-zero Git exits can collapse into generic Error classifications or emit invalid telemetry attributes.
+*/
+test("git error type preserves codes and classifies exits by status", () => {
+  assert.equal(gitErrorType({ code: "ENOENT" }, 1), "ENOENT");
+  assert.equal(gitErrorType({ code: 42 }, 1), "42");
+  assert.equal(gitErrorType({ name: "Error" }, 128), "EXIT_CODE_128");
+});
+
+/*
+## Test Intent
+### Risk
+Non-capturing Git operations can fail on a valid large repository solely because their unused stdout is buffered by Node's default maxBuffer.
+### Why Automation
+The failure depends on subprocess output size and is not covered by ordinary Git success tests.
+### Why Existing Tests Insufficient
+Existing runner tests only use tiny version/error output and therefore never exercise the buffer boundary.
+### Chosen Layer
+Integration Test - a local Git blob exceeds Node's default buffer without depending on network or a remote repository.
+### Fragility Analysis
+The assertion checks successful non-capturing execution of a known-size Git output; it does not depend on implementation details such as exact stdio options.
+### If Omitted
+Plugin installation and immutable cache recovery can fail on otherwise valid, noisy Git operations.
+*/
+test("git runner does not buffer unused large output", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-git-output-"));
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    execFileSync("git", ["init", root]);
+    writeFileSync(join(root, "large.bin"), Buffer.alloc(2 * 1024 * 1024));
+    execFileSync("git", ["-C", root, "add", "large.bin"]);
+    execFileSync("git", ["-C", root, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "large blob"]);
+    assert.equal(runGit(["-C", root, "show", "HEAD:large.bin"]), undefined);
+  } catch (error: any) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  } finally {
+    if (originalDisable === undefined) delete process.env.DISABLE_TELEMETRY;
+    else process.env.DISABLE_TELEMETRY = originalDisable;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/*
+## Test Intent
+### Risk
+Captured Git output can contain meaningful leading whitespace. Removing it changes the helper's public return value before a caller can interpret it.
+### Why Automation
+Only an actual Git subprocess verifies that the output-normalization boundary preserves content rather than just a mocked string.
+### Why Existing Tests Insufficient
+Existing Git runner coverage checks failure and large uncaptured output, but not captured output with significant whitespace.
+### Chosen Layer
+Integration Test - a tiny local Git repository exercises the exported helper's real capture path.
+### Fragility Analysis
+The assertion depends only on Git returning committed file contents, not on temporary paths, command order, or telemetry internals.
+### If Omitted
+A future refactor can silently strip user-visible data from every captured Git command.
+*/
+test("git runner preserves leading whitespace in captured output", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-git-whitespace-"));
+  const originalDisable = process.env.DISABLE_TELEMETRY;
+  process.env.DISABLE_TELEMETRY = "1";
+  try {
+    execFileSync("git", ["init", root]);
+    writeFileSync(join(root, "value.txt"), "  preserved leading whitespace\n");
+    execFileSync("git", ["-C", root, "add", "value.txt"]);
+    execFileSync("git", ["-C", root, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "whitespace"]);
+    assert.equal(runGit(["-C", root, "show", "HEAD:value.txt"], true), "  preserved leading whitespace");
+  } catch (error: any) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  } finally {
+    if (originalDisable === undefined) delete process.env.DISABLE_TELEMETRY;
+    else process.env.DISABLE_TELEMETRY = originalDisable;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("sanitizePath unconditionally redacts non-empty strings to [PATH]", () => {
   assert.equal(sanitizePath(undefined), "");
   assert.equal(sanitizePath(""), "");
@@ -301,4 +440,3 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
 });
-

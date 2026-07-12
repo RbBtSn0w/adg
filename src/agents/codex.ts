@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { SpanKind } from "@opentelemetry/api";
 import { codexMarketplaceRoot, globalPluginsDir, marketplacePath } from "../paths.ts";
 import { readMarketplace, writeMarketplace } from "../marketplace.ts";
 import { makeCli, skippedResult } from "./base.ts";
+import { reconcileCodexMarketplaceAliases } from "../codex-marketplace-migration.ts";
+import { getTracer, recordTelemetryEvent } from "../telemetry.ts";
 import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentSyncResult } from "./types.ts";
 
 const UNRECOGNIZED_PLUGIN_LIST = "codex plugin list returned unrecognized output";
@@ -65,6 +68,31 @@ export function syncMarketplace(
   }
 }
 
+/**
+ * Best-effort retirement of historical aliases after canonical installs succeed.
+ * Keep this compatibility path only until telemetry reports no legacy aliases for
+ * two release cycles.
+ */
+function reconcileLegacyAliases(pluginsDir: string, marketplace: string, plugins: string[]): void {
+  getTracer().startActiveSpan("adg.codex.marketplace_alias_migration", { kind: SpanKind.INTERNAL }, (span) => {
+    try {
+      const result = reconcileCodexMarketplaceAliases({
+        pluginsDir,
+        marketplace,
+        plugins,
+        readConfig: () => readFileSync(join(codexHome(process.env), "config.toml"), "utf8"),
+        run,
+        report: (attributes) => recordTelemetryEvent("adg.codex.marketplace_alias_migration", attributes, span),
+      });
+      if (result.outcome === "partial") {
+        console.warn("Codex legacy marketplace alias cleanup was only partially completed; rerun `adg plugins sync --target codex` to retry.");
+      }
+    } finally {
+      span.end();
+    }
+  });
+}
+
 export const codexAgent: Agent = {
   id: "codex",
   displayName: "Codex",
@@ -80,6 +108,7 @@ export const codexAgent: Agent = {
     for (const p of ctx.plugins) {
       if (run(["plugin", "add", `${p}@${mp}`]).ok) affected.push(p);
     }
+    if (ctx.reconcileLegacyAliases && affected.length > 0) reconcileLegacyAliases(ctx.pluginsDir, mp, affected);
     return { agent: "codex", affected, skipped: false };
   },
 

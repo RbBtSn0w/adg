@@ -122,22 +122,36 @@ export function cloneGitHub(
 export type GitRunner = (args: string[]) => void;
 
 export const defaultGitRunner: GitRunner = (args) => {
+  runGit(args);
+};
+
+/** Return a low-cardinality, string-safe error type for Git subprocess spans. */
+export function gitErrorType(error: unknown, exitCode: number): string {
+  const code = error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+  return code === undefined || code === null ? `EXIT_CODE_${exitCode}` : String(code);
+}
+
+/** Run git under the shared CLI semantic-convention instrumentation. */
+export function runGit(args: string[], captureOutput = false): string | undefined {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
       span.setAttribute("process.executable.name", "git");
       span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
 
-      execFileSync("git", args, { stdio: "pipe" });
+      const output = execFileSync("git", args, captureOutput
+        ? { stdio: "pipe", encoding: "utf8" }
+        : { stdio: "ignore" });
 
       span.setAttribute("process.exit.code", 0);
+      return captureOutput ? String(output).trimEnd() : undefined;
     } catch (error: any) {
       const exitCode = typeof error.status === "number" ? error.status : 1;
       span.setAttribute("process.exit.code", exitCode);
       if (typeof error.pid === "number") {
         span.setAttribute("process.pid", error.pid);
       }
-      span.setAttribute("error.type", error.code || error.name || `EXIT_CODE_${exitCode}`);
+      span.setAttribute("error.type", gitErrorType(error, exitCode));
       span.recordException(error as Error);
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -149,6 +163,17 @@ export const defaultGitRunner: GitRunner = (args) => {
     }
   });
 };
+
+/** Resolve the immutable commit checked out in a cloned worktree. */
+export function gitRevision(dir: string): string | undefined {
+  try {
+    return runGit(["-C", dir, "rev-parse", "HEAD"], true) || undefined;
+  } catch {
+    // Injected/offline clone runners in tests may materialize a plain directory.
+    // Such entries remain legacy until a real update records an immutable commit.
+    return undefined;
+  }
+}
 
 /**
  * Recursively find ADG plugins under `root` (directories containing

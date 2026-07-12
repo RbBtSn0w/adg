@@ -7,7 +7,7 @@
   "required": ["version", "plugins"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "description": "Lock file format version.", "const": 3 },
+    "version": { "type": "integer", "description": "Lock file format version.", "enum": [3, 4] },
     "plugins": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/lockEntry" }
@@ -29,6 +29,10 @@
           "type": "string",
           "description": "Digest of the complete cached source payload.",
           "pattern": "^[a-z0-9]+-[0-9a-f]+$"
+        },
+        "resolvedRevision": {
+          "type": "string",
+          "description": "Immutable remote commit that produced the cached source payload."
         },
         "installedHash": {
           "type": "string",

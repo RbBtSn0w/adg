@@ -60,7 +60,12 @@ export function syncPlugins(opts: SyncOptions): SyncResult {
   const scope = opts.global ? "user" : "project";
   const parts = [
     ...(disabled.length > 0 ? [agent.deactivate({ pluginsDir: opts.pluginsDir, plugins: disabled.map((p) => p.name), scope })] : []),
-    ...(enabled.length > 0 ? [agent.refresh({ pluginsDir: opts.pluginsDir, plugins: enabled.map((p) => p.name), scope })] : []),
+    ...(enabled.length > 0 ? [agent.refresh({
+      pluginsDir: opts.pluginsDir,
+      plugins: enabled.map((p) => p.name),
+      scope,
+      ...(opts.target === "codex" ? { reconcileLegacyAliases: true } : {}),
+    })] : []),
   ];
   for (const action of actions) if (parts.some((part) => part.affected.includes(action.name))) action.synced = true;
   return { target: opts.target, actions, cliSkipped: parts.length > 0 && parts.every((part) => part.skipped) };

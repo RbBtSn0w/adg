@@ -260,7 +260,12 @@ test("link --target codex regenerates the manifest and activates via the agent",
   assert.equal(res.actions[0]!.name, "demo");
   assert.ok(existsSync(join(store, "demo", ".codex-plugin", "plugin.json")));
   assert.equal(res.actions[0]!.linkedTo, "Codex");
-  assert.deepEqual(calls.map((c) => c.plugins), [["demo"]]);
+  assert.deepEqual(calls, [{
+    pluginsDir: store,
+    plugins: ["demo"],
+    scope: "project",
+    reconcileLegacyAliases: true,
+  }]);
   rmSync(work, { recursive: true });
 });
 

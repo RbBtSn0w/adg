@@ -60,6 +60,7 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
     pluginsDir: opts.pluginsDir,
     plugins: actions.map((a) => a.name),
     scope: opts.global ? "user" : "project",
+    ...(opts.target === "codex" ? { reconcileLegacyAliases: true } : {}),
   });
   for (const a of actions) if (res.affected.includes(a.name)) a.linkedTo = agent.displayName;
   return { target: opts.target, actions, cliSkipped: res.skipped };

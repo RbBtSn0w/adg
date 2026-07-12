@@ -3,7 +3,7 @@ import { relative } from "node:path";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { ADAPTER_TARGETS } from "../adapters/index.ts";
 import { installPlugin, type InstallResult } from "./install.ts";
-import { pluginRematerializationSource } from "../paths.ts";
+import { resolvePluginSourceSnapshot } from "../source-cache.ts";
 
 /**
  * Shared selection for the projection verbs (link / unlink / sync). Resolve which
@@ -48,9 +48,10 @@ export function rematerializeInstalled(
 ): InstallResult[] {
   return plugins.map((plugin) =>
     installPlugin({
-      source: pluginRematerializationSource(pluginsDir, plugin.name, plugin.origin),
+      source: resolvePluginSourceSnapshot(pluginsDir, plugin.name, plugin),
       pluginsDir,
       origin: plugin.origin,
+      resolvedRevision: plugin.resolvedRevision,
       selection: plugin.selection,
       targets: [...ADAPTER_TARGETS],
       forceMaterialize: true,

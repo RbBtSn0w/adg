@@ -3,6 +3,9 @@ import type { Span } from "@opentelemetry/api";
 import { recordTelemetryEvent } from "./telemetry.ts";
 import { LOCK_VERSION, type LockEntry, type PluginLock } from "./types.ts";
 
+/** Compatibility reads are upgraded in memory; record the transition on first successful persistence. */
+const pendingLockMigrations = new WeakMap<PluginLock, number>();
+
 export function emptyLock(): PluginLock {
   return { version: LOCK_VERSION, plugins: {} };
 }
@@ -11,11 +14,18 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
   if (!existsSync(file)) return emptyLock();
   const raw = JSON.parse(readFileSync(file, "utf8")) as PluginLock;
   if (typeof raw?.version === "number") {
-    const observed = raw.version === 2 || raw.version === LOCK_VERSION ? raw.version : -1;
+    const observed = raw.version === 2 || raw.version === 3 || raw.version === LOCK_VERSION ? raw.version : -1;
     recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
   }
   if (typeof raw.version !== "number" || typeof raw.plugins !== "object" || raw.plugins === null) {
     throw new Error(`${file} is not a valid .plugin-lock.json`);
+  }
+  if (raw.version === 3) {
+    // Read compatibility for the immediately preceding format keeps runtime
+    // adapters working before the user runs the explicit migration command.
+    const upgraded = { ...raw, version: LOCK_VERSION };
+    pendingLockMigrations.set(upgraded, 3);
+    return upgraded;
   }
   if (raw.version !== LOCK_VERSION) {
     throw new Error(
@@ -26,8 +36,17 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
   return raw;
 }
 
-export function writeLock(file: string, lock: PluginLock): void {
+export function writeLock(file: string, lock: PluginLock, telemetrySpan?: Pick<Span, "addEvent">): void {
   writeFileSync(file, JSON.stringify(lock, null, 2) + "\n");
+  const fromVersion = pendingLockMigrations.get(lock);
+  if (fromVersion !== undefined) {
+    pendingLockMigrations.delete(lock);
+    recordTelemetryEvent(
+      "adg.lock.migrate",
+      { "from.version": fromVersion, "to.version": LOCK_VERSION },
+      telemetrySpan,
+    );
+  }
 }
 
 /**
