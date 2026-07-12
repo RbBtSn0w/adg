@@ -156,31 +156,32 @@ test("addPlugins installs a raw skills repository as a default plugin", async ()
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("addPlugins selects a structural source root supplied through --path", async () => {
+test("addPlugins rejects a structural subdirectory supplied through --path", async () => {
   const root = scratch();
   const store = join(root, "store");
   try {
     const source = join(root, "packages", "release-tools");
     skill(source, "ship");
-    const result = await addPlugins({ spec: root, path: "packages/release-tools", as: "release-tools", pluginsDir: store, targets: ["codex"], now: "2026-07-12T00:00:00Z" });
-    assert.deepEqual(result.order, ["release-tools"]);
+    await assert.rejects(
+      () => addPlugins({ spec: root, path: "packages/release-tools", as: "release-tools", pluginsDir: store, targets: ["codex"], now: "2026-07-12T00:00:00Z" }),
+      /Default DSL only supports the source root/,
+    );
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("addPlugins scopes manifest discovery to a structural --path", async () => {
+test("addPlugins selects an explicit manifest supplied through --path", async () => {
   const root = scratch();
   const store = join(root, "store");
   try {
-    skill(join(root, "packages", "release-tools"), "ship");
-    mkdirSync(join(root, "packages", "native", ".agents"), { recursive: true });
-    writeFileSync(join(root, "packages", "native", ".agents", ".plugin.json"), JSON.stringify({
-      schemaVersion: "adg.plugin/v1", name: "native", version: "1.0.0", description: "Native.",
+    const source = join(root, "packages", "release-tools");
+    skill(source, "ship");
+    mkdirSync(join(source, ".agents"), { recursive: true });
+    writeFileSync(join(source, ".agents", ".plugin.json"), JSON.stringify({
+      schemaVersion: "adg.plugin/v1", name: "release-tools", version: "1.0.0", description: "Release tools.",
     }));
-
     const result = await addPlugins({
       spec: root,
       path: "packages/release-tools",
-      as: "release-tools",
       pluginsDir: store,
       targets: ["codex"],
       now: "2026-07-12T00:00:00Z",
@@ -245,6 +246,7 @@ test("a local structural plugin can be updated from its raw source", async () =>
     const before = readLock(lockPath(store));
     const installedName = Object.keys(before.plugins)[0]!;
     const previousDescription = before.plugins[installedName]!.definition!.description;
+    assert.equal(before.plugins[installedName]!.definition!.root, ".");
     skill(root, "two");
     const result = updateLock(store, "2026-07-13T00:00:00Z");
     assert.equal(result.missing.length, 0);

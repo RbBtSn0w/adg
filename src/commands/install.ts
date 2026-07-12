@@ -563,34 +563,22 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   }
 
   try {
-    // A selected subdirectory is its own source boundary. Discovering the
-    // checkout as a whole would let unrelated manifests suppress Default DSL
-    // fallback for a structural plugin under --path.
-    const sourceRoot = resolveSourcePath(workRoot, path ?? ".");
-    let candidates: Map<string, PluginCandidate>;
-    let converted: string[];
-    if (path) {
-      const scoped = discoverPlugins(sourceRoot);
-      converted = scoped.converted;
-      // Keep the repository-wide ADG manifest index for dependency resolution,
-      // but do not reverse-adapt unrelated native manifests. When the selected
-      // root has no manifest, leave the candidate set empty so it takes the
-      // Default DSL path below.
-      candidates = scoped.candidates.size > 0 ? scanPlugins(workRoot) : scoped.candidates;
-    } else {
-      ({ candidates, converted } = discoverPlugins(workRoot));
-    }
+    if (path) resolveSourcePath(workRoot, path);
+    let { candidates, converted } = discoverPlugins(workRoot);
     const existingLock = readLock(lockPath(opts.pluginsDir));
     if (candidates.size > 0 && opts.plugins?.some((name) => existingLock.plugins[name]?.definition)) {
       throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
     }
-    if (candidates.size > 0 && opts.as) {
+    if (candidates.size === 0 && path) {
+      throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
+    }
+    if ((path || candidates.size > 0) && opts.as) {
       throw new Error("--as is only supported for a default structural plugin source");
     }
     if (candidates.size === 0) {
       if (parsed.kind === "github" && !opts.preparedSourceDir) defaultDescription = await githubRepositoryDescription(parsed.source);
-      const structuralIdentity = opts.as ?? (path ? basename(sourceRoot) : parsed.kind === "github" ? parsed.repo : basename(sourceRoot));
-      const generated = resolveDefaultDsl(sourceRoot, {
+      const structuralIdentity = opts.as ?? (parsed.kind === "github" ? parsed.repo : basename(workRoot));
+      const generated = resolveDefaultDsl(workRoot, {
         name: structuralIdentity,
         description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
       });
@@ -598,13 +586,13 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
       }
       const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
-      copyPluginDir(sourceRoot, staging);
+      copyPluginDir(workRoot, staging);
       writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
       candidates = scanPlugins(staging);
       structuralName = generated.manifest.name;
       converted = [];
-      originDirOverride = sourceRoot;
-      definition = { kind: "default-dsl/v1", root: toPosix(relative(workRoot, sourceRoot)) || ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint };
+      originDirOverride = workRoot;
+      definition = { kind: "default-dsl/v1", root: ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint };
       cleanup = (() => {
         const prior = cleanup;
         return () => { rmSync(staging, { recursive: true, force: true }); prior?.(); };

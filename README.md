@@ -41,8 +41,10 @@ plugin metadata; its `skills`, `hooks`, and `mcpServers` fields override only
 their matching defaults, while omitted fields inherit valid standard locations.
 For structural sources, `--as` sets a stable installed identity and `--only`
 limits both the stored payload and runtime exposure. In non-interactive runs,
-discovered hooks or MCP require explicit `--only`. Inspect before installing
-with `adg plugins inspect <source> --path <subdir> --json`.
+discovered hooks or MCP require explicit `--only`. Default DSL applies only to
+the source root; `--path` requires an explicit `.agents/.plugin.json`.
+It is not a monorepo convention: every member of a multi-plugin repository must
+declare its own `.agents/.plugin.json`, and `--path` only selects such a member.
 
 ---
 
@@ -279,7 +281,7 @@ adg plugins add plugins/my-plugin --project        # <repo>/.agents/plugins
 adg plugins add plugins/my-plugin --global         # ~/.agents/plugins
 adg plugins add plugins/asc --dir plugins          # explicit target dir
 
-# add from GitHub (shorthand, @ref, or full URL); --path selects a monorepo subdir
+# add from GitHub (shorthand, @ref, or full URL); --path selects an explicit plugin root
 adg plugins add owner/repo --dir plugins
 adg plugins add owner/repo@v0.1.0 --path plugins/asc --dir plugins
 adg plugins add https://github.com/owner/repo.git --ref main --dir plugins

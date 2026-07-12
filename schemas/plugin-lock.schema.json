@@ -51,7 +51,7 @@
           "additionalProperties": false,
           "properties": {
             "kind": { "const": "default-dsl/v1" },
-            "root": { "type": "string" },
+            "root": { "const": "." },
             "as": { "type": "string" },
             "description": { "type": "string" },
             "fingerprint": { "type": "string" }

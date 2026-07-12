@@ -93,8 +93,14 @@ slot; omitted fields inherit valid defaults. A malformed inherited default slot
 is an error, while an explicitly overridden slot is not interpreted. `--as` is
 available only for structural sources. `--only` controls both copied payload and
 runtime projection; non-interactive hooks/MCP discovery requires explicit
-`--only`. `adg plugins inspect <source> --path <subdir> --json` resolves either
-form without changing a plugin store.
+`--only`. `adg plugins inspect <source> --path <subdir> --json` requires an
+explicit manifest at that subdirectory; Default DSL is source-root only.
+
+Default DSL is deliberately **not** a monorepo discovery convention. A source
+repository containing multiple plugins must declare every member with its own
+`.agents/.plugin.json` (and may use `.agents/.marketplace.json` as its catalog).
+`--path` selects one such explicit member; it never derives a Default DSL from a
+subdirectory.
 
 ## 4. Packaging — manifest-driven allowlist
 

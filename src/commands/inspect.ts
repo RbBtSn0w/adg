@@ -31,6 +31,9 @@ export async function inspectSource(opts: { spec: string; path?: string; ref?: s
   const parsed = parseSource(opts.spec);
   if (parsed.kind === "local") {
     const root = resolveSourcePath(parsed.dir, opts.path ?? ".");
+    if (opts.path && !findManifestFile(root)) {
+      throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
+    }
     return inspectPlugin(root);
   }
 
@@ -39,6 +42,9 @@ export async function inspectSource(opts: { spec: string; path?: string; ref?: s
     cloneGitHub({ ...parsed, ref: opts.ref ?? parsed.ref }, staging, { runner: opts.gitRunner });
     const selectedPath = opts.path ?? parsed.path;
     const root = resolveSourcePath(staging, selectedPath ?? ".");
+    if (selectedPath && !findManifestFile(root)) {
+      throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
+    }
     const identity = selectedPath ? basename(root) : parsed.repo;
     const result = inspectPlugin(root, { name: identity, description: identity });
     return { ...result, root: opts.path ?? parsed.path ?? "." };

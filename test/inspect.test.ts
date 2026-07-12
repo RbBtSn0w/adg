@@ -27,3 +27,13 @@ test("inspectSource rejects a --path that escapes a local source root", async ()
     await assert.rejects(() => inspectSource({ spec: source, path: "../outside" }), /path must stay within the source root/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
+
+test("inspectSource rejects Default DSL under --path", async () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-inspect-root-"));
+  try {
+    const subdir = join(root, "packages", "skills");
+    mkdirSync(join(subdir, "skills", "demo"), { recursive: true });
+    writeFileSync(join(subdir, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\n");
+    await assert.rejects(() => inspectSource({ spec: root, path: "packages/skills" }), /Default DSL only supports the source root/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

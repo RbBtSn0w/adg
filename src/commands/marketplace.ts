@@ -221,14 +221,12 @@ export async function updatePlugins(
         return definition ? [{ name, definition }] : [];
       });
       const ordinary = group.installed.filter((name) => !lock.plugins[name]?.definition);
-      // Structural profiles are independent source definitions even when they
-      // share one GitHub repository. Replaying each one prevents a later
-      // `--as`/`--path` install from changing the identity of its siblings.
-      const requests: Array<{ plugins?: string[]; as?: string; path?: string; defaultDescription?: string }> = [
+      // A structural profile always describes the source root. Replay each
+      // profile independently so its stable --as identity is preserved.
+      const requests: Array<{ plugins?: string[]; as?: string; defaultDescription?: string }> = [
         ...structural.map(({ name, definition }) => ({
           plugins: [name],
           as: definition.as,
-          path: definition.root === "." ? undefined : definition.root,
           defaultDescription: definition.description,
         })),
         ...(ordinary.length > 0 || opts.all ? [{ plugins: opts.all ? undefined : ordinary }] : []),
@@ -252,7 +250,6 @@ export async function updatePlugins(
           marketplaceName: group.source,
           gitRunner: opts.gitRunner,
           ...(request.as ? { as: request.as } : {}),
-          ...(request.path ? { path: request.path } : {}),
           ...(request.defaultDescription ? { defaultDescription: request.defaultDescription } : {}),
           activate: opts.activate,
           scope: opts.agentScope,

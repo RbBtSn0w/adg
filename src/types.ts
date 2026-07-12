@@ -145,8 +145,8 @@ export type PluginState = "enabled" | "disabled";
 /** How ADG derived a plugin definition when the source had no manifest. */
 export interface DefaultDefinitionProfile {
   kind: "default-dsl/v1";
-  /** Source-relative root used to discover the fixed component locations. */
-  root: string;
+  /** Default DSL is always discovered from the source root. */
+  root: ".";
   /** Optional user-selected installed identity. */
   as?: string;
   description: string;
