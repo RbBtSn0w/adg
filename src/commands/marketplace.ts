@@ -239,29 +239,29 @@ export async function updatePlugins(
         cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
         const resolvedRevision = gitRevision(checkout);
         for (const request of requests) {
-        const result = await addPlugins({
-          spec: group.source,
-          pluginsDir: opts.pluginsDir,
-          ref: group.ref,
-          ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
-          missingPlugins: "skip",
-          skipUnchanged: true,
-          targets: opts.targets,
-          marketplaceName: group.source,
-          gitRunner: opts.gitRunner,
-          ...(request.as ? { as: request.as } : {}),
-          ...(request.defaultDescription ? { defaultDescription: request.defaultDescription } : {}),
-          activate: opts.activate,
-          scope: opts.agentScope,
-          agents: opts.agents,
-          deactivationAgents: opts.deactivationAgents,
-          now,
-          preparedSourceDir: checkout,
-          preparedResolvedRevision: resolvedRevision,
-        });
-        installed.push(...result.installed);
-        result.available.forEach((name) => available.add(name));
-        if (result.agents) remoteAgents.push(...result.agents);
+          const result = await addPlugins({
+            spec: group.source,
+            pluginsDir: opts.pluginsDir,
+            ref: group.ref,
+            ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
+            missingPlugins: "skip",
+            skipUnchanged: true,
+            targets: opts.targets,
+            marketplaceName: group.source,
+            gitRunner: opts.gitRunner,
+            ...(request.as ? { as: request.as } : {}),
+            ...(request.defaultDescription ? { defaultDescription: request.defaultDescription } : {}),
+            activate: opts.activate,
+            scope: opts.agentScope,
+            agents: opts.agents,
+            deactivationAgents: opts.deactivationAgents,
+            now,
+            preparedSourceDir: checkout,
+            preparedResolvedRevision: resolvedRevision,
+          });
+          installed.push(...result.installed);
+          result.available.forEach((name) => available.add(name));
+          if (result.agents) remoteAgents.push(...result.agents);
         }
       } finally { rmSync(checkout, { recursive: true, force: true }); }
       const availableSet = available;

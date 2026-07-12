@@ -15,7 +15,7 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { recordTelemetryEvent } from "../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
-import { cloneGitHub, gitRevision, githubRepositoryDescription, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
+import { cloneGitHub, gitRevision, githubRepositoryDescription, parseGitHubSource, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
 import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type DefaultDefinitionProfile, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
@@ -528,7 +528,9 @@ function activateInstalled(
  * install the selection in dependency-first order.
  */
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
-  const parsed = parseSource(opts.spec);
+  // Prepared checkouts are used only by remote marketplace update. Parse their
+  // persisted owner/repo key as GitHub even when the caller's CWD shadows it.
+  const parsed = opts.preparedSourceDir ? parseGitHubSource(opts.spec) : parseSource(opts.spec);
   const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
   const inferredPath = parsed.kind === "github" ? parsed.path : undefined;
   const path = opts.path ?? inferredPath;
@@ -566,9 +568,6 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     if (path) resolveSourcePath(workRoot, path);
     let { candidates, converted } = discoverPlugins(workRoot);
     const existingLock = readLock(lockPath(opts.pluginsDir));
-    if (candidates.size > 0 && opts.plugins?.some((name) => existingLock.plugins[name]?.definition)) {
-      throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
-    }
     if (candidates.size === 0 && path) {
       throw new Error("Default DSL only supports the source root; add .agents/.plugin.json to use --path");
     }
@@ -631,6 +630,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           order.push(n);
         }
       }
+    }
+    // A generated Default DSL replay retains its definition profile. Only an
+    // explicit manifest discovered from the source may replace that profile.
+    const definitionSwitches = definition ? [] : order.filter((name) => existingLock.plugins[name]?.definition);
+    if (definitionSwitches.length > 0) {
+      throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
     }
     const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(order));
 

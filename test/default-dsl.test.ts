@@ -268,3 +268,21 @@ test("a structural plugin refuses a silent manifest-definition switch on update"
     assert.throws(() => updateLock(store), /definition changed from default DSL/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("addPlugins --all refuses a silent structural-to-manifest switch", async () => {
+  const root = scratch();
+  const store = join(root, "store");
+  try {
+    skill(root);
+    await addPlugins({ spec: root, pluginsDir: store, targets: ["codex"], now: "2026-07-12T00:00:00Z" });
+    const name = Object.keys(readLock(lockPath(store)).plugins)[0]!;
+    mkdirSync(join(root, ".agents"), { recursive: true });
+    writeFileSync(join(root, ".agents", ".plugin.json"), JSON.stringify({
+      schemaVersion: "adg.plugin/v1", name, version: "1.0.0", description: "Changed.", skills: "./skills/",
+    }));
+    await assert.rejects(
+      () => addPlugins({ spec: root, pluginsDir: store, all: true, targets: ["codex"] }),
+      /definition changed from default DSL/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
