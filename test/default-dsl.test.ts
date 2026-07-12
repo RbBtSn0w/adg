@@ -63,6 +63,16 @@ test("default DSL fingerprint distinguishes an appended NUL byte", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("default DSL fingerprint uses codepoint-stable entry ordering", () => {
+  const root = scratch();
+  try {
+    skill(root, "ä");
+    skill(root, "z");
+    const result = resolveDefaultDsl(root, { name: "demo", description: "Demo." });
+    assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("default DSL accepts hooks-only and MCP-only plugin roots", () => {
   const root = scratch();
   try {

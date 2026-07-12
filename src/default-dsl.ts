@@ -119,7 +119,7 @@ function validMcp(file: string): boolean {
 }
 
 function hashTree(hasher: ReturnType<typeof createHash>, dir: string, rel: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
     const child = join(dir, entry.name);
     const childRel = `${rel}/${entry.name}`;
     const stat = lstatSync(child);

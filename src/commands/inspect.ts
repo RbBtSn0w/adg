@@ -36,7 +36,7 @@ export async function inspectSource(opts: { spec: string; ref?: string; gitRunne
   const staging = mkdtempSync(join(tmpdir(), "adg-inspect-"));
   try {
     cloneGitHub({ ...parsed, ref: opts.ref ?? parsed.ref }, staging, { runner: opts.gitRunner });
-    const result = inspectPlugin(staging, { name: parsed.repo, description: parsed.repo });
+    const result = inspectPlugin(staging, { name: parsed.source, description: parsed.repo });
     return { ...result, root: "." };
   } finally {
     rmSync(staging, { recursive: true, force: true });
