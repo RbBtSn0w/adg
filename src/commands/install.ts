@@ -561,7 +561,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     }
     if (candidates.size === 0) {
       if (parsed.kind === "github" && !opts.preparedSourceDir) defaultDescription = await githubRepositoryDescription(parsed.source);
-      const structuralIdentity = opts.as ?? (parsed.kind === "github" ? parsed.repo : basename(workRoot));
+      const structuralIdentity = opts.as ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
       const generated = resolveDefaultDsl(workRoot, {
         name: structuralIdentity,
         description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,

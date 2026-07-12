@@ -147,6 +147,32 @@ test("addPlugins installs a raw skills repository as a default plugin", async ()
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("remote default DSL identities include the GitHub owner", async () => {
+  const root = scratch();
+  const source = join(root, "source");
+  const store = join(root, "store");
+  try {
+    skill(source, "release");
+    const first = await addPlugins({
+      spec: "foo/skills",
+      preparedSourceDir: source,
+      pluginsDir: store,
+      targets: ["codex"],
+      now: "2026-07-12T00:00:00Z",
+    });
+    const second = await addPlugins({
+      spec: "bar/skills",
+      preparedSourceDir: source,
+      pluginsDir: store,
+      targets: ["codex"],
+      now: "2026-07-12T00:00:00Z",
+    });
+    assert.deepEqual(first.order, ["foo-skills"]);
+    assert.deepEqual(second.order, ["bar-skills"]);
+    assert.deepEqual(Object.keys(readLock(lockPath(store)).plugins).sort(), ["bar-skills", "foo-skills"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("explicit manifest inherits standard component mappings it omits", () => {
   const root = scratch();
   try {
