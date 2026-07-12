@@ -198,11 +198,23 @@ export function gitRevision(dir: string): string | undefined {
   }
 }
 
-/** Lightweight remote revision probe used to avoid cloning an unchanged source. */
+const GIT_SHA_RE = /^[0-9a-f]{40}$/i;
+
+/** Extract the commit SHA from `git ls-remote`, preferring an annotated tag's peeled ref. */
+export function parseRemoteRevision(output: string | undefined, ref?: string): string | undefined {
+  if (!output) return undefined;
+  const rows = output.split(/\r?\n/).map((line) => line.trim().split(/\s+/)).filter(([sha, name]) => GIT_SHA_RE.test(sha ?? "") && name);
+  const peeled = ref ? rows.find(([, name]) => name === `refs/tags/${ref}^{}`)?.[0] : undefined;
+  return peeled ?? rows[0]?.[0];
+}
+
+/** Lightweight remote commit probe used to avoid cloning an unchanged source. */
 export function gitRemoteRevision(repo: string, ref?: string): string | undefined {
+  if (ref && GIT_SHA_RE.test(ref)) return ref.toLowerCase();
   try {
-    const output = runGit(["ls-remote", `https://github.com/${repo}.git`, ref || "HEAD"], true);
-    return output?.split(/\s+/)[0] || undefined;
+    const pattern = ref || "HEAD";
+    const output = runGit(["ls-remote", `https://github.com/${repo}.git`, pattern, `${pattern}^{}`], true);
+    return parseRemoteRevision(output, ref);
   } catch { return undefined; }
 }
 

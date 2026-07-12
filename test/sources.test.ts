@@ -14,7 +14,7 @@ import {
   prereleaseChannel,
 } from "../src/semver.ts";
 import { resolveInstallOrder, DependencyError, type PluginCandidate } from "../src/deps.ts";
-import { parseSource, cloneGitHub, scanPlugins, scanNativePlugins, type GitRunner, type GitHubSource } from "../src/sources.ts";
+import { parseRemoteRevision, parseSource, cloneGitHub, scanPlugins, scanNativePlugins, type GitRunner, type GitHubSource } from "../src/sources.ts";
 import { addPlugins } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../src/types.ts";
 
@@ -44,6 +44,14 @@ function candidate(name: string, version: string, deps?: AdgManifest["dependenci
   } as AdgManifest;
   return [name, { dir: `/virtual/${name}`, manifest }];
 }
+
+test("parseRemoteRevision prefers an annotated tag's peeled commit", () => {
+  const tag = "1111111111111111111111111111111111111111";
+  const commit = "2222222222222222222222222222222222222222";
+  assert.equal(parseRemoteRevision(`${tag}\trefs/tags/v1.0.0\n${commit}\trefs/tags/v1.0.0^{}`, "v1.0.0"), commit);
+  assert.equal(parseRemoteRevision(`${tag}\trefs/tags/v1.0.0`, "v1.0.0"), tag);
+  assert.equal(parseRemoteRevision(`${commit}\tHEAD`, undefined), commit);
+});
 
 // ---- semver ----
 
