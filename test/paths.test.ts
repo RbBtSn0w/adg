@@ -38,7 +38,7 @@ test("globalPluginsDir honors env precedence", () => {
 
 test("plugin cache uses the platform cache root and keeps stores isolated", () => {
   const env = { ADG_CACHE_HOME: "/cache/adg" } as NodeJS.ProcessEnv;
-  assert.match(pluginCacheRoot("/one/.agents/plugins", env, "darwin"), /^\/cache\/adg\/plugins\//);
+  assert.ok(pluginCacheRoot("/one/.agents/plugins", env, "darwin").startsWith(join("/cache/adg", "plugins")));
   assert.notEqual(
     pluginCacheRoot("/one/.agents/plugins", env, "darwin"),
     pluginCacheRoot("/two/.agents/plugins", env, "darwin"),

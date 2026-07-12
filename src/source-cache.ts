@@ -55,7 +55,10 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     if (!existsSync(source)) throw new Error(`locked source path is missing for "${name}"`);
     assertSourceHash(source, name, entry.sourceHash);
     const manifest = readManifest(source);
-    return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => snapshot);
+    return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => {
+      assertSourceHash(snapshot, name, entry.sourceHash);
+      return snapshot;
+    });
   } catch (error) {
     recordRecoveryFailure(error);
     const message = error instanceof Error ? error.message : String(error);
