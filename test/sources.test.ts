@@ -223,7 +223,10 @@ test("parseSource normalizes backslashes in manifest paths from browser URLs", (
 });
 
 test("parseSource throws on an unparseable spec", () => {
-  assert.throws(() => parseSource("not a valid spec!!"), /cannot parse install source/);
+  assert.throws(
+    () => parseSource("not a valid spec!!"),
+    /expected a local path, owner\/repo\[@ref\], or a github\.com URL/,
+  );
 });
 
 test("scanPlugins finds plugins by manifest name and does not descend into them", () => {

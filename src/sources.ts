@@ -77,7 +77,7 @@ export function parseSource(spec: string): ParsedSource {
   try {
     return parseGitHubSource(spec);
   } catch {
-    throw new Error(`cannot parse install source: "${spec}" (expected a local path or owner/repo[@ref])`);
+    throw new Error(`cannot parse install source: "${spec}" (expected a local path, owner/repo[@ref], or a github.com URL)`);
   }
 }
 

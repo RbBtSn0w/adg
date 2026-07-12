@@ -41,7 +41,7 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
   const hasher = createHash("sha256").update(JSON.stringify({ name: defaultPluginName(metadata.name), components }));
   if (hasSkills) hashTree(hasher, skillsRoot, "skills");
   if (hasHooks) hashTree(hasher, join(root, "hooks"), "hooks");
-  if (hasMcp) hasher.update(".mcp.json\0").update(readFileSync(mcpFile));
+  if (hasMcp) hasher.update(".mcp.json\0").update(readFileSync(mcpFile)).update("\0");
   const fingerprint = hasher.digest("hex");
   if (options.recordTelemetry !== false) {
     recordTelemetryEvent("adg.default_dsl.resolve", {
@@ -125,6 +125,6 @@ function hashTree(hasher: ReturnType<typeof createHash>, dir: string, rel: strin
     const stat = lstatSync(child);
     if (stat.isSymbolicLink()) throw new Error(`default plugin component must not contain symlinks: ${child}`);
     if (stat.isDirectory()) hashTree(hasher, child, childRel);
-    else if (stat.isFile()) hasher.update(childRel).update("\0").update(readFileSync(child));
+    else if (stat.isFile()) hasher.update(childRel).update("\0").update(readFileSync(child)).update("\0");
   }
 }

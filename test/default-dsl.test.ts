@@ -52,6 +52,17 @@ test("default DSL fingerprint ignores description metadata", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("default DSL fingerprint distinguishes an appended NUL byte", () => {
+  const root = scratch();
+  try {
+    skill(root);
+    const first = resolveDefaultDsl(root, { name: "demo", description: "Demo." }).fingerprint;
+    writeFileSync(join(root, "skills", "release", "SKILL.md"), "---\nname: release\ndescription: release.\n---\n\0");
+    const second = resolveDefaultDsl(root, { name: "demo", description: "Demo." }).fingerprint;
+    assert.notEqual(first, second);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("default DSL accepts hooks-only and MCP-only plugin roots", () => {
   const root = scratch();
   try {
