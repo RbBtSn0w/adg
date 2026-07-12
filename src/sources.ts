@@ -29,7 +29,7 @@ export type ParsedSource = GitHubSource | LocalSource;
 export async function githubRepositoryDescription(repo: string): Promise<string | undefined> {
   try {
     const response = await fetch(`https://api.github.com/repos/${repo.split("/").map(encodeURIComponent).join("/")}`, {
-      headers: { Accept: "application/vnd.github+json" },
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "adg-cli" },
       signal: AbortSignal.timeout(3000),
     });
     if (!response.ok) return undefined;

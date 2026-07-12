@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { findManifestFile, readManifest } from "../manifest.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
 import type { AdgManifest } from "../types.ts";
@@ -34,7 +34,7 @@ export async function inspectSource(opts: { spec: string; path?: string; ref?: s
     return inspectPlugin(root);
   }
 
-  const staging = mkdtempSync(`${tmpdir()}/adg-inspect-`);
+  const staging = mkdtempSync(join(tmpdir(), "adg-inspect-"));
   try {
     cloneGitHub({ ...parsed, ref: opts.ref ?? parsed.ref }, staging, { runner: opts.gitRunner });
     const root = resolve(staging, opts.path ?? parsed.path ?? ".");

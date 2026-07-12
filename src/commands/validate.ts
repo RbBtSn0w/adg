@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { ADG_MANIFEST_PATH, collectIssues } from "../manifest.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
-import { basename } from "node:path";
 
 export interface ValidateResult {
   ok: boolean;
