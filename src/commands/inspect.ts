@@ -48,7 +48,7 @@ export async function inspectSource(opts: { spec: string; path?: string; ref?: s
 
 function assertSourcePath(sourceRoot: string, candidate: string): void {
   const rel = relative(resolve(sourceRoot), resolve(candidate));
-  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || /^[A-Za-z]:[\\/]/.test(rel)) {
+  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || /^[A-Za-z]:/.test(rel)) {
     throw new Error("path must stay within the source root");
   }
 }

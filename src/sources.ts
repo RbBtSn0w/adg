@@ -28,7 +28,7 @@ export type ParsedSource = GitHubSource | LocalSource;
 /** Best-effort repository About lookup. Callers must retain their deterministic fallback on failure. */
 export async function githubRepositoryDescription(repo: string): Promise<string | undefined> {
   try {
-    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(repo)}`, {
+    const response = await fetch(`https://api.github.com/repos/${repo.split("/").map(encodeURIComponent).join("/")}`, {
       headers: { Accept: "application/vnd.github+json" },
       signal: AbortSignal.timeout(3000),
     });

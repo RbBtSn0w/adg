@@ -74,8 +74,9 @@ export function updateLock(
         cpSync(source, staging, { recursive: true });
         writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
         installSource = staging;
-      } catch {
-        // Preserve the existing error path for non-plugin local directories.
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("no default plugin component")) throw error;
+        // Non-plugin local directories continue through the normal manifest path.
       }
     }
     let result;

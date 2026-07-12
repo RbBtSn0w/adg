@@ -579,7 +579,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
       candidates = scanPlugins(staging);
       structuralName = generated.manifest.name;
-      converted = [generated.manifest.name];
+      converted = [];
       originDirOverride = sourceRoot;
       definition = { kind: "default-dsl/v1", root: toPosix(relative(workRoot, sourceRoot)) || ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint };
       cleanup = (() => {
@@ -661,7 +661,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
 function assertSourcePath(root: string, path: string): void {
   const candidate = resolve(root, path);
   const rel = relative(root, candidate);
-  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || /^[A-Za-z]:[\\/]/.test(rel)) {
+  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || /^[A-Za-z]:/.test(rel)) {
     throw new Error("path must stay within the source root");
   }
 }

@@ -35,11 +35,11 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
   if (skillFiles.some((file) => !readSkillDescription(file))) throw new Error("default skills require SKILL.md frontmatter with a description");
   const hasSkills = skillFiles.length > 0;
   const hooksFile = join(root, "hooks", "hooks.json");
-  if (!ignore.has("hooks") && existsSync(hooksFile) && !validJson(hooksFile)) throw new Error(`invalid default hooks configuration: ${hooksFile}`);
-  const hasHooks = !ignore.has("hooks") && validJson(hooksFile);
+  const hasHooks = !ignore.has("hooks") && existsSync(hooksFile) && validJson(hooksFile);
+  if (!ignore.has("hooks") && existsSync(hooksFile) && !hasHooks) throw new Error(`invalid default hooks configuration: ${hooksFile}`);
   const mcpFile = join(root, ".mcp.json");
-  if (!ignore.has("mcp") && existsSync(mcpFile) && !validMcp(mcpFile)) throw new Error(`invalid default MCP configuration: ${mcpFile}`);
-  const hasMcp = !ignore.has("mcp") && validMcp(mcpFile);
+  const hasMcp = !ignore.has("mcp") && existsSync(mcpFile) && validMcp(mcpFile);
+  if (!ignore.has("mcp") && existsSync(mcpFile) && !hasMcp) throw new Error(`invalid default MCP configuration: ${mcpFile}`);
   const components: Array<"skills" | "hooks" | "mcp"> = [
     ...(hasSkills ? ["skills" as const] : []),
     ...(hasHooks ? ["hooks" as const] : []),
@@ -78,8 +78,9 @@ function validJson(file: string): boolean {
 
 function validMcp(file: string): boolean {
   if (!validJson(file)) return false;
-  const json = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-  const servers = json.mcpServers ?? json.servers;
+  const json = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  if (json === null || typeof json !== "object" || Array.isArray(json)) return false;
+  const servers = (json as Record<string, unknown>).mcpServers ?? (json as Record<string, unknown>).servers;
   return typeof servers === "object" && servers !== null && !Array.isArray(servers);
 }
 
