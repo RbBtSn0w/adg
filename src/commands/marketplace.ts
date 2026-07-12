@@ -246,6 +246,7 @@ export async function updatePlugins(
             ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
             missingPlugins: "skip",
             skipUnchanged: true,
+            nonInteractive: true,
             targets: opts.targets,
             marketplaceName: group.source,
             gitRunner: opts.gitRunner,
