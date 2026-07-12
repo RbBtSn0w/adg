@@ -106,7 +106,8 @@ function migrateLock(pluginsDir: string, telemetrySpan?: Pick<Span, "addEvent">)
   const file = lockPath(pluginsDir);
   if (!existsSync(file)) return false;
   const raw = JSON.parse(readFileSync(file, "utf8")) as PluginLockV2 | PluginLock;
-  if (!raw || typeof raw !== "object") throw new Error(`${file} is not a valid lock file`);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${file} is not a valid lock file`);
+  if (Array.isArray(raw.plugins)) throw new Error(`${file} is not a valid lock file`);
   if (raw.version === LOCK_VERSION) return false;
   if (typeof raw?.version === "number") {
     recordTelemetryEvent("adg.lock.read", { "format.version": raw.version === 2 || raw.version === 3 || raw.version === 4 ? raw.version : -1 }, telemetrySpan);

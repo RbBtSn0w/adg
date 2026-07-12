@@ -65,6 +65,20 @@ test("migrateLayout leaves local installs flat and is idempotent", () => {
   rmSync(work, { recursive: true });
 });
 
+test("migrateLayout rejects array-shaped locks and plugin maps", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  try {
+    mkdirSync(store, { recursive: true });
+    const lock = join(store, ".plugin-lock.json");
+    writeFileSync(lock, "[]");
+    assert.throws(() => migrateLayout(store), /not a valid lock file/);
+
+    writeFileSync(lock, JSON.stringify({ version: 4, plugins: [] }));
+    assert.throws(() => migrateLayout(store), /not a valid lock file/);
+  } finally { rmSync(work, { recursive: true, force: true }); }
+});
+
 test("migrateLayout upgrades v2 locks without losing unselected source payload", () => {
   const work = tmp();
   const store = join(work, "store");
