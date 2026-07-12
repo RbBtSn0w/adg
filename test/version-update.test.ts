@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getVersion } from "../bin/adg.ts";
@@ -36,13 +36,13 @@ test("getVersion returns the package.json version", () => {
 
 test("updateCacheDir honors XDG_STATE_HOME", () => {
   const dir = updateCacheDir({ XDG_STATE_HOME: "/custom/state" } as NodeJS.ProcessEnv);
-  assert.equal(dir, "/custom/state/adg");
+  assert.equal(dir, join("/custom/state", "adg"));
 });
 
 test("updateCacheDir falls back to ~/.local/state when XDG_STATE_HOME is unset", () => {
   const dir = updateCacheDir({} as NodeJS.ProcessEnv);
-  assert.ok(dir.endsWith("/adg"), "cache dir should end with /adg");
-  assert.ok(dir.includes(".local/state"), "should fall back to ~/.local/state");
+  assert.equal(basename(dir), "adg", "cache dir should end with adg");
+  assert.ok(dir.includes(join(".local", "state")), "should fall back to ~/.local/state");
 });
 
 // ---------------------------------------------------------------------------

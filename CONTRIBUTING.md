@@ -38,9 +38,9 @@ CI.
 6. Wait for CI and code review. A maintainer merges once both pass.
 
 CI runs the full check sequence (`npm ci`, dependency/audit checks, typecheck,
-build, and tests) on Ubuntu with Node 22 and 23, plus Windows with Node 22.
-The Windows lane is the required guard for path-separator and shell-quoting
-behavior; Node 23 compatibility remains covered on Ubuntu.
+build, and tests) on Ubuntu and Windows with the current three Node.js release
+lines: Node 24, 25, and 26. The Windows lanes are required guards for
+path-separator and shell-quoting behavior.
 
 ## Test conventions
 

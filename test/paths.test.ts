@@ -33,7 +33,7 @@ test("marketplaceSourcePath is relative to a non-canonical store dir (explicit -
 
 test("globalPluginsDir honors env precedence", () => {
   assert.equal(globalPluginsDir({ ADG_PLUGINS_HOME: "/x" } as NodeJS.ProcessEnv), "/x");
-  assert.ok(globalPluginsDir({ XDG_STATE_HOME: "/state" } as NodeJS.ProcessEnv).startsWith("/state"));
+  assert.equal(globalPluginsDir({ XDG_STATE_HOME: "/state" } as NodeJS.ProcessEnv), join("/state", ".agents", "plugins"));
 });
 
 test("plugin cache uses the platform cache root and keeps stores isolated", () => {
@@ -43,7 +43,10 @@ test("plugin cache uses the platform cache root and keeps stores isolated", () =
     pluginCacheRoot("/one/.agents/plugins", env, "darwin"),
     pluginCacheRoot("/two/.agents/plugins", env, "darwin"),
   );
-  assert.equal(legacyPluginCacheRoot("/one/.agents/plugins"), "/one/.agents/cache/plugins/" + basename(pluginCacheRoot("/one/.agents/plugins", env, "darwin")));
+  assert.equal(
+    legacyPluginCacheRoot("/one/.agents/plugins"),
+    join("/one", ".agents", "cache", "plugins", basename(pluginCacheRoot("/one/.agents/plugins", env, "darwin"))),
+  );
 });
 
 test("projectPluginsDir stops at a .git root", () => {

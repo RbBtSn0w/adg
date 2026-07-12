@@ -14,14 +14,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Keep the broader Node compatibility matrix on Linux, while the
-          # Windows job covers path and shell semantics at the supported floor.
+          # Exercise the current three Node.js release lines on both supported
+          # CI platforms. Windows is a first-class compatibility target, not a
+          # one-version smoke test.
           - os: ubuntu-latest
-            node-version: 22
+            node-version: 24
           - os: ubuntu-latest
-            node-version: 23
+            node-version: 25
+          - os: ubuntu-latest
+            node-version: 26
           - os: windows-latest
-            node-version: 22
+            node-version: 24
+          - os: windows-latest
+            node-version: 25
+          - os: windows-latest
+            node-version: 26
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js ${{ matrix.node-version }}
