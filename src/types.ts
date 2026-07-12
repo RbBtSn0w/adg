@@ -151,6 +151,8 @@ export interface DefaultDefinitionProfile {
   as?: string;
   description: string;
   fingerprint: string;
+  /** Components explicitly authorized when this structural source was installed. */
+  authorizedComponents?: ComponentType[];
 }
 
 export interface LockEntry {

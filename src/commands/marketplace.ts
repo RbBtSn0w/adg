@@ -223,11 +223,12 @@ export async function updatePlugins(
       const ordinary = group.installed.filter((name) => !lock.plugins[name]?.definition);
       // A structural profile always describes the source root. Replay each
       // profile independently so its stable --as identity is preserved.
-      const requests: Array<{ plugins?: string[]; as?: string; defaultDescription?: string }> = [
+      const requests: Array<{ plugins?: string[]; as?: string; defaultDescription?: string; authorizedComponents?: import("../types.ts").ComponentType[] }> = [
         ...structural.map(({ name, definition }) => ({
           plugins: [name],
           as: definition.as,
           defaultDescription: definition.description,
+          authorizedComponents: definition.authorizedComponents,
         })),
         ...(ordinary.length > 0 || opts.all ? [{ plugins: opts.all ? undefined : ordinary }] : []),
       ];
@@ -247,6 +248,7 @@ export async function updatePlugins(
             missingPlugins: "skip",
             skipUnchanged: true,
             nonInteractive: true,
+            ...(request.authorizedComponents ? { authorizedComponents: request.authorizedComponents } : {}),
             targets: opts.targets,
             marketplaceName: group.source,
             gitRunner: opts.gitRunner,

@@ -245,6 +245,8 @@ export interface AddOptions {
   as?: string;
   /** Enables structural-source safety checks for non-interactive CLI calls. */
   nonInteractive?: boolean;
+  /** Replayed structural authorization from a prior lock entry. */
+  authorizedComponents?: ComponentType[];
   /** Last-known structural description, used when remote metadata lookup fails. */
   defaultDescription?: string;
   /** Internal remote checkout reuse for marketplace updates. */
@@ -566,7 +568,8 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         name: structuralIdentity,
         description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
       });
-      if (opts.nonInteractive && generated.components.some((c) => c === "hooks" || c === "mcp") && opts.only === undefined) {
+      const authorized = opts.authorizedComponents;
+      if (opts.nonInteractive && generated.components.some((c) => c === "hooks" || c === "mcp") && opts.only === undefined && !authorized) {
         throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
       }
       const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
@@ -576,7 +579,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       structuralName = generated.manifest.name;
       converted = [];
       originDirOverride = workRoot;
-      definition = { kind: "default-dsl/v1", root: ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint };
+      definition = { kind: "default-dsl/v1", root: ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint, authorizedComponents: authorized ?? (opts.only ?? generated.components) };
       cleanup = (() => {
         const prior = cleanup;
         return () => { rmSync(staging, { recursive: true, force: true }); prior?.(); };
