@@ -212,7 +212,7 @@ export async function updatePlugins(
       const lock = readLock(lockPath(opts.pluginsDir));
       const revisions = group.installed.map((name) => lock.plugins[name]?.resolvedRevision).filter((revision): revision is string => Boolean(revision));
       const remoteRevision = (opts.revisionResolver ?? gitRemoteRevision)(group.source, group.ref);
-      if (remoteRevision && revisions.length === group.installed.length && revisions.every((revision) => revision === remoteRevision)) {
+      if (!opts.all && remoteRevision && revisions.length === group.installed.length && revisions.every((revision) => revision === remoteRevision)) {
         remote.push({ source: group.source, ...(group.ref ? { ref: group.ref } : {}), updated: [], unchanged: [...group.installed].sort(), deleted: [], available: [] });
         continue;
       }

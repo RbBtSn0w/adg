@@ -22,6 +22,7 @@ import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { effectivePackageFilter, materializePlugin, withPluginSourceCache } from "../materialize.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
+import { resolveSourcePath } from "../source-path.ts";
 
 export interface InstallOneOptions {
   /** Local directory containing the plugin (already fetched). */
@@ -552,7 +553,6 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
     cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
     workRoot = tmp;
-    defaultDescription = await githubRepositoryDescription(parsed.source);
     resolvedRevision = gitRevision(tmp);
     buildOrigin = (dir) => ({
       type: "github",
@@ -563,7 +563,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   }
 
   try {
-    if (path) assertSourcePath(workRoot, path);
+    if (path) resolveSourcePath(workRoot, path);
     let { candidates, converted } = discoverPlugins(workRoot);
     const existingLock = readLock(lockPath(opts.pluginsDir));
     if (candidates.size > 0 && opts.plugins?.some((name) => existingLock.plugins[name]?.definition)) {
@@ -573,10 +573,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       throw new Error("--as is only supported for a default structural plugin source");
     }
     if (candidates.size === 0) {
-      const sourceRoot = resolve(workRoot, path ?? ".");
+      const sourceRoot = resolveSourcePath(workRoot, path ?? ".");
+      if (parsed.kind === "github" && !opts.preparedSourceDir) defaultDescription = await githubRepositoryDescription(parsed.source);
+      const structuralIdentity = opts.as ?? (path ? basename(sourceRoot) : parsed.kind === "github" ? parsed.repo : basename(sourceRoot));
       const generated = resolveDefaultDsl(sourceRoot, {
-        name: opts.as ?? basename(sourceRoot),
-        description: defaultDescription ?? opts.defaultDescription ?? basename(sourceRoot),
+        name: structuralIdentity,
+        description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
       });
       if (opts.nonInteractive && generated.components.some((c) => c === "hooks" || c === "mcp") && opts.only === undefined) {
         throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
@@ -662,13 +664,5 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     return { order, installed, removed, converted, available, agents };
   } finally {
     cleanup?.();
-  }
-}
-
-function assertSourcePath(root: string, path: string): void {
-  const candidate = resolve(root, path);
-  const rel = relative(root, candidate);
-  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || /^[A-Za-z]:/.test(rel)) {
-    throw new Error("path must stay within the source root");
   }
 }
