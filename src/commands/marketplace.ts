@@ -227,7 +227,7 @@ export async function updatePlugins(
       const requests: Array<{ plugins?: string[]; as?: string; path?: string; defaultDescription?: string }> = [
         ...structural.map(({ name, definition }) => ({
           plugins: [name],
-          as: definition.as ?? name,
+          as: definition.as,
           path: definition.root === "." ? undefined : definition.root,
           defaultDescription: definition.description,
         })),

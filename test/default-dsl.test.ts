@@ -60,6 +60,15 @@ test("default DSL rejects a root without a standard component", () => {
   finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("default DSL identifies the skill with invalid frontmatter", () => {
+  const root = scratch();
+  try {
+    mkdirSync(join(root, "skills", "broken"), { recursive: true });
+    writeFileSync(join(root, "skills", "broken", "SKILL.md"), "# Missing frontmatter\n");
+    assert.throws(() => resolveDefaultDsl(root, { name: "broken", description: "Broken." }), /skills[/\\]broken[/\\]SKILL\.md/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("addPlugins installs a raw skills repository as a default plugin", async () => {
   const root = scratch();
   const store = join(root, "store");

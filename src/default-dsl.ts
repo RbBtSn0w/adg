@@ -32,7 +32,8 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
   const skillFiles = !ignore.has("skills") && existsSync(skillsRoot) && statSync(skillsRoot).isDirectory()
     ? readdirSync(skillsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(skillsRoot, entry.name, "SKILL.md"))).map((entry) => join(skillsRoot, entry.name, "SKILL.md"))
     : [];
-  if (skillFiles.some((file) => !readSkillDescription(file))) throw new Error("default skills require SKILL.md frontmatter with a description");
+  const invalidSkill = skillFiles.find((file) => !readSkillDescription(file));
+  if (invalidSkill) throw new Error(`default skill requires SKILL.md frontmatter with a description: ${invalidSkill}`);
   const hasSkills = skillFiles.length > 0;
   const hooksFile = join(root, "hooks", "hooks.json");
   const hasHooks = !ignore.has("hooks") && existsSync(hooksFile) && validJson(hooksFile);
