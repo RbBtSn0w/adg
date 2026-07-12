@@ -125,6 +125,12 @@ export const defaultGitRunner: GitRunner = (args) => {
   runGit(args);
 };
 
+/** Return a low-cardinality, string-safe error type for Git subprocess spans. */
+export function gitErrorType(error: unknown, exitCode: number): string {
+  const code = error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+  return code === undefined || code === null ? `EXIT_CODE_${exitCode}` : String(code);
+}
+
 /** Run git under the shared CLI semantic-convention instrumentation. */
 export function runGit(args: string[], captureOutput = false): string | undefined {
   const tracer = getTracer();
@@ -145,7 +151,7 @@ export function runGit(args: string[], captureOutput = false): string | undefine
       if (typeof error.pid === "number") {
         span.setAttribute("process.pid", error.pid);
       }
-      span.setAttribute("error.type", error.code || error.name || `EXIT_CODE_${exitCode}`);
+      span.setAttribute("error.type", gitErrorType(error, exitCode));
       span.recordException(error as Error);
       span.setStatus({
         code: SpanStatusCode.ERROR,

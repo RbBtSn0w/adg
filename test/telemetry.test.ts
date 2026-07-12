@@ -12,7 +12,7 @@ import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath, sanitizeArg
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
-import { defaultGitRunner, runGit } from "../src/sources.ts";
+import { defaultGitRunner, gitErrorType, runGit } from "../src/sources.ts";
 
 interface RecordedEvent {
   name: string;
@@ -300,6 +300,27 @@ test("git runner throws on failure", () => {
       process.env.DISABLE_TELEMETRY = originalDisable;
     }
   }
+});
+
+/*
+## Test Intent
+### Risk
+Git subprocess failure spans can report an unhelpful or non-string error.type, making CLI telemetry unsuitable for grouping failures.
+### Why Automation
+The error-type contract is a telemetry semantic convention and must remain stable across spawn and exit failures.
+### Why Existing Tests Insufficient
+Existing runner tests verify that failures throw, but do not assert the normalized telemetry classification.
+### Chosen Layer
+Unit Test - error classification is pure and does not require a real subprocess or exporter.
+### Fragility Analysis
+The test asserts the public low-cardinality values, not error object internals beyond the documented code/status inputs.
+### If Omitted
+Non-zero Git exits can collapse into generic Error classifications or emit invalid telemetry attributes.
+*/
+test("git error type preserves codes and classifies exits by status", () => {
+  assert.equal(gitErrorType({ code: "ENOENT" }, 1), "ENOENT");
+  assert.equal(gitErrorType({ code: 42 }, 1), "42");
+  assert.equal(gitErrorType({ name: "Error" }, 128), "EXIT_CODE_128");
 });
 
 /*
