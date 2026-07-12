@@ -83,6 +83,6 @@ test("readLock rejects unsupported versions instead of carrying compatibility co
   const root = tmp();
   const file = join(root, ".plugin-lock.json");
   writeFileSync(file, JSON.stringify({ version: 2, plugins: {} }));
-  assert.throws(() => readLock(file), /unsupported lock version 2; expected 4/);
+  assert.throws(() => readLock(file), /unsupported lock version 2; expected 5/);
   rmSync(root, { recursive: true });
 });

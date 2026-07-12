@@ -80,7 +80,23 @@ are ADG-internal conventions, not declared in the manifest.
 
 ---
 
-## 3. Packaging — manifest-driven allowlist
+## 3. Default directory DSL
+
+When `.agents/.plugin.json` is absent, ADG recognizes only these fixed source
+slots: `skills/<name>/SKILL.md`, `hooks/hooks.json`, and `.mcp.json`. At least
+one valid slot is required. A skill needs non-empty frontmatter `description`;
+hooks and MCP files must be valid JSON (MCP must contain an object of servers).
+
+An explicit source manifest remains the only customization mechanism. Its
+`skills`, `hooks`, and `mcpServers` fields replace the corresponding default
+slot; omitted fields inherit valid defaults. A malformed inherited default slot
+is an error, while an explicitly overridden slot is not interpreted. `--as` is
+available only for structural sources. `--only` controls both copied payload and
+runtime projection; non-interactive hooks/MCP discovery requires explicit
+`--only`. `adg plugins inspect <source> --path <subdir> --json` resolves either
+form without changing a plugin store.
+
+## 4. Packaging — manifest-driven allowlist
 
 ADG first stores the complete declared payload in an internal source cache, then
 materializes an **effective installation** into the runtime-facing plugins

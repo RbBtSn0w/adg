@@ -31,6 +31,19 @@ See [docs/authoring.md](docs/authoring.md) to author a plugin, and
 - **Reproducibility** — `.plugin-lock.json` records source, version and a content
   hash for every installed plugin.
 
+## Default plugin layout
+
+A repository without a manifest is also installable when it uses the standard
+plugin locations: `skills/<name>/SKILL.md`, `hooks/hooks.json`, or `.mcp.json`.
+ADG derives a default manifest from the locations that exist. Add
+`.agents/.plugin.json` only when a source needs custom component paths or other
+plugin metadata; its `skills`, `hooks`, and `mcpServers` fields override only
+their matching defaults, while omitted fields inherit valid standard locations.
+For structural sources, `--as` sets a stable installed identity and `--only`
+limits both the stored payload and runtime exposure. In non-interactive runs,
+discovered hooks or MCP require explicit `--only`. Inspect before installing
+with `adg plugins inspect <source> --path <subdir> --json`.
+
 ---
 
 # Install and quick start

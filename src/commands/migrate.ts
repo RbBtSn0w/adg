@@ -111,12 +111,12 @@ function migrateLock(pluginsDir: string, telemetrySpan?: Pick<Span, "addEvent">)
   if (typeof raw?.version === "number") {
     recordTelemetryEvent("adg.lock.read", { "format.version": raw.version === 2 || raw.version === 3 ? raw.version : -1 }, telemetrySpan);
   }
-  if (raw.version === 3 && typeof raw.plugins === "object" && raw.plugins !== null) {
+  if ((raw.version === 3 || raw.version === 4) && typeof raw.plugins === "object" && raw.plugins !== null) {
     // v3 has the same payload model; v4 adds optional immutable provenance.
     // Existing remote entries remain explicitly legacy until an update/add
     // resolves their commit, rather than inventing a moving ref as a revision.
     writeLock(file, { ...raw, version: LOCK_VERSION });
-    recordTelemetryEvent("adg.lock.migrate", { "from.version": 3, "to.version": LOCK_VERSION }, telemetrySpan);
+    recordTelemetryEvent("adg.lock.migrate", { "from.version": raw.version, "to.version": LOCK_VERSION }, telemetrySpan);
     return true;
   }
   if (raw.version !== 2 || typeof raw.plugins !== "object" || raw.plugins === null) {

@@ -3,6 +3,7 @@ import { isAbsolute, join } from "node:path";
 import type { Span } from "@opentelemetry/api";
 import { ADG_SCHEMA_VERSION, COMPONENT_TYPES, type AdgManifest } from "./types.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
+import { resolveDefaultDsl } from "./default-dsl.ts";
 
 /** Canonical, vendor-neutral source manifest location (a plugin). */
 export const ADG_MANIFEST_PATH = join(".agents", ".plugin.json");
@@ -50,8 +51,25 @@ export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addE
   }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     const m = raw as Record<string, unknown>;
-    if (m.mcpServers === undefined && existsSync(join(pluginDir, ".mcp.json"))) {
-      m.mcpServers = "./.mcp.json";
+    // A repository manifest is an explicit mapping only for fields it names.
+    // Standard skills/hooks/MCP locations remain the default DSL for omitted
+    // component fields, keeping source authors from repeating boilerplate.
+    if (typeof m.name === "string" && typeof m.description === "string") {
+      try {
+        const ignored = new Set<"skills" | "hooks" | "mcp">();
+        if (m.skills !== undefined) ignored.add("skills");
+        if (m.hooks !== undefined) ignored.add("hooks");
+        if (m.mcpServers !== undefined) ignored.add("mcp");
+        const defaults = resolveDefaultDsl(pluginDir, { name: m.name, description: m.description }, { ignore: ignored }).manifest;
+        for (const key of ["skills", "hooks", "mcpServers"] as const) {
+          if (m[key] === undefined && defaults[key] !== undefined) m[key] = defaults[key];
+        }
+      } catch (error) {
+        // A manifest may use entirely custom locations and therefore have no
+        // conventional component. Any malformed conventional component that it
+        // *inherits*, however, is a source error and must never be hidden.
+        if (!(error instanceof Error) || !error.message.includes("no default plugin component")) throw error;
+      }
     }
     const schemaVersion = m.schemaVersion;
     if (typeof schemaVersion === "string") {

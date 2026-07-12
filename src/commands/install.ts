@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -15,12 +15,13 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { recordTelemetryEvent } from "../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
-import { cloneGitHub, gitRevision, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
-import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
+import { cloneGitHub, gitRevision, githubRepositoryDescription, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
+import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type DefaultDefinitionProfile, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { effectivePackageFilter, materializePlugin, withPluginSourceCache } from "../materialize.ts";
+import { resolveDefaultDsl } from "../default-dsl.ts";
 
 export interface InstallOneOptions {
   /** Local directory containing the plugin (already fetched). */
@@ -50,6 +51,7 @@ export interface InstallOneOptions {
   /** Rebuild the effective installation even when source and payload hashes match. */
   forceMaterialize?: boolean;
   telemetrySpan?: Pick<import("@opentelemetry/api").Span, "addEvent">;
+  definition?: DefaultDefinitionProfile;
 }
 
 export interface InstallResult {
@@ -181,6 +183,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     }
     if (desiredSelection) entry.selection = desiredSelection;
     if (prev?.state) entry.state = prev.state;
+    if (opts.definition) entry.definition = opts.definition;
     const previousEntry = prev && Object.fromEntries(
       Object.entries(prev).filter(([key]) => key !== "installedAt" && key !== "updatedAt"),
     );
@@ -238,6 +241,12 @@ export interface AddOptions {
   pluginsDir: string;
   /** Override the ref parsed from the spec. */
   ref?: string;
+  /** Override the derived identity of a default structural plugin. */
+  as?: string;
+  /** Enables structural-source safety checks for non-interactive CLI calls. */
+  nonInteractive?: boolean;
+  /** Last-known structural description, used when remote metadata lookup fails. */
+  defaultDescription?: string;
   /** Restrict a GitHub checkout to these sub-paths (sparse checkout). */
   sparse?: string[];
   /** Injectable git clone runner (for offline testing). */
@@ -523,33 +532,63 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   let buildOrigin: (dir: string) => PluginSource;
   let resolvedRevision: string | undefined;
   let cleanup: (() => void) | undefined;
+  let originDirOverride: string | undefined;
+  let definition: DefaultDefinitionProfile | undefined;
+  let defaultDescription: string | undefined;
+  let structuralName: string | undefined;
 
   if (parsed.kind === "local") {
     workRoot = resolve(parsed.dir);
-    buildOrigin = (dir) => ({ type: "local", path: resolve(dir) });
+    buildOrigin = (dir) => ({ type: "local", path: resolve(originDirOverride ?? dir) });
   } else {
     const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
     cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
     workRoot = tmp;
+    defaultDescription = await githubRepositoryDescription(parsed.source);
     resolvedRevision = gitRevision(tmp);
     buildOrigin = (dir) => ({
       type: "github",
       repo: parsed.source,
       ...(sourceRef ? { ref: sourceRef } : {}),
-      path: toPosix(relative(tmp, dir)) || ".",
+      path: toPosix(relative(tmp, originDirOverride ?? dir)) || ".",
     });
   }
 
   try {
-    const { candidates, converted } = discoverPlugins(workRoot);
+    if (path) assertSourcePath(workRoot, path);
+    let { candidates, converted } = discoverPlugins(workRoot);
+    const existingLock = readLock(lockPath(opts.pluginsDir));
+    if (candidates.size > 0 && opts.plugins?.some((name) => existingLock.plugins[name]?.definition)) {
+      throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
+    }
+    if (candidates.size > 0 && opts.as) {
+      throw new Error("--as is only supported for a default structural plugin source");
+    }
     if (candidates.size === 0) {
-      throw new Error(
-        `no plugin found in "${opts.spec}" (no .agents/.plugin.json, .claude-plugin or .codex-plugin manifest).`,
-      );
+      const sourceRoot = resolve(workRoot, path ?? ".");
+      const generated = resolveDefaultDsl(sourceRoot, {
+        name: opts.as ?? basename(sourceRoot),
+        description: defaultDescription ?? opts.defaultDescription ?? basename(sourceRoot),
+      });
+      if (opts.nonInteractive && generated.components.some((c) => c === "hooks" || c === "mcp") && opts.only === undefined) {
+        throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
+      }
+      const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
+      cpSync(sourceRoot, staging, { recursive: true });
+      writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
+      candidates = scanPlugins(staging);
+      structuralName = generated.manifest.name;
+      converted = [generated.manifest.name];
+      originDirOverride = sourceRoot;
+      definition = { kind: "default-dsl/v1", root: toPosix(relative(workRoot, sourceRoot)) || ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint };
+      cleanup = (() => {
+        const prior = cleanup;
+        return () => { rmSync(staging, { recursive: true, force: true }); prior?.(); };
+      })();
     }
 
-    const selected = await selectPluginNames({ ...opts, path }, candidates, workRoot, converted);
+    const selected = structuralName ? [structuralName] : await selectPluginNames({ ...opts, path }, candidates, workRoot, converted);
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -602,6 +641,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           selection: selections.get(name),
           skipUnchanged: opts.skipUnchanged,
           now: opts.now,
+          definition,
         }),
       );
     }
@@ -615,5 +655,13 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     return { order, installed, removed, converted, available, agents };
   } finally {
     cleanup?.();
+  }
+}
+
+function assertSourcePath(root: string, path: string): void {
+  const candidate = resolve(root, path);
+  const rel = relative(root, candidate);
+  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || /^[A-Za-z]:[\\/]/.test(rel)) {
+    throw new Error("path must stay within the source root");
   }
 }

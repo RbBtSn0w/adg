@@ -3,7 +3,7 @@
  */
 
 export const ADG_SCHEMA_VERSION = "adg.plugin/v1";
-export const LOCK_VERSION = 4;
+export const LOCK_VERSION = 5;
 
 export interface AdgAuthor {
   name: string;
@@ -142,6 +142,17 @@ export function resolveSelectionDependencies(
 
 export type PluginState = "enabled" | "disabled";
 
+/** How ADG derived a plugin definition when the source had no manifest. */
+export interface DefaultDefinitionProfile {
+  kind: "default-dsl/v1";
+  /** Source-relative root used to discover the fixed component locations. */
+  root: string;
+  /** Optional user-selected installed identity. */
+  as?: string;
+  description: string;
+  fingerprint: string;
+}
+
 export interface LockEntry {
   /** Upstream provenance the plugin was installed from. */
   origin: PluginSource;
@@ -159,6 +170,7 @@ export interface LockEntry {
   selection?: PluginSelection;
   /** Desired cross-agent projection state. Absent means enabled. */
   state?: PluginState;
+  definition?: DefaultDefinitionProfile;
 }
 
 export function pluginState(entry?: LockEntry | null): PluginState {

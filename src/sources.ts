@@ -25,6 +25,19 @@ export interface LocalSource {
 
 export type ParsedSource = GitHubSource | LocalSource;
 
+/** Best-effort repository About lookup. Callers must retain their deterministic fallback on failure. */
+export async function githubRepositoryDescription(repo: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(repo)}`, {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!response.ok) return undefined;
+    const body = await response.json() as { description?: unknown };
+    return typeof body.description === "string" && body.description.trim() ? body.description.trim() : undefined;
+  } catch { return undefined; }
+}
+
 const GH_SHORTHAND = /^([\w.-]+)\/([\w.-]+?)(?:@(.+))?$/;
 const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:@(.+))?$/;
 const GH_BLOB_URL = /^(?:https?:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/(?:blob|tree)\/([^/]+)\/(.+)$/;
@@ -173,6 +186,14 @@ export function gitRevision(dir: string): string | undefined {
     // Such entries remain legacy until a real update records an immutable commit.
     return undefined;
   }
+}
+
+/** Lightweight remote revision probe used to avoid cloning an unchanged source. */
+export function gitRemoteRevision(repo: string, ref?: string): string | undefined {
+  try {
+    const output = runGit(["ls-remote", `https://github.com/${repo}.git`, ref || "HEAD"], true);
+    return output?.split(/\s+/)[0] || undefined;
+  } catch { return undefined; }
 }
 
 /**

@@ -101,6 +101,25 @@ test("updatePlugins reports unchanged when the source is identical", async () =>
   }
 });
 
+test("updatePlugins avoids cloning when a revision probe matches the stored revision", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    let clones = 0;
+    const gitRunner: GitRunner = (args) => { clones++; cpSync(remote, args[args.length - 1]!, { recursive: true }); };
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner });
+    const lock = readLock(lockPath(pluginsDir));
+    lock.plugins.sales!.resolvedRevision = "abc";
+    writeLock(lockPath(pluginsDir), lock);
+    clones = 0;
+    const result = await updatePlugins({ pluginsDir, gitRunner, revisionResolver: () => "abc" });
+    assert.equal(clones, 0);
+    assert.deepEqual(result.remote[0]!.unchanged, ["sales"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("updatePlugins leaves unchanged plugins untouched (no re-install / no updatedAt bump)", async () => {
   const root = scratch();
   try {

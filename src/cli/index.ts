@@ -119,7 +119,7 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
       "In a terminal, add guides you through:  scope → plugins → agents → what to install.\n" +
       "By default it installs everything; choose 'No, let me choose' to pick components,\n" +
       "or pass the flags below to skip any prompt (e.g. for scripts/CI).",
-    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "path", "ref", "sparse", "marketplace-name", ...SCOPE],
+    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "path", "ref", "sparse", "marketplace-name", "as", ...SCOPE],
     examples: [
       "adg plugins add owner/repo                 # guided",
       "adg plugins add owner/repo --all --global  # all plugins, global, non-interactive",
@@ -197,6 +197,12 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     synopsis: "adg plugins validate [<dir>]",
     positional: "<dir>  plugin directory (default: current directory)",
     flags: [],
+  },
+  inspect: {
+    summary: "inspect a plugin source without installing it",
+    synopsis: "adg plugins inspect [<source>] [--path <subdir>] [--ref <ref>]",
+    positional: "<source>  local directory or owner/repo[@ref] (default: current directory)",
+    flags: ["json", "path", "ref"],
   },
   "import-skills": {
     summary: "wrap an existing skills/ dir as a plugin",

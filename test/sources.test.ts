@@ -329,7 +329,7 @@ test("github add (injected clone) records github provenance", async () => {
 
   assert.deepEqual(order, ["github-cr", "asc"]);
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.equal(lock.version, 4);
+  assert.equal(lock.version, 5);
   assert.deepEqual(lock.plugins.asc.origin, {
     type: "github",
     repo: "RbBtSn0w/plugins",
