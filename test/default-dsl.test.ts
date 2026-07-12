@@ -167,6 +167,28 @@ test("addPlugins selects a structural source root supplied through --path", asyn
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("addPlugins scopes manifest discovery to a structural --path", async () => {
+  const root = scratch();
+  const store = join(root, "store");
+  try {
+    skill(join(root, "packages", "release-tools"), "ship");
+    mkdirSync(join(root, "packages", "native", ".agents"), { recursive: true });
+    writeFileSync(join(root, "packages", "native", ".agents", ".plugin.json"), JSON.stringify({
+      schemaVersion: "adg.plugin/v1", name: "native", version: "1.0.0", description: "Native.",
+    }));
+
+    const result = await addPlugins({
+      spec: root,
+      path: "packages/release-tools",
+      as: "release-tools",
+      pluginsDir: store,
+      targets: ["codex"],
+      now: "2026-07-12T00:00:00Z",
+    });
+    assert.deepEqual(result.order, ["release-tools"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("addPlugins rejects a --path that escapes the source root", async () => {
   const parent = scratch();
   try {

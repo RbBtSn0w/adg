@@ -563,8 +563,23 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   }
 
   try {
-    if (path) resolveSourcePath(workRoot, path);
-    let { candidates, converted } = discoverPlugins(workRoot);
+    // A selected subdirectory is its own source boundary. Discovering the
+    // checkout as a whole would let unrelated manifests suppress Default DSL
+    // fallback for a structural plugin under --path.
+    const sourceRoot = resolveSourcePath(workRoot, path ?? ".");
+    let candidates: Map<string, PluginCandidate>;
+    let converted: string[];
+    if (path) {
+      const scoped = discoverPlugins(sourceRoot);
+      converted = scoped.converted;
+      // Keep the repository-wide ADG manifest index for dependency resolution,
+      // but do not reverse-adapt unrelated native manifests. When the selected
+      // root has no manifest, leave the candidate set empty so it takes the
+      // Default DSL path below.
+      candidates = scoped.candidates.size > 0 ? scanPlugins(workRoot) : scoped.candidates;
+    } else {
+      ({ candidates, converted } = discoverPlugins(workRoot));
+    }
     const existingLock = readLock(lockPath(opts.pluginsDir));
     if (candidates.size > 0 && opts.plugins?.some((name) => existingLock.plugins[name]?.definition)) {
       throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
@@ -573,7 +588,6 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       throw new Error("--as is only supported for a default structural plugin source");
     }
     if (candidates.size === 0) {
-      const sourceRoot = resolveSourcePath(workRoot, path ?? ".");
       if (parsed.kind === "github" && !opts.preparedSourceDir) defaultDescription = await githubRepositoryDescription(parsed.source);
       const structuralIdentity = opts.as ?? (path ? basename(sourceRoot) : parsed.kind === "github" ? parsed.repo : basename(sourceRoot));
       const generated = resolveDefaultDsl(sourceRoot, {
