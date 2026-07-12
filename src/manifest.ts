@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 import type { Span } from "@opentelemetry/api";
 import { ADG_SCHEMA_VERSION, COMPONENT_TYPES, type AdgManifest } from "./types.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
-import { resolveDefaultDsl } from "./default-dsl.ts";
+import { probeDefaultDsl } from "./default-dsl.ts";
 
 /** Canonical, vendor-neutral source manifest location (a plugin). */
 export const ADG_MANIFEST_PATH = join(".agents", ".plugin.json");
@@ -60,7 +60,7 @@ export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addE
         if (m.skills !== undefined) ignored.add("skills");
         if (m.hooks !== undefined) ignored.add("hooks");
         if (m.mcpServers !== undefined) ignored.add("mcp");
-        const defaults = resolveDefaultDsl(pluginDir, { name: m.name, description: m.description }, { ignore: ignored, recordTelemetry: false }).manifest;
+        const defaults = probeDefaultDsl(pluginDir, { ignore: ignored }).manifest;
         for (const key of ["skills", "hooks", "mcpServers"] as const) {
           if (m[key] === undefined && defaults[key] !== undefined) m[key] = defaults[key];
         }

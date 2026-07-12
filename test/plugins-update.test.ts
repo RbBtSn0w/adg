@@ -557,12 +557,23 @@ test("updatePlugins surfaces a source that cannot be fetched", async () => {
     const boom: GitRunner = () => {
       throw new Error("network down");
     };
-    const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("adg-marketplace-update-")));
-    const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner: boom });
-    assert.equal(results[0]!.failed !== undefined, true, "failure is recorded, not thrown");
-    assert.deepEqual(results[0]!.updated, []);
-    const leaked = readdirSync(tmpdir()).filter((name) => name.startsWith("adg-marketplace-update-") && !before.has(name));
-    assert.deepEqual(leaked, [], "failed checkouts are removed before reporting the source failure");
+    const testTmp = join(root, "tmp");
+    mkdirSync(testTmp);
+    const previous = { TMPDIR: process.env.TMPDIR, TMP: process.env.TMP, TEMP: process.env.TEMP };
+    try {
+      process.env.TMPDIR = testTmp;
+      process.env.TMP = testTmp;
+      process.env.TEMP = testTmp;
+      const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner: boom });
+      assert.equal(results[0]!.failed !== undefined, true, "failure is recorded, not thrown");
+      assert.deepEqual(results[0]!.updated, []);
+      assert.deepEqual(readdirSync(testTmp), [], "failed checkouts are removed before reporting the source failure");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

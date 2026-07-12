@@ -246,7 +246,7 @@ export async function updatePlugins(
           spec: group.source,
           pluginsDir: opts.pluginsDir,
           ref: group.ref,
-          ...(opts.all ? { all: true } : { plugins: request.plugins }),
+          ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
           missingPlugins: "skip",
           skipUnchanged: true,
           targets: opts.targets,

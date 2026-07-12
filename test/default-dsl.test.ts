@@ -119,6 +119,24 @@ test("default DSL does not traverse a symlinked skills root", () => {
   }
 });
 
+test("default DSL rejects component symlinks while manifest inheritance only probes defaults", () => {
+  const root = scratch();
+  const external = scratch();
+  try {
+    skill(root);
+    writeFileSync(join(external, "reference.md"), "External.");
+    symlinkSync(join(external, "reference.md"), join(root, "skills", "release", "reference.md"));
+    assert.throws(() => resolveDefaultDsl(root, { name: "linked", description: "Linked." }), /must not contain symlinks/);
+
+    mkdirSync(join(root, ".agents"), { recursive: true });
+    writeFileSync(join(root, ".agents", ".plugin.json"), JSON.stringify({ schemaVersion: "adg.plugin/v1", name: "explicit", version: "1.0.0", description: "Explicit." }));
+    assert.equal(readManifest(root).skills, "./skills/");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
 test("source paths reject Windows UNC and drive-qualified inputs", () => {
   const root = scratch();
   try {

@@ -13,6 +13,10 @@ export interface DefaultDslOptions {
   telemetrySpan?: Pick<Span, "addEvent">;
   recordTelemetry?: boolean;
 }
+export interface DefaultDslProbeResult {
+  components: Array<"skills" | "hooks" | "mcp">;
+  manifest: Pick<AdgManifest, "skills" | "hooks" | "mcpServers">;
+}
 
 /** Convert a repository directory name into the manifest's stable kebab-case identity. */
 export function defaultPluginName(value: string): string {
@@ -28,6 +32,39 @@ export function defaultPluginName(value: string): string {
  * components.
  */
 export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, options: DefaultDslOptions = {}): DefaultDslResult {
+  const { components, manifest: componentManifest } = probeDefaultDsl(root, options);
+  const hasSkills = components.includes("skills");
+  const hasHooks = components.includes("hooks");
+  const hasMcp = components.includes("mcp");
+  const skillsRoot = join(root, "skills");
+  const mcpFile = join(root, ".mcp.json");
+  const hasher = createHash("sha256").update(JSON.stringify({ name: defaultPluginName(metadata.name), components }));
+  if (hasSkills) hashTree(hasher, skillsRoot, "skills");
+  if (hasHooks) hashTree(hasher, join(root, "hooks"), "hooks");
+  if (hasMcp) hasher.update(".mcp.json\0").update(readFileSync(mcpFile));
+  const fingerprint = hasher.digest("hex");
+  if (options.recordTelemetry !== false) {
+    recordTelemetryEvent("adg.default_dsl.resolve", {
+      "definition.kind": "default-dsl/v1",
+      "components.count": components.length,
+      outcome: "success",
+    }, options.telemetrySpan);
+  }
+  return {
+    components,
+    fingerprint,
+    manifest: {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: defaultPluginName(metadata.name),
+      version: `0.0.0-adg.${fingerprint}`,
+      description: metadata.description,
+      ...componentManifest,
+    },
+  };
+}
+
+/** Discover and validate conventional component locations without hashing payload contents. */
+export function probeDefaultDsl(root: string, options: Pick<DefaultDslOptions, "ignore"> = {}): DefaultDslProbeResult {
   const ignore = options.ignore ?? new Set<"skills" | "hooks" | "mcp">();
   const skillsRoot = join(root, "skills");
   const skillFiles = !ignore.has("skills") && isDirectory(skillsRoot)
@@ -50,26 +87,9 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
     ...(hasMcp ? ["mcp" as const] : []),
   ];
   if (components.length === 0) throw new Error(`no default plugin component found in ${root}`);
-  const hasher = createHash("sha256").update(JSON.stringify({ name: defaultPluginName(metadata.name), components }));
-  if (hasSkills) hashTree(hasher, skillsRoot, "skills");
-  if (hasHooks) hashTree(hasher, join(root, "hooks"), "hooks");
-  if (hasMcp) hasher.update(".mcp.json\0").update(readFileSync(mcpFile));
-  const fingerprint = hasher.digest("hex");
-  if (options.recordTelemetry !== false) {
-    recordTelemetryEvent("adg.default_dsl.resolve", {
-      "definition.kind": "default-dsl/v1",
-      "components.count": components.length,
-      outcome: "success",
-    }, options.telemetrySpan);
-  }
   return {
     components,
-    fingerprint,
     manifest: {
-      schemaVersion: ADG_SCHEMA_VERSION,
-      name: defaultPluginName(metadata.name),
-      version: `0.0.0-adg.${fingerprint}`,
-      description: metadata.description,
       ...(hasSkills ? { skills: "./skills/" } : { skills: [] }),
       ...(hasHooks ? { hooks: "./hooks/" } : {}),
       ...(hasMcp ? { mcpServers: "./.mcp.json" } : {}),
@@ -102,7 +122,9 @@ function hashTree(hasher: ReturnType<typeof createHash>, dir: string, rel: strin
   for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     const child = join(dir, entry.name);
     const childRel = `${rel}/${entry.name}`;
-    if (entry.isDirectory()) hashTree(hasher, child, childRel);
-    else if (entry.isFile()) hasher.update(childRel).update("\0").update(readFileSync(child));
+    const stat = lstatSync(child);
+    if (stat.isSymbolicLink()) throw new Error(`default plugin component must not contain symlinks: ${child}`);
+    if (stat.isDirectory()) hashTree(hasher, child, childRel);
+    else if (stat.isFile()) hasher.update(childRel).update("\0").update(readFileSync(child));
   }
 }
