@@ -11,6 +11,7 @@ export interface DefaultDslResult { manifest: AdgManifest; components: Array<"sk
 export interface DefaultDslOptions {
   ignore?: ReadonlySet<"skills" | "hooks" | "mcp">;
   telemetrySpan?: Pick<Span, "addEvent">;
+  recordTelemetry?: boolean;
 }
 
 /** Convert a repository directory name into the manifest's stable kebab-case identity. */
@@ -49,16 +50,18 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
     ...(hasMcp ? ["mcp" as const] : []),
   ];
   if (components.length === 0) throw new Error(`no default plugin component found in ${root}`);
-  const hasher = createHash("sha256").update(JSON.stringify({ metadata, components }));
+  const hasher = createHash("sha256").update(JSON.stringify({ name: defaultPluginName(metadata.name), components }));
   if (hasSkills) hashTree(hasher, skillsRoot, "skills");
   if (hasHooks) hashTree(hasher, join(root, "hooks"), "hooks");
   if (hasMcp) hasher.update(".mcp.json\0").update(readFileSync(mcpFile));
   const fingerprint = hasher.digest("hex");
-  recordTelemetryEvent("adg.default_dsl.resolve", {
-    "definition.kind": "default-dsl/v1",
-    "components.count": components.length,
-    outcome: "success",
-  }, options.telemetrySpan);
+  if (options.recordTelemetry !== false) {
+    recordTelemetryEvent("adg.default_dsl.resolve", {
+      "definition.kind": "default-dsl/v1",
+      "components.count": components.length,
+      outcome: "success",
+    }, options.telemetrySpan);
+  }
   return {
     components,
     fingerprint,

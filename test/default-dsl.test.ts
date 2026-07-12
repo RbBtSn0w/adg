@@ -42,6 +42,17 @@ test("default DSL telemetry exposes only kind, count, and outcome", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("default DSL fingerprint ignores description metadata", () => {
+  const root = scratch();
+  try {
+    skill(root);
+    const first = resolveDefaultDsl(root, { name: "ASC Skills", description: "From GitHub." });
+    const second = resolveDefaultDsl(root, { name: "ASC Skills", description: "Offline fallback." });
+    assert.equal(first.fingerprint, second.fingerprint);
+    assert.equal(first.manifest.version, second.manifest.version);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("default DSL accepts hooks-only and MCP-only plugin roots", () => {
   const root = scratch();
   try {
@@ -155,6 +166,18 @@ test("explicit manifest inherits standard component mappings it omits", () => {
     mkdirSync(join(root, ".agents"), { recursive: true });
     writeFileSync(join(root, ".agents", ".plugin.json"), JSON.stringify({ schemaVersion: "adg.plugin/v1", name: "explicit", version: "1.0.0", description: "Explicit." }));
     assert.equal(readManifest(root).skills, "./skills/");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("manifest default inheritance does not emit structural-resolution telemetry", () => {
+  const root = scratch();
+  const events: string[] = [];
+  try {
+    skill(root);
+    mkdirSync(join(root, ".agents"), { recursive: true });
+    writeFileSync(join(root, ".agents", ".plugin.json"), JSON.stringify({ schemaVersion: "adg.plugin/v1", name: "explicit", version: "1.0.0", description: "Explicit." }));
+    readManifest(root, { addEvent: (name: string) => { events.push(name); } } as never);
+    assert.deepEqual(events, ["adg.manifest.read"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

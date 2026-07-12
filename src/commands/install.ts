@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -6,7 +6,7 @@ import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
 import { removePlugin } from "./remove.ts";
-import { toPosix, writeJson } from "../fsutil.ts";
+import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir, pluginSourceCacheDir } from "../paths.ts";
@@ -584,7 +584,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
       }
       const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
-      cpSync(sourceRoot, staging, { recursive: true });
+      copyPluginDir(sourceRoot, staging);
       writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
       candidates = scanPlugins(staging);
       structuralName = generated.manifest.name;

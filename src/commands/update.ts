@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
@@ -7,7 +7,7 @@ import { readLock } from "../lock.ts";
 import { installPlugin } from "./install.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
 import { ADG_MANIFEST_PATH } from "../manifest.ts";
-import { writeJson } from "../fsutil.ts";
+import { copyPluginDir, writeJson } from "../fsutil.ts";
 
 export interface UpdateResult {
   name: string;
@@ -71,7 +71,7 @@ export function updateLock(
         const generated = resolveDefaultDsl(source, { name, description: entry.definition?.description ?? name });
         if (entry.definition) definition = { ...entry.definition, description: generated.manifest.description, fingerprint: generated.fingerprint };
         staging = mkdtempSync(join(tmpdir(), "adg-default-update-"));
-        cpSync(source, staging, { recursive: true });
+        copyPluginDir(source, staging);
         writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
         installSource = staging;
       } catch (error) {

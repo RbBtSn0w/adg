@@ -60,7 +60,7 @@ export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addE
         if (m.skills !== undefined) ignored.add("skills");
         if (m.hooks !== undefined) ignored.add("hooks");
         if (m.mcpServers !== undefined) ignored.add("mcp");
-        const defaults = resolveDefaultDsl(pluginDir, { name: m.name, description: m.description }, { ignore: ignored }).manifest;
+        const defaults = resolveDefaultDsl(pluginDir, { name: m.name, description: m.description }, { ignore: ignored, recordTelemetry: false }).manifest;
         for (const key of ["skills", "hooks", "mcpServers"] as const) {
           if (m[key] === undefined && defaults[key] !== undefined) m[key] = defaults[key];
         }
