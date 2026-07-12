@@ -82,9 +82,14 @@ export function resolvePluginSourceSnapshot(pluginsDir: string, name: string, en
   }
   const cache = pluginSourceCacheDir(pluginsDir, name);
   if (existsSync(cache)) {
-    assertSourceHash(cache, name, entry.sourceHash);
-    recordTelemetryEvent("adg.cache.recovery", { outcome: "hit" });
-    return cache;
+    try {
+      assertSourceHash(cache, name, entry.sourceHash);
+      recordTelemetryEvent("adg.cache.recovery", { outcome: "hit" });
+      return cache;
+    } catch (error) {
+      recordRecoveryFailure(error);
+      throw error;
+    }
   }
 
   const legacy = legacyPluginSourceCacheDir(pluginsDir, name);

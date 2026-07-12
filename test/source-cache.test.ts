@@ -80,6 +80,41 @@ test("source snapshot rejects a cache whose full-payload hash no longer matches 
   rmSync(work, { recursive: true, force: true });
 });
 
+/*
+## Test Intent
+### Risk
+A malformed modern cache snapshot can fail before hash verification without recording a terminal recovery outcome, undercounting recovery failures.
+### Why Automation
+The missing event occurs only on the real cache-hit branch with an active telemetry span; a unit test of the event helper cannot prove that boundary.
+### Why Existing Tests Insufficient
+Existing failure coverage exercises legacy and local recovery after the modern cache is absent, not malformed modern snapshots.
+### Chosen Layer
+Integration Test - a temporary plugin store reaches the public snapshot resolver's modern-cache path.
+### Fragility Analysis
+The test observes only the public manifest error and telemetry outcome, not private filesystem operations.
+### If Omitted
+Modern-cache corruption remains invisible in recovery reliability telemetry.
+*/
+test("failed modern cache validation records an unrecoverable outcome", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  const { pluginDir } = initPlugin({ name: "modern-failure", dir: join(work, "source") });
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const entry = readLock(join(store, ".plugin-lock.json")).plugins["modern-failure"]!;
+  rmSync(join(pluginSourceCacheDir(store, "modern-failure"), ".agents", ".plugin.json"), { force: true });
+  const events: RecordedEvent[] = [];
+
+  assert.throws(
+    () => withEventSpan(eventSpan(events), () => resolvePluginSourceSnapshot(store, "modern-failure", entry)),
+    /Invalid ADG manifest/,
+  );
+  assert.deepEqual(events.filter((event) => event.name === "adg.cache.recovery"), [{
+    name: "adg.cache.recovery",
+    attributes: { outcome: "missing_unrecoverable" },
+  }]);
+  rmSync(work, { recursive: true, force: true });
+});
+
 test("source snapshot repopulates the system cache from a verified local origin", () => {
   const work = tmp();
   const store = join(work, "store");
