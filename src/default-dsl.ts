@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "./types.ts";
 import { readSkillDescription } from "./skills.ts";
@@ -29,9 +29,11 @@ export function defaultPluginName(value: string): string {
 export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, options: DefaultDslOptions = {}): DefaultDslResult {
   const ignore = options.ignore ?? new Set<"skills" | "hooks" | "mcp">();
   const skillsRoot = join(root, "skills");
-  const skillFiles = !ignore.has("skills") && existsSync(skillsRoot) && statSync(skillsRoot).isDirectory()
+  const skillFiles = !ignore.has("skills") && isDirectory(skillsRoot)
     ? readdirSync(skillsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(skillsRoot, entry.name, "SKILL.md"))).map((entry) => join(skillsRoot, entry.name, "SKILL.md"))
     : [];
+  const invalidSkillFile = skillFiles.find((file) => !isRegularFile(file));
+  if (invalidSkillFile) throw new Error(`invalid default skill file (must be a regular file): ${invalidSkillFile}`);
   const invalidSkill = skillFiles.find((file) => !readSkillDescription(file));
   if (invalidSkill) throw new Error(`default skill requires SKILL.md frontmatter with a description: ${invalidSkill}`);
   const hasSkills = skillFiles.length > 0;
@@ -73,8 +75,16 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
 }
 
 function validJson(file: string): boolean {
-  if (!existsSync(file)) return false;
+  if (!isRegularFile(file)) return false;
   try { JSON.parse(readFileSync(file, "utf8")); return true; } catch { return false; }
+}
+
+function isDirectory(path: string): boolean {
+  try { return lstatSync(path).isDirectory(); } catch { return false; }
+}
+
+function isRegularFile(path: string): boolean {
+  try { return lstatSync(path).isFile(); } catch { return false; }
 }
 
 function validMcp(file: string): boolean {

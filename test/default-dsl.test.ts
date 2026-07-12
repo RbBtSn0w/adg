@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDefaultDsl } from "../src/default-dsl.ts";
@@ -9,6 +9,7 @@ import { readManifest } from "../src/manifest.ts";
 import { updateLock } from "../src/commands/update.ts";
 import { readLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
+import { resolveSourcePath } from "../src/source-path.ts";
 
 function scratch(): string { return mkdtempSync(join(tmpdir(), "adg-default-dsl-")); }
 function skill(root: string, name = "release"): void {
@@ -66,6 +67,52 @@ test("default DSL identifies the skill with invalid frontmatter", () => {
     mkdirSync(join(root, "skills", "broken"), { recursive: true });
     writeFileSync(join(root, "skills", "broken", "SKILL.md"), "# Missing frontmatter\n");
     assert.throws(() => resolveDefaultDsl(root, { name: "broken", description: "Broken." }), /skills[/\\]broken[/\\]SKILL\.md/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("default DSL does not follow symlinked component files", () => {
+  const root = scratch();
+  const external = scratch();
+  try {
+    mkdirSync(join(root, "skills", "linked"), { recursive: true });
+    writeFileSync(join(external, "SKILL.md"), "---\nname: linked\ndescription: External.\n---\n");
+    symlinkSync(join(external, "SKILL.md"), join(root, "skills", "linked", "SKILL.md"));
+    assert.throws(() => resolveDefaultDsl(root, { name: "linked", description: "Linked." }), /invalid default skill file/);
+
+    rmSync(join(root, "skills"), { recursive: true, force: true });
+    mkdirSync(join(root, "hooks"), { recursive: true });
+    writeFileSync(join(external, "hooks.json"), JSON.stringify({ hooks: {} }));
+    symlinkSync(join(external, "hooks.json"), join(root, "hooks", "hooks.json"));
+    assert.throws(() => resolveDefaultDsl(root, { name: "linked", description: "Linked." }), /invalid default hooks configuration/);
+
+    rmSync(join(root, "hooks"), { recursive: true, force: true });
+    writeFileSync(join(external, ".mcp.json"), JSON.stringify({ mcpServers: {} }));
+    symlinkSync(join(external, ".mcp.json"), join(root, ".mcp.json"));
+    assert.throws(() => resolveDefaultDsl(root, { name: "linked", description: "Linked." }), /invalid default MCP configuration/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
+test("default DSL does not traverse a symlinked skills root", () => {
+  const root = scratch();
+  const external = scratch();
+  try {
+    skill(external);
+    symlinkSync(join(external, "skills"), join(root, "skills"), "dir");
+    assert.throws(() => resolveDefaultDsl(root, { name: "linked", description: "Linked." }), /no default plugin component/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
+test("source paths reject Windows UNC and drive-qualified inputs", () => {
+  const root = scratch();
+  try {
+    assert.throws(() => resolveSourcePath(root, "\\\\server\\share\\plugin"), /path must stay within the source root/);
+    assert.throws(() => resolveSourcePath(root, "C:\\plugin"), /path must stay within the source root/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
