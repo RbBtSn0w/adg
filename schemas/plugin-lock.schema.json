@@ -54,7 +54,13 @@
             "root": { "const": "." },
             "as": { "type": "string" },
             "description": { "type": "string" },
-            "fingerprint": { "type": "string" }
+            "fingerprint": { "type": "string" },
+            "authorizedComponents": {
+              "type": "array",
+              "items": { "enum": ["skills", "agents", "commands", "mcp", "hooks", "apps"] },
+              "uniqueItems": true,
+              "description": "Structural components explicitly authorized at install time."
+            }
           }
         },
         "dependencies": {

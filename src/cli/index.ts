@@ -45,7 +45,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   skill: { type: "string", short: "s", multiple: true, hint: "<name>", help: "skill name (init: seed one · add: limit to these)" },
   mcp: { type: "string", short: "m", multiple: true, hint: "<name>", help: "MCP server name (add: limit to these)" },
   only: { type: "string", hint: "<types>", help: "limit to these component types (skills,agents,commands,mcp,hooks,apps)" },
-  as: { type: "string", hint: "<name>", help: "plugin name to wrap the skills as" },
+  as: { type: "string", hint: "<name>", help: "installed identity for a manifest-free structural source" },
   prefix: { type: "string", hint: "<p>", help: "prefix imported skill names" },
   verbose: { type: "boolean", short: "v", help: "expand each component to its member names" },
   json: { type: "boolean", help: "print stable machine-readable JSON" },

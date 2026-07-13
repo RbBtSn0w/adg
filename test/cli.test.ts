@@ -195,6 +195,11 @@ test("renderVerbHelp shows the synopsis, flags, and examples for a verb", () => 
   assert.match(help, /Examples:/);
 });
 
+test("plugins add describes --as as a structural source identity", () => {
+  const text = renderVerbHelp("add");
+  assert.match(text, /installed identity for a manifest-free structural source/);
+});
+
 // Capture console.log over an async call, restoring it even on throw.
 async function captureLog(fn: () => Promise<void>): Promise<string> {
   const orig = console.log;

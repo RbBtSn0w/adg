@@ -562,7 +562,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       throw new Error("--as is only supported for a default structural plugin source");
     }
     if (candidates.size === 0) {
-      if (parsed.kind === "github" && !opts.preparedSourceDir) defaultDescription = await githubRepositoryDescription(parsed.source);
+      if (parsed.kind === "github" && !opts.preparedSourceDir && !opts.defaultDescription) defaultDescription = await githubRepositoryDescription(parsed.source);
       const structuralIdentity = opts.as ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
       const generated = resolveDefaultDsl(workRoot, {
         name: structuralIdentity,
