@@ -51,6 +51,13 @@ export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: s
 
 const PATH_MAX = 44;
 
+function pluginLabel(plugin: ListedPlugin): string {
+  if (plugin.definition?.kind === "default-dsl/v1" && plugin.resolvedRevision) {
+    return `${plugin.name}@0.0.0-git-${plugin.resolvedRevision.slice(0, 6)}`;
+  }
+  return `${plugin.name}@${plugin.version}`;
+}
+
 /** `adg plugins list` — aligned name/path/agents rows, with optional verbose contents. */
 export function renderPluginList(
   plugins: ListedPlugin[],
@@ -70,7 +77,7 @@ export function renderPluginList(
     const agents = agentsForComponents(types).map((a) => a.displayName);
     return {
       p,
-      label: `${p.name}@${p.version}`,
+      label: pluginLabel(p),
       path: abbrevHome(installedPluginDir(pluginsDir, p.name, p.origin)),
       agents: agents.length > 0 ? agents.join(", ") : "—",
       counts: exposed.map(([type, names]) => `${type}: ${names.length}`),

@@ -78,6 +78,21 @@ test("renderPluginList emits a row plus a provenance line per plugin", () => {
   assert.ok(text.includes("skills: 1"), "component count shown");
 });
 
+test("renderPluginList abbreviates default DSL Git revisions", () => {
+  const plugin = listed("asc", { skills: ["release"] });
+  plugin.version = "0.0.0-git.0886ecb04f7a0af1050d809b4bc031b67a50657b";
+  plugin.resolvedRevision = "0886ecb04f7a0af1050d809b4bc031b67a50657b";
+  plugin.definition = {
+    kind: "default-dsl/v1",
+    root: ".",
+    description: "ASC.",
+    fingerprint: "76eb518ff6afe77fd9dc3e79b226f8c0ef373c0b89e9c94ab79925b87015520e",
+  };
+  const text = renderPluginList([plugin], "/store").map(stripAnsi).join("\n");
+  assert.match(text, /asc@0\.0\.0-git-0886ec/);
+  assert.ok(!text.includes("0886ecb04f7a0af1050d809b4bc031b67a50657b"));
+});
+
 test("renderPluginList --verbose drills into members", () => {
   const plain = renderPluginList([listed("alpha", { skills: ["s1"] })], "/store");
   const verbose = renderPluginList([listed("alpha", { skills: ["s1"] })], "/store", { verbose: true });

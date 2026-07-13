@@ -29,6 +29,18 @@ test("default DSL derives a skills plugin from the standard directory", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("default DSL uses the resolved Git revision as its fallback version", () => {
+  const root = scratch();
+  try {
+    skill(root);
+    const result = resolveDefaultDsl(root, { name: "ASC Skills", description: "ASC." }, {
+      resolvedRevision: "0886ecb04f7a0af1050d809b4bc031b67a50657b",
+    });
+    assert.equal(result.manifest.version, "0.0.0-git.0886ecb04f7a0af1050d809b4bc031b67a50657b");
+    assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("default DSL telemetry exposes only kind, count, and outcome", () => {
   const root = scratch();
   const events: Array<{ name: string; attributes: Record<string, unknown> }> = [];
@@ -177,6 +189,7 @@ test("remote default DSL identities include the GitHub owner", async () => {
     const first = await addPlugins({
       spec: "foo/skills",
       preparedSourceDir: source,
+      preparedResolvedRevision: "0886ecb04f7a0af1050d809b4bc031b67a50657b",
       pluginsDir: store,
       targets: ["codex"],
       now: "2026-07-12T00:00:00Z",
@@ -190,7 +203,10 @@ test("remote default DSL identities include the GitHub owner", async () => {
     });
     assert.deepEqual(first.order, ["foo-skills"]);
     assert.deepEqual(second.order, ["bar-skills"]);
-    assert.deepEqual(Object.keys(readLock(lockPath(store)).plugins).sort(), ["bar-skills", "foo-skills"]);
+    const lock = readLock(lockPath(store));
+    assert.deepEqual(Object.keys(lock.plugins).sort(), ["bar-skills", "foo-skills"]);
+    assert.equal(lock.plugins["foo-skills"]!.version, "0.0.0-git.0886ecb04f7a0af1050d809b4bc031b67a50657b");
+    assert.equal(lock.plugins["foo-skills"]!.resolvedRevision, "0886ecb04f7a0af1050d809b4bc031b67a50657b");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

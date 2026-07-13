@@ -574,6 +574,8 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       const generated = resolveDefaultDsl(workRoot, {
         name: structuralIdentity,
         description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
+      }, {
+        ...(parsed.kind === "github" && resolvedRevision ? { resolvedRevision } : {}),
       });
       const authorized = opts.authorizedComponents;
       const unauthorizedRisk = generated.components.some((c) => (c === "hooks" || c === "mcp") && !authorized?.includes(c));

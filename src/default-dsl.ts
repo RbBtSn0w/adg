@@ -10,6 +10,8 @@ export interface DefaultDslMetadata { name: string; description: string; }
 export interface DefaultDslResult { manifest: AdgManifest; components: Array<"skills" | "hooks" | "mcp">; fingerprint: string; }
 export interface DefaultDslOptions {
   ignore?: ReadonlySet<"skills" | "hooks" | "mcp">;
+  /** Immutable Git revision for a remote structural source, when available. */
+  resolvedRevision?: string;
   telemetrySpan?: Pick<Span, "addEvent">;
   recordTelemetry?: boolean;
 }
@@ -56,7 +58,9 @@ export function resolveDefaultDsl(root: string, metadata: DefaultDslMetadata, op
     manifest: {
       schemaVersion: ADG_SCHEMA_VERSION,
       name: defaultPluginName(metadata.name),
-      version: `0.0.0-adg.${fingerprint}`,
+      version: options.resolvedRevision
+        ? `0.0.0-git.${options.resolvedRevision}`
+        : `0.0.0-adg.${fingerprint}`,
       description: metadata.description,
       ...componentManifest,
     },
