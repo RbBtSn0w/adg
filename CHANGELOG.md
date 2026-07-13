@@ -1,3 +1,9 @@
+## [0.6.0-beta.9](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.8...0.6.0-beta.9) (2026-07-13)
+
+### Added
+
+* add support for resolved Git revisions in DSL and plugin rendering ([ddd6a8b](https://github.com/RbBtSn0w/adg/commit/ddd6a8b28fdfd1c8806e666737040701360267fb))
+
 ## [0.6.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.7...0.6.0-beta.8) (2026-07-13)
 
 ### Added
