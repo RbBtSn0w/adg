@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -99,6 +99,95 @@ test("updatePlugins reports unchanged when the source is identical", async () =>
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("updatePlugins treats a GitHub marketplace key as remote when a matching CWD path exists", async () => {
+  const root = scratch();
+  const originalCwd = process.cwd();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    mkdirSync(join(root, "acme", "market"), { recursive: true });
+    process.chdir(root);
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    assert.deepEqual(result.remote[0]!.unchanged, ["sales"]);
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins preserves a remote Default DSL identity when a matching CWD path exists", async () => {
+  const root = scratch();
+  const originalCwd = process.cwd();
+  try {
+    const remote = join(root, "remote");
+    mkdirSync(join(remote, "skills", "demo"), { recursive: true });
+    writeFileSync(join(remote, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", ref: "v1", pluginsDir, targets: ["codex"], gitRunner });
+    const name = lockNames(pluginsDir)[0]!;
+
+    mkdirSync(join(root, "acme", "market"), { recursive: true });
+    process.chdir(root);
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.deepEqual(result.remote[0]!.unchanged, [name]);
+    assert.deepEqual(readLock(lockPath(pluginsDir)).plugins[name]!.origin, {
+      type: "github", repo: "acme/market", ref: "v1", path: ".",
+    });
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins --all preserves a remote Default DSL alias", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    mkdirSync(join(remote, "skills", "demo"), { recursive: true });
+    writeFileSync(join(remote, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({
+      spec: "acme/market",
+      as: "custom-skills",
+      defaultDescription: "Custom skills.",
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+    });
+
+    const result = await updatePlugins({ pluginsDir, all: true, targets: ["codex"], gitRunner });
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.deepEqual(lockNames(pluginsDir), ["custom-skills"]);
+    assert.deepEqual(result.remote[0]!.unchanged, ["custom-skills"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins avoids cloning when a revision probe matches the stored revision", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    let clones = 0;
+    const gitRunner: GitRunner = (args) => { clones++; cpSync(remote, args[args.length - 1]!, { recursive: true }); };
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner });
+    const lock = readLock(lockPath(pluginsDir));
+    lock.plugins.sales!.resolvedRevision = "abc";
+    writeLock(lockPath(pluginsDir), lock);
+    clones = 0;
+    const result = await updatePlugins({ pluginsDir, gitRunner, revisionResolver: () => "abc" });
+    assert.equal(clones, 0);
+    assert.deepEqual(result.remote[0]!.unchanged, ["sales"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("updatePlugins leaves unchanged plugins untouched (no re-install / no updatedAt bump)", async () => {
@@ -538,9 +627,23 @@ test("updatePlugins surfaces a source that cannot be fetched", async () => {
     const boom: GitRunner = () => {
       throw new Error("network down");
     };
-    const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner: boom });
-    assert.equal(results[0]!.failed !== undefined, true, "failure is recorded, not thrown");
-    assert.deepEqual(results[0]!.updated, []);
+    const testTmp = join(root, "tmp");
+    mkdirSync(testTmp);
+    const previous = { TMPDIR: process.env.TMPDIR, TMP: process.env.TMP, TEMP: process.env.TEMP };
+    try {
+      process.env.TMPDIR = testTmp;
+      process.env.TMP = testTmp;
+      process.env.TEMP = testTmp;
+      const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner: boom });
+      assert.equal(results[0]!.failed !== undefined, true, "failure is recorded, not thrown");
+      assert.deepEqual(results[0]!.updated, []);
+      assert.deepEqual(readdirSync(testTmp), [], "failed checkouts are removed before reporting the source failure");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

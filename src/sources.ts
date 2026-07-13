@@ -25,6 +25,19 @@ export interface LocalSource {
 
 export type ParsedSource = GitHubSource | LocalSource;
 
+/** Best-effort repository About lookup. Callers must retain their deterministic fallback on failure. */
+export async function githubRepositoryDescription(repo: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repo.split("/").map(encodeURIComponent).join("/")}`, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "adg-cli" },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!response.ok) return undefined;
+    const body = await response.json() as { description?: unknown };
+    return typeof body.description === "string" && body.description.trim() ? body.description.trim() : undefined;
+  } catch { return undefined; }
+}
+
 const GH_SHORTHAND = /^([\w.-]+)\/([\w.-]+?)(?:@(.+))?$/;
 const GH_URL = /^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:@(.+))?$/;
 const GH_BLOB_URL = /^(?:https?:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/(?:blob|tree)\/([^/]+)\/(.+)$/;
@@ -61,6 +74,16 @@ function decodeGitHubUrlPart(value: string): string {
 export function parseSource(spec: string): ParsedSource {
   if (existsSync(spec)) return { kind: "local", dir: spec };
 
+  try {
+    return parseGitHubSource(spec);
+  } catch {
+    throw new Error(`cannot parse install source: "${spec}" (expected a local path, owner/repo[@ref], or a github.com URL)`);
+  }
+}
+
+/** Parse a GitHub source without allowing an existing CWD path to override it. */
+export function parseGitHubSource(spec: string): GitHubSource {
+
   const clean = spec.replace(/[?#].*$/, "");
   const blob = clean.match(GH_BLOB_URL);
   if (blob) {
@@ -80,7 +103,7 @@ export function parseSource(spec: string): ParsedSource {
     const [, owner, repo, ref] = short;
     return gh(owner!, repo!, ref);
   }
-  throw new Error(`cannot parse install source: "${spec}" (expected a local path or owner/repo[@ref])`);
+  throw new Error(`cannot parse GitHub source: "${spec}" (expected owner/repo[@ref] or a github.com URL)`);
 }
 
 function gh(owner: string, repo: string, ref?: string): GitHubSource {
@@ -173,6 +196,26 @@ export function gitRevision(dir: string): string | undefined {
     // Such entries remain legacy until a real update records an immutable commit.
     return undefined;
   }
+}
+
+const GIT_SHA_RE = /^[0-9a-f]{40}$/i;
+
+/** Extract the commit SHA from `git ls-remote`, preferring an annotated tag's peeled ref. */
+export function parseRemoteRevision(output: string | undefined, ref?: string): string | undefined {
+  if (!output) return undefined;
+  const rows = output.split(/\r?\n/).map((line) => line.trim().split(/\s+/)).filter(([sha, name]) => GIT_SHA_RE.test(sha ?? "") && name);
+  const peeled = ref ? rows.find(([, name]) => name === `refs/tags/${ref}^{}`)?.[0] : undefined;
+  return peeled ?? rows[0]?.[0];
+}
+
+/** Lightweight remote commit probe used to avoid cloning an unchanged source. */
+export function gitRemoteRevision(repo: string, ref?: string): string | undefined {
+  if (ref && GIT_SHA_RE.test(ref)) return ref.toLowerCase();
+  try {
+    const pattern = ref || "HEAD";
+    const output = runGit(["ls-remote", `https://github.com/${repo}.git`, pattern, `${pattern}^{}`], true);
+    return parseRemoteRevision(output, ref);
+  } catch { return undefined; }
 }
 
 /**

@@ -27,7 +27,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   // Short flags are first-letter aliases. Where several long flags share a
   // first letter, the highest-frequency one wins the short and the rest stay
   // long-only:  d → dir (not description)   a → all (not author/as)
-  //             s → skill (not sparse)      p → plugin (not path/project/prefix)
+  //             s → skill (not sparse)      p → plugin (not project/prefix)
   dir: { type: "string", short: "d", hint: "<dir>", help: "install into an explicit directory" },
   global: { type: "boolean", short: "g", help: "use ~/.agents/plugins (across all projects)" },
   project: { type: "boolean", help: "use <repo>/.agents/plugins (default)" },
@@ -35,7 +35,6 @@ export const FLAGS: Record<string, FlagSpec> = {
   all: { type: "boolean", short: "a", help: "select all available plugins" },
   plugin: { type: "string", short: "p", multiple: true, hint: "<name>", help: "select a specific plugin (repeatable)" },
   "no-deps": { type: "boolean", short: "n", help: "don't install dependencies" },
-  path: { type: "string", hint: "<subdir>", help: "install only this subdir of the source" },
   ref: { type: "string", short: "r", hint: "<ref>", help: "pin a git ref (branch/tag/sha)" },
   sparse: { type: "string", multiple: true, hint: "<path>", help: "sparse-checkout path (repeatable)" },
   "marketplace-name": { type: "string", hint: "<name>", help: "override the marketplace key" },
@@ -46,7 +45,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   skill: { type: "string", short: "s", multiple: true, hint: "<name>", help: "skill name (init: seed one · add: limit to these)" },
   mcp: { type: "string", short: "m", multiple: true, hint: "<name>", help: "MCP server name (add: limit to these)" },
   only: { type: "string", hint: "<types>", help: "limit to these component types (skills,agents,commands,mcp,hooks,apps)" },
-  as: { type: "string", hint: "<name>", help: "plugin name to wrap the skills as" },
+  as: { type: "string", hint: "<name>", help: "installed identity for a manifest-free structural source" },
   prefix: { type: "string", hint: "<p>", help: "prefix imported skill names" },
   verbose: { type: "boolean", short: "v", help: "expand each component to its member names" },
   json: { type: "boolean", help: "print stable machine-readable JSON" },
@@ -64,7 +63,6 @@ export type ParsedValues = {
   all?: boolean;
   plugin?: string[];
   "no-deps"?: boolean;
-  path?: string;
   ref?: string;
   sparse?: string[];
   "marketplace-name"?: string;
@@ -119,7 +117,7 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
       "In a terminal, add guides you through:  scope → plugins → agents → what to install.\n" +
       "By default it installs everything; choose 'No, let me choose' to pick components,\n" +
       "or pass the flags below to skip any prompt (e.g. for scripts/CI).",
-    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "path", "ref", "sparse", "marketplace-name", ...SCOPE],
+    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "ref", "sparse", "marketplace-name", "as", ...SCOPE],
     examples: [
       "adg plugins add owner/repo                 # guided",
       "adg plugins add owner/repo --all --global  # all plugins, global, non-interactive",
@@ -197,6 +195,12 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     synopsis: "adg plugins validate [<dir>]",
     positional: "<dir>  plugin directory (default: current directory)",
     flags: [],
+  },
+  inspect: {
+    summary: "inspect a plugin source without installing it",
+    synopsis: "adg plugins inspect [<source>] [--ref <ref>]",
+    positional: "<source>  local directory or owner/repo[@ref] (default: current directory)",
+    flags: ["json", "ref"],
   },
   "import-skills": {
     summary: "wrap an existing skills/ dir as a plugin",

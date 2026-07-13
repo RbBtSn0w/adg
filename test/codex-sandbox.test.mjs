@@ -40,6 +40,7 @@ Codex.
 */
 test("Codex sandbox receives picker metadata from adg link", () => {
   const root = mkdtempSync(join(tmpdir(), "adg-codex-description-"));
+  const previousCacheHome = process.env.ADG_CACHE_HOME;
   try {
     const store = join(root, ".agents", "plugins");
     const source = join(root, "source");
@@ -61,6 +62,7 @@ test("Codex sandbox receives picker metadata from adg link", () => {
     writeFileSync(marketplaceFile, JSON.stringify(marketplace));
 
     const codexHome = join(root, "codex-home");
+    process.env.ADG_CACHE_HOME = join(root, "adg-cache");
     mkdirSync(codexHome, { recursive: true });
     const env = {
       ...process.env,
@@ -76,6 +78,8 @@ test("Codex sandbox receives picker metadata from adg link", () => {
     const cached = JSON.parse(readFileSync(join(codexHome, "plugins", "cache", "adg", "demo", "1.0.0", ".codex-plugin", "plugin.json"), "utf8"));
     assert.deepEqual(cached.interface, { shortDescription: "Visible sandbox description." });
   } finally {
+    if (previousCacheHome === undefined) delete process.env.ADG_CACHE_HOME;
+    else process.env.ADG_CACHE_HOME = previousCacheHome;
     rmSync(root, { recursive: true, force: true });
   }
 });

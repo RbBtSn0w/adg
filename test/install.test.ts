@@ -269,7 +269,7 @@ test("init -> adapt -> install -> update end to end", () => {
   assert.ok(existsSync(join(store, "sample", ".agents", ".plugin.json")));
 
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.equal(lock.version, 4);
+  assert.equal(lock.version, 5);
   assert.equal(lock.plugins.sample.sourceHash, res.sourceHash);
   assert.equal(lock.plugins.sample.installedHash, res.installedHash);
   assert.ok(res.sourceHash.startsWith("sha256-"));

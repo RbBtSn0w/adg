@@ -1,5 +1,9 @@
 import type { AdapterTarget } from "../adapters/index.ts";
-import type { GitRunner } from "../sources.ts";
+import { gitRemoteRevision, type GitRunner } from "../sources.ts";
+import { cloneGitHub, gitRevision, parseGitHubSource } from "../sources.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PluginSource } from "../types.ts";
 import { lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
@@ -183,6 +187,8 @@ export async function updatePlugins(
     agents?: Agent[];
     /** Injection seam for removed remote entries; defaults to every registered agent. */
     deactivationAgents?: Agent[];
+    /** Injectable low-cost remote revision probe; undefined falls back to git ls-remote. */
+    revisionResolver?: (source: string, ref?: string) => string | undefined;
   },
 ): Promise<PluginUpdateResult> {
   const allGroups = marketplaceList({ pluginsDir: opts.pluginsDir });
@@ -203,25 +209,71 @@ export async function updatePlugins(
 
   for (const group of remoteGroups) {
     try {
-      const { installed, available, agents } = await addPlugins({
-        spec: group.source,
-        pluginsDir: opts.pluginsDir,
-        ref: group.ref,
-        // Default: refresh what's installed. --all: also install anything new.
-        ...(opts.all ? { all: true } : { plugins: group.installed }),
-        missingPlugins: "skip", // an upstream deletion is reported, not fatal
-        skipUnchanged: true, // detect-then-update: leave unchanged plugins alone
-        targets: opts.targets,
-        marketplaceName: group.source,
-        gitRunner: opts.gitRunner,
-        activate: opts.activate,
-        scope: opts.agentScope,
-        agents: opts.agents,
-        deactivationAgents: opts.deactivationAgents,
-        now,
+      const lock = readLock(lockPath(opts.pluginsDir));
+      const revisions = group.installed.map((name) => lock.plugins[name]?.resolvedRevision).filter((revision): revision is string => Boolean(revision));
+      const remoteRevision = (opts.revisionResolver ?? gitRemoteRevision)(group.source, group.ref);
+      if (!opts.all && remoteRevision && revisions.length === group.installed.length && revisions.every((revision) => revision === remoteRevision)) {
+        remote.push({ source: group.source, ...(group.ref ? { ref: group.ref } : {}), updated: [], unchanged: [...group.installed].sort(), deleted: [], available: [] });
+        continue;
+      }
+      const structural = group.installed.flatMap((name) => {
+        const definition = lock.plugins[name]?.definition;
+        return definition ? [{ name, definition, selection: lock.plugins[name]?.selection }] : [];
       });
-      if (agents) remoteAgents.push(...agents);
-      const availableSet = new Set(available);
+      const ordinary = group.installed.filter((name) => !lock.plugins[name]?.definition);
+      // A structural profile always describes the source root. Replay each
+      // profile independently so its stable --as identity is preserved.
+      const requests: Array<{ plugins?: string[]; as?: string; defaultDescription?: string; authorizedComponents?: import("../types.ts").ComponentType[]; replaySelection?: import("../types.ts").PluginSelection }> = [
+        ...structural.map(({ name, definition, selection }) => ({
+          plugins: [name],
+          as: definition.as,
+          defaultDescription: definition.description,
+          authorizedComponents: definition.authorizedComponents,
+          replaySelection: selection ?? (definition.authorizedComponents ? { components: definition.authorizedComponents } : undefined),
+        })),
+        // A structural profile represents the whole source root. Never append
+        // an --all fallback that could derive a second Default DSL identity.
+        ...(structural.length === 0 && (ordinary.length > 0 || opts.all)
+          ? [{ plugins: opts.all ? undefined : ordinary }]
+          : []),
+      ];
+      const installed = [] as Awaited<ReturnType<typeof addPlugins>>["installed"];
+      const available = new Set<string>();
+      const checkout = mkdtempSync(join(tmpdir(), "adg-marketplace-update-"));
+      try {
+        const parsed = parseGitHubSource(group.source);
+        cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
+        const resolvedRevision = gitRevision(checkout);
+        for (const request of requests) {
+          const result = await addPlugins({
+            spec: group.source,
+            pluginsDir: opts.pluginsDir,
+            ref: group.ref,
+            ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
+            missingPlugins: "skip",
+            skipUnchanged: true,
+            nonInteractive: true,
+            ...(request.authorizedComponents ? { authorizedComponents: request.authorizedComponents } : {}),
+            ...(request.replaySelection ? { replaySelection: request.replaySelection } : {}),
+            targets: opts.targets,
+            marketplaceName: group.source,
+            gitRunner: opts.gitRunner,
+            ...(request.as ? { as: request.as } : {}),
+            ...(request.defaultDescription ? { defaultDescription: request.defaultDescription } : {}),
+            activate: opts.activate,
+            scope: opts.agentScope,
+            agents: opts.agents,
+            deactivationAgents: opts.deactivationAgents,
+            now,
+            preparedSourceDir: checkout,
+            preparedResolvedRevision: resolvedRevision,
+          });
+          installed.push(...result.installed);
+          result.available.forEach((name) => available.add(name));
+          if (result.agents) remoteAgents.push(...result.agents);
+        }
+      } finally { rmSync(checkout, { recursive: true, force: true }); }
+      const availableSet = available;
       const installedNow = new Set(installed.map((r) => r.name));
       remote.push({
         source: group.source,
@@ -229,7 +281,7 @@ export async function updatePlugins(
         updated: installed.filter((r) => r.changed).map((r) => r.name).sort(),
         unchanged: installed.filter((r) => !r.changed).map((r) => r.name).sort(),
         deleted: group.installed.filter((n) => !availableSet.has(n)).sort(),
-        available: available.filter((n) => !installedNow.has(n) && !group.installed.includes(n)).sort(),
+        available: [...available].filter((n) => !installedNow.has(n) && !group.installed.includes(n)).sort(),
       });
     } catch (err) {
       remote.push({

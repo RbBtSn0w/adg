@@ -1,9 +1,13 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { installedPluginDir, lockPath, pluginSourceCacheDir } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { installPlugin } from "./install.ts";
+import { resolveDefaultDsl } from "../default-dsl.ts";
+import { ADG_MANIFEST_PATH } from "../manifest.ts";
+import { copyPluginDir, writeJson } from "../fsutil.ts";
 
 export interface UpdateResult {
   name: string;
@@ -55,14 +59,45 @@ export function updateLock(
       continue;
     }
 
-    const result = installPlugin({
-      source,
-      pluginsDir,
-      origin: entry.origin,
-      selection: entry.selection,
-      skipUnchanged: true,
-      now,
-    });
+    if (entry.definition && localSource && existsSync(join(localSource, ADG_MANIFEST_PATH))) {
+      throw new Error(`source definition changed from default DSL to a manifest for "${name}"; re-add or migrate the plugin explicitly`);
+    }
+
+    let installSource = source;
+    let staging: string | undefined;
+    let definition = entry.definition;
+    if (!existsSync(join(source, ADG_MANIFEST_PATH))) {
+      try {
+        const generated = resolveDefaultDsl(source, { name, description: entry.definition?.description ?? name });
+        const authorized = entry.definition?.authorizedComponents;
+        const unauthorizedRisk = generated.components.some((component) => (component === "hooks" || component === "mcp") && !authorized?.includes(component));
+        if (entry.definition && unauthorizedRisk) {
+          throw new Error(`default source exposes an unauthorized hook or MCP component for "${name}"; re-add the plugin with an explicit component selection`);
+        }
+        if (entry.definition) definition = { ...entry.definition, description: generated.manifest.description, fingerprint: generated.fingerprint };
+        staging = mkdtempSync(join(tmpdir(), "adg-default-update-"));
+        copyPluginDir(source, staging);
+        writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
+        installSource = staging;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("no default plugin component")) throw error;
+        // Non-plugin local directories continue through the normal manifest path.
+      }
+    }
+    let result;
+    try {
+      result = installPlugin({
+        source: installSource,
+        pluginsDir,
+        origin: entry.origin,
+        selection: entry.selection ?? (entry.definition?.authorizedComponents ? { components: entry.definition.authorizedComponents } : undefined),
+        skipUnchanged: true,
+        now,
+        definition,
+      });
+    } finally {
+      if (staging) rmSync(staging, { recursive: true, force: true });
+    }
     if (result.changed) changedNames.push(name);
     results.push({
       name,

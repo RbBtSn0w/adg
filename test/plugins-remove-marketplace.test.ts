@@ -187,24 +187,6 @@ test("remote interactive selection reconciles the store to the selected subset",
   }
 });
 
-test("remote --path install does not prune sibling plugins from the same repo", async () => {
-  const root = scratch();
-  try {
-    const remote = join(root, "remote");
-    writeNativeMarket(remote, ["sales", "finance"]);
-    const pluginsDir = join(root, "pdir");
-    const gitRunner = fakeClone(remote);
-
-    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
-    const res = await addPlugins({ spec: "acme/market", pluginsDir, path: "sales", targets: ["codex"], gitRunner });
-
-    assert.deepEqual(res.removed, []);
-    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("remote subset reconcile deactivates removed plugins from every mapped agent", async () => {
   const root = scratch();
   try {

@@ -12,28 +12,32 @@ export function emptyLock(): PluginLock {
 
 export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): PluginLock {
   if (!existsSync(file)) return emptyLock();
-  const raw = JSON.parse(readFileSync(file, "utf8")) as PluginLock;
-  if (typeof raw?.version === "number") {
-    const observed = raw.version === 2 || raw.version === 3 || raw.version === LOCK_VERSION ? raw.version : -1;
-    recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
-  }
-  if (typeof raw.version !== "number" || typeof raw.plugins !== "object" || raw.plugins === null) {
+  const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(`${file} is not a valid .plugin-lock.json`);
   }
-  if (raw.version === 3) {
-    // Read compatibility for the immediately preceding format keeps runtime
+  const parsed = raw as PluginLock;
+  if (typeof parsed.version === "number") {
+    const observed = parsed.version === 2 || parsed.version === 3 || parsed.version === 4 || parsed.version === LOCK_VERSION ? parsed.version : -1;
+    recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
+  }
+  if (typeof parsed.version !== "number" || typeof parsed.plugins !== "object" || parsed.plugins === null || Array.isArray(parsed.plugins)) {
+    throw new Error(`${file} is not a valid .plugin-lock.json`);
+  }
+  if (parsed.version === 3 || parsed.version === 4) {
+    // Read compatibility for the retained v3 and v4 formats keeps runtime
     // adapters working before the user runs the explicit migration command.
-    const upgraded = { ...raw, version: LOCK_VERSION };
-    pendingLockMigrations.set(upgraded, 3);
+    const upgraded = { ...parsed, version: LOCK_VERSION };
+    pendingLockMigrations.set(upgraded, parsed.version);
     return upgraded;
   }
-  if (raw.version !== LOCK_VERSION) {
+  if (parsed.version !== LOCK_VERSION) {
     throw new Error(
-      `${file} uses unsupported lock version ${raw.version}; expected ${LOCK_VERSION}. ` +
+      `${file} uses unsupported lock version ${parsed.version}; expected ${LOCK_VERSION}. ` +
         "Run `adg plugins migrate` with the same scope flag to upgrade it.",
     );
   }
-  return raw;
+  return parsed;
 }
 
 export function writeLock(file: string, lock: PluginLock, telemetrySpan?: Pick<Span, "addEvent">): void {

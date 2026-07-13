@@ -7,7 +7,7 @@
   "required": ["version", "plugins"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "description": "Lock file format version.", "enum": [3, 4] },
+    "version": { "type": "integer", "description": "Lock file format version.", "enum": [3, 4, 5] },
     "plugins": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/lockEntry" }
@@ -44,6 +44,24 @@
         "state": {
           "enum": ["enabled", "disabled"],
           "description": "Desired cross-agent projection state. Absent means enabled."
+        },
+        "definition": {
+          "type": "object",
+          "required": ["kind", "root", "description", "fingerprint"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "default-dsl/v1" },
+            "root": { "const": "." },
+            "as": { "type": "string" },
+            "description": { "type": "string" },
+            "fingerprint": { "type": "string" },
+            "authorizedComponents": {
+              "type": "array",
+              "items": { "enum": ["skills", "agents", "commands", "mcp", "hooks", "apps"] },
+              "uniqueItems": true,
+              "description": "Structural components explicitly authorized at install time."
+            }
+          }
         },
         "dependencies": {
           "type": "object",

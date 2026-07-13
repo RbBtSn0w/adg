@@ -106,17 +106,18 @@ function migrateLock(pluginsDir: string, telemetrySpan?: Pick<Span, "addEvent">)
   const file = lockPath(pluginsDir);
   if (!existsSync(file)) return false;
   const raw = JSON.parse(readFileSync(file, "utf8")) as PluginLockV2 | PluginLock;
-  if (!raw || typeof raw !== "object") throw new Error(`${file} is not a valid lock file`);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${file} is not a valid lock file`);
+  if (Array.isArray(raw.plugins)) throw new Error(`${file} is not a valid lock file`);
   if (raw.version === LOCK_VERSION) return false;
   if (typeof raw?.version === "number") {
-    recordTelemetryEvent("adg.lock.read", { "format.version": raw.version === 2 || raw.version === 3 ? raw.version : -1 }, telemetrySpan);
+    recordTelemetryEvent("adg.lock.read", { "format.version": raw.version === 2 || raw.version === 3 || raw.version === 4 ? raw.version : -1 }, telemetrySpan);
   }
-  if (raw.version === 3 && typeof raw.plugins === "object" && raw.plugins !== null) {
+  if ((raw.version === 3 || raw.version === 4) && typeof raw.plugins === "object" && raw.plugins !== null) {
     // v3 has the same payload model; v4 adds optional immutable provenance.
     // Existing remote entries remain explicitly legacy until an update/add
     // resolves their commit, rather than inventing a moving ref as a revision.
     writeLock(file, { ...raw, version: LOCK_VERSION });
-    recordTelemetryEvent("adg.lock.migrate", { "from.version": 3, "to.version": LOCK_VERSION }, telemetrySpan);
+    recordTelemetryEvent("adg.lock.migrate", { "from.version": raw.version, "to.version": LOCK_VERSION }, telemetrySpan);
     return true;
   }
   if (raw.version !== 2 || typeof raw.plugins !== "object" || raw.plugins === null) {

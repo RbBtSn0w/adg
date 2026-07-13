@@ -6,7 +6,7 @@ import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
 import { fromNativeManifest } from "../adapters/reverse.ts";
 import { adaptPlugin } from "./adapt.ts";
 import { removePlugin } from "./remove.ts";
-import { toPosix, writeJson } from "../fsutil.ts";
+import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir, pluginSourceCacheDir } from "../paths.ts";
@@ -15,12 +15,13 @@ import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { recordTelemetryEvent } from "../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../marketplace.ts";
 import { resolveInstallOrder, type PluginCandidate } from "../deps.ts";
-import { cloneGitHub, gitRevision, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
-import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
+import { cloneGitHub, gitRevision, githubRepositoryDescription, parseGitHubSource, parseSource, scanNativePlugins, scanPlugins, type GitRunner } from "../sources.ts";
+import { normalizePluginSelection, pluginState, resolveSelectionDependencies, sameSource, COMPONENT_TYPES, type AdgManifest, type ComponentType, type DefaultDefinitionProfile, type LockEntry, type PluginSelection, type PluginSource } from "../types.ts";
 import { pluginContents, presentComponents } from "../components.ts";
 import { skillDescriptionLoader } from "../skills.ts";
 import { resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { effectivePackageFilter, materializePlugin, withPluginSourceCache } from "../materialize.ts";
+import { resolveDefaultDsl } from "../default-dsl.ts";
 
 export interface InstallOneOptions {
   /** Local directory containing the plugin (already fetched). */
@@ -50,6 +51,7 @@ export interface InstallOneOptions {
   /** Rebuild the effective installation even when source and payload hashes match. */
   forceMaterialize?: boolean;
   telemetrySpan?: Pick<import("@opentelemetry/api").Span, "addEvent">;
+  definition?: DefaultDefinitionProfile;
 }
 
 export interface InstallResult {
@@ -181,6 +183,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     }
     if (desiredSelection) entry.selection = desiredSelection;
     if (prev?.state) entry.state = prev.state;
+    if (opts.definition) entry.definition = opts.definition;
     const previousEntry = prev && Object.fromEntries(
       Object.entries(prev).filter(([key]) => key !== "installedAt" && key !== "updatedAt"),
     );
@@ -238,6 +241,19 @@ export interface AddOptions {
   pluginsDir: string;
   /** Override the ref parsed from the spec. */
   ref?: string;
+  /** Override the derived identity of a default structural plugin. */
+  as?: string;
+  /** Enables structural-source safety checks for non-interactive CLI calls. */
+  nonInteractive?: boolean;
+  /** Replayed structural authorization from a prior lock entry. */
+  authorizedComponents?: ComponentType[];
+  /** Internal update replay of the exact prior partial-install selection. */
+  replaySelection?: PluginSelection;
+  /** Last-known structural description, used when remote metadata lookup fails. */
+  defaultDescription?: string;
+  /** Internal remote checkout reuse for marketplace updates. */
+  preparedSourceDir?: string;
+  preparedResolvedRevision?: string;
   /** Restrict a GitHub checkout to these sub-paths (sparse checkout). */
   sparse?: string[];
   /** Injectable git clone runner (for offline testing). */
@@ -261,13 +277,11 @@ export interface AddOptions {
    * always (re)installs.
    */
   skipUnchanged?: boolean;
-  /** Install the single plugin at this sub-path. */
-  path?: string;
   /** Resolve and install transitive plugin dependencies. Default true. */
   withDeps?: boolean;
   /**
    * Interactive picker, used only when the source holds multiple plugins and
-   * none of all/plugins/path narrowed the selection. Returns chosen names.
+   * none of all/plugins narrowed the selection. Returns chosen names.
    */
   selectPlugins?: (choices: PluginChoice[]) => Promise<string[]> | string[];
 
@@ -345,7 +359,6 @@ function discoverPlugins(root: string): { candidates: Map<string, PluginCandidat
 async function selectPluginNames(
   opts: AddOptions,
   candidates: Map<string, PluginCandidate>,
-  workRoot: string,
   converted: string[],
 ): Promise<string[]> {
   const names = [...candidates.keys()];
@@ -356,12 +369,6 @@ async function selectPluginNames(
       throw new Error(`plugin(s) not found in source: ${missing.join(", ")}.\nAvailable: ${names.join(", ")}`);
     }
     return opts.plugins.filter((p) => candidates.has(p));
-  }
-  if (opts.path) {
-    const target = resolve(join(workRoot, opts.path));
-    const hit = [...candidates.values()].find((c) => resolve(c.dir) === target);
-    if (!hit) throw new Error(`no plugin found at --path ${opts.path}`);
-    return [hit.manifest.name];
   }
   if (opts.all || candidates.size === 1) return names;
 
@@ -406,6 +413,11 @@ async function resolveSelections(
     return selections;
   }
 
+  if (opts.replaySelection) {
+    for (const name of selected) selections.set(name, opts.replaySelection);
+    return selections;
+  }
+
   if (!opts.confirmFull || !opts.selectComponents) return selections; // non-interactive default: full
   if (await opts.confirmFull(selected)) return selections; // user kept everything
 
@@ -439,14 +451,12 @@ function reconcileRemotePlugins(
   opts: AddOptions,
   parsed: ReturnType<typeof parseSource>,
   ref: string | undefined,
-  narrowed: boolean,
   desired: Set<string>,
 ): string[] {
   if (parsed.kind === "local") return [];
-  // A path/sparse install does not prove the full source shape, so it must not
-  // prune sibling plugins from the same repo that were intentionally excluded
-  // from the checkout/selection window.
-  if (narrowed || opts.sparse?.length) return [];
+  // A sparse checkout does not prove the full source shape, so it must not
+  // prune sibling plugins from the same repo that were intentionally excluded.
+  if (opts.sparse?.length) return [];
 
   const lock = readLock(lockPath(opts.pluginsDir));
   const stale = Object.entries(lock.plugins)
@@ -511,22 +521,33 @@ function activateInstalled(
 /**
  * The unified install entrypoint. Treats any source as a marketplace: clone or
  * read it, discover every plugin (ADG plus reverse-adapted native), choose a
- * subset (--all / --plugin / --path / sole plugin / interactive picker), then
+ * subset (--all / --plugin / sole plugin / interactive picker), then
  * install the selection in dependency-first order.
  */
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
-  const parsed = parseSource(opts.spec);
+  // Prepared checkouts are used only by remote marketplace update. Parse their
+  // persisted owner/repo key as GitHub even when the caller's CWD shadows it.
+  const parsed = opts.preparedSourceDir ? parseGitHubSource(opts.spec) : parseSource(opts.spec);
   const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
-  const inferredPath = parsed.kind === "github" ? parsed.path : undefined;
-  const path = opts.path ?? inferredPath;
+  if (parsed.kind === "github" && parsed.path) {
+    throw new Error("GitHub subdirectory sources are not supported; define a marketplace and select with --plugin or --all");
+  }
   let workRoot: string;
   let buildOrigin: (dir: string) => PluginSource;
   let resolvedRevision: string | undefined;
   let cleanup: (() => void) | undefined;
+  let originDirOverride: string | undefined;
+  let definition: DefaultDefinitionProfile | undefined;
+  let defaultDescription: string | undefined;
+  let structuralName: string | undefined;
 
-  if (parsed.kind === "local") {
+  if (opts.preparedSourceDir) {
+    workRoot = resolve(opts.preparedSourceDir);
+    resolvedRevision = opts.preparedResolvedRevision;
+    buildOrigin = (dir) => ({ type: "github", repo: parsed.kind === "github" ? parsed.source : opts.spec, ...(sourceRef ? { ref: sourceRef } : {}), path: toPosix(relative(workRoot, originDirOverride ?? dir)) || "." });
+  } else if (parsed.kind === "local") {
     workRoot = resolve(parsed.dir);
-    buildOrigin = (dir) => ({ type: "local", path: resolve(dir) });
+    buildOrigin = (dir) => ({ type: "local", path: resolve(originDirOverride ?? dir) });
   } else {
     const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
     cleanup = () => rmSync(tmp, { recursive: true, force: true });
@@ -537,19 +558,43 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       type: "github",
       repo: parsed.source,
       ...(sourceRef ? { ref: sourceRef } : {}),
-      path: toPosix(relative(tmp, dir)) || ".",
+      path: toPosix(relative(tmp, originDirOverride ?? dir)) || ".",
     });
   }
 
   try {
-    const { candidates, converted } = discoverPlugins(workRoot);
+    let { candidates, converted } = discoverPlugins(workRoot);
+    const existingLock = readLock(lockPath(opts.pluginsDir));
+    if (candidates.size > 0 && opts.as) {
+      throw new Error("--as is only supported for a default structural plugin source");
+    }
     if (candidates.size === 0) {
-      throw new Error(
-        `no plugin found in "${opts.spec}" (no .agents/.plugin.json, .claude-plugin or .codex-plugin manifest).`,
-      );
+      if (parsed.kind === "github" && !opts.preparedSourceDir && !opts.defaultDescription) defaultDescription = await githubRepositoryDescription(parsed.source);
+      const structuralIdentity = opts.as ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
+      const generated = resolveDefaultDsl(workRoot, {
+        name: structuralIdentity,
+        description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
+      });
+      const authorized = opts.authorizedComponents;
+      const unauthorizedRisk = generated.components.some((c) => (c === "hooks" || c === "mcp") && !authorized?.includes(c));
+      if (opts.nonInteractive && unauthorizedRisk && opts.only === undefined) {
+        throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
+      }
+      const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
+      copyPluginDir(workRoot, staging);
+      writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
+      candidates = scanPlugins(staging);
+      structuralName = generated.manifest.name;
+      converted = [];
+      originDirOverride = workRoot;
+      definition = { kind: "default-dsl/v1", root: ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint, authorizedComponents: authorized ?? (opts.only ?? generated.components) };
+      cleanup = (() => {
+        const prior = cleanup;
+        return () => { rmSync(staging, { recursive: true, force: true }); prior?.(); };
+      })();
     }
 
-    const selected = await selectPluginNames({ ...opts, path }, candidates, workRoot, converted);
+    const selected = structuralName ? [structuralName] : await selectPluginNames(opts, candidates, converted);
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -561,7 +606,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       // upstream: don't abort — return what the source still offers so the
       // caller can report the deletions.
       if (opts.missingPlugins === "skip") {
-        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(selected));
+        const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(selected));
         return { order: [], installed: [], removed, converted, available };
       }
       throw new Error("no plugins selected");
@@ -569,6 +614,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
 
     // Partial-install selection per user-chosen plugin (auto-deps install full).
     const selections = await resolveSelections(opts, selected, candidates);
+    if (definition && structuralName) {
+      definition = {
+        ...definition,
+        authorizedComponents: selections.get(structuralName)?.components ?? definition.authorizedComponents,
+      };
+    }
 
     // Dependency-first order across every selected plugin (chains deduped).
     const order: string[] = [];
@@ -582,7 +633,14 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         }
       }
     }
-    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, Boolean(path), new Set(order));
+    // A generated Default DSL replay retains its definition profile. Only an
+    // explicit manifest discovered from the source may replace that profile.
+    const definitionSwitches = definition ? [] : order.filter((name) => existingLock.plugins[name]?.definition);
+    if (definitionSwitches.length > 0) {
+      const names = definitionSwitches.sort().map((name) => `"${name}"`).join(", ");
+      throw new Error(`source definition changed from default DSL to a manifest for ${names}; re-add or migrate the plugin explicitly`);
+    }
+    const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
 
     // Snapshot which plugins already existed before this call mutates the lock,
     // so the activation step below can tell brand-new installs from updates.
@@ -602,6 +660,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           selection: selections.get(name),
           skipUnchanged: opts.skipUnchanged,
           now: opts.now,
+          definition: name === structuralName ? definition : undefined,
         }),
       );
     }

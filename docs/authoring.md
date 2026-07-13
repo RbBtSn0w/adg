@@ -62,6 +62,23 @@ authoring artifact:
 
 ---
 
+## Conventional skills repositories
+
+A repository may omit `.agents/.plugin.json` when it follows the fixed Default
+DSL: `skills/<name>/SKILL.md`, `hooks/hooks.json`, and/or `.mcp.json`. ADG
+derives one plugin only from the source root; it does not recursively guess
+other directories.
+
+Default DSL is not available to a member directory of a multi-plugin repository.
+For a marketplace, give every member its own `.agents/.plugin.json`; consumers
+select that explicit member with `--plugin` rather than by source subdirectory.
+
+Add `.agents/.plugin.json` for non-standard paths or metadata. Its `skills`,
+`hooks`, and `mcpServers` fields replace their respective defaults; omitted
+fields inherit valid conventional locations. In automation, explicitly use
+`--only` before enabling discovered hooks or MCP. Consumers may use `--as` only
+when installing a manifest-free structural source.
+
 ## The `.agents/.plugin.json` DSL
 
 ```jsonc

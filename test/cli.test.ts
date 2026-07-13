@@ -151,6 +151,10 @@ test("resolveComponents exits on an unknown component type", () => {
   expectFail(() => resolveComponents("skills,bogus"));
 });
 
+test("plugins add rejects the removed --path flag", () => {
+  expectFail(() => parseVerb("add", PLUGIN_COMMANDS.add!.flags, ["--path", "plugins/demo"]));
+});
+
 test("scopeOf maps --global to user, else project", () => {
   assert.equal(scopeOf({ global: true }), "user");
   assert.equal(scopeOf({}), "project");
@@ -189,6 +193,11 @@ test("renderVerbHelp shows the synopsis, flags, and examples for a verb", () => 
   assert.match(help, /adg plugins add <source>/);
   assert.match(help, /Flags:/);
   assert.match(help, /Examples:/);
+});
+
+test("plugins add describes --as as a structural source identity", () => {
+  const text = renderVerbHelp("add");
+  assert.match(text, /installed identity for a manifest-free structural source/);
 });
 
 // Capture console.log over an async call, restoring it even on throw.

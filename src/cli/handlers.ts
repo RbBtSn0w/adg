@@ -5,6 +5,7 @@ import { addPlugins } from "../commands/install.ts";
 import { validatePlugin } from "../commands/validate.ts";
 import { listPlugins } from "../commands/list.ts";
 import { importSkills } from "../commands/import.ts";
+import { inspectSource } from "../commands/inspect.ts";
 import { linkPlugins } from "../commands/link.ts";
 import { unlinkPlugins } from "../commands/unlink.ts";
 import { syncPlugins } from "../commands/sync.ts";
@@ -248,7 +249,6 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
     pluginsDir,
     ref: values.ref,
     sparse: values.sparse,
-    path: values.path,
     all: values.all,
     plugins: values.plugin,
     only,
@@ -256,12 +256,14 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
     mcpSubset,
     withDeps: !values["no-deps"],
     marketplaceName: values["marketplace-name"],
+    as: values.as,
     targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
     selectPlugins: tty ? selectPluginsInteractive : undefined,
     selectTargets: tty && values.target === undefined ? selectTargetsInteractive : undefined,
     confirmFull: tty && !narrowed ? confirmFullInstall : undefined,
     selectComponents: tty && !narrowed ? selectComponentsInteractive : undefined,
     activate: true,
+    nonInteractive: !tty,
     scope: global ? "user" : "project",
   });
   for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
@@ -378,6 +380,13 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
         for (const i of res.issues) console.error(ui.warn(`  - ${i}`));
         process.exit(1);
       }
+      return;
+    }
+    case "inspect": {
+      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+      const result = await inspectSource({ spec: positionals[0] ?? process.cwd(), ref: values.ref });
+      if (values.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(`${ui.ok("inspected")} ${ui.name(result.manifest.name)} ${ui.meta(`[${result.kind}] ${result.components.join(", ") || "no components"}`)}`);
       return;
     }
     case "add": {
