@@ -231,7 +231,11 @@ export async function updatePlugins(
           authorizedComponents: definition.authorizedComponents,
           replaySelection: selection ?? (definition.authorizedComponents ? { components: definition.authorizedComponents } : undefined),
         })),
-        ...(ordinary.length > 0 || opts.all ? [{ plugins: opts.all ? undefined : ordinary }] : []),
+        // A structural profile represents the whole source root. Never append
+        // an --all fallback that could derive a second Default DSL identity.
+        ...(structural.length === 0 && (ordinary.length > 0 || opts.all)
+          ? [{ plugins: opts.all ? undefined : ordinary }]
+          : []),
       ];
       const installed = [] as Awaited<ReturnType<typeof addPlugins>>["installed"];
       const available = new Set<string>();

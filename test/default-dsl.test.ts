@@ -293,7 +293,11 @@ test("addPlugins --all refuses a silent structural-to-manifest switch", async ()
     }));
     await assert.rejects(
       () => addPlugins({ spec: root, pluginsDir: store, all: true, targets: ["codex"] }),
-      /definition changed from default DSL/,
+      (error: Error) => {
+        assert.match(error.message, /definition changed from default DSL/);
+        assert.equal(error.message.includes(`"${name}"`), true);
+        return true;
+      },
     );
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

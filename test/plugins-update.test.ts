@@ -147,6 +147,30 @@ test("updatePlugins preserves a remote Default DSL identity when a matching CWD 
   }
 });
 
+test("updatePlugins --all preserves a remote Default DSL alias", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    mkdirSync(join(remote, "skills", "demo"), { recursive: true });
+    writeFileSync(join(remote, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({
+      spec: "acme/market",
+      as: "custom-skills",
+      defaultDescription: "Custom skills.",
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+    });
+
+    const result = await updatePlugins({ pluginsDir, all: true, targets: ["codex"], gitRunner });
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.deepEqual(lockNames(pluginsDir), ["custom-skills"]);
+    assert.deepEqual(result.remote[0]!.unchanged, ["custom-skills"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("updatePlugins avoids cloning when a revision probe matches the stored revision", async () => {
   const root = scratch();
   try {

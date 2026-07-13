@@ -637,7 +637,8 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     // explicit manifest discovered from the source may replace that profile.
     const definitionSwitches = definition ? [] : order.filter((name) => existingLock.plugins[name]?.definition);
     if (definitionSwitches.length > 0) {
-      throw new Error("source definition changed from default DSL to a manifest; re-add or migrate the plugin explicitly");
+      const names = definitionSwitches.sort().map((name) => `"${name}"`).join(", ");
+      throw new Error(`source definition changed from default DSL to a manifest for ${names}; re-add or migrate the plugin explicitly`);
     }
     const removed = reconcileRemotePlugins(opts, parsed, sourceRef, new Set(order));
 
