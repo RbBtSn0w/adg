@@ -5,7 +5,7 @@ import { findManifestFile, readManifest } from "../manifest.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
 import type { AdgManifest } from "../types.ts";
 import { pluginContents } from "../components.ts";
-import { cloneGitHub, parseSource, type GitRunner } from "../sources.ts";
+import { cloneGitHub, githubRepositoryDescription, parseSource, type GitRunner } from "../sources.ts";
 
 export interface PluginInspection {
   kind: "default-dsl" | "manifest";
@@ -26,7 +26,12 @@ export function inspectPlugin(root: string, metadata?: { name: string; descripti
 }
 
 /** Resolve a local or GitHub source without creating a store, lock, or projection. */
-export async function inspectSource(opts: { spec: string; ref?: string; gitRunner?: GitRunner }): Promise<PluginInspection> {
+export async function inspectSource(opts: {
+  spec: string;
+  ref?: string;
+  gitRunner?: GitRunner;
+  descriptionResolver?: (repo: string) => Promise<string | undefined>;
+}): Promise<PluginInspection> {
   const parsed = parseSource(opts.spec);
   if (parsed.kind === "local") {
     return inspectPlugin(parsed.dir);
@@ -36,7 +41,13 @@ export async function inspectSource(opts: { spec: string; ref?: string; gitRunne
   const staging = mkdtempSync(join(tmpdir(), "adg-inspect-"));
   try {
     cloneGitHub({ ...parsed, ref: opts.ref ?? parsed.ref }, staging, { runner: opts.gitRunner });
-    const result = inspectPlugin(staging, { name: parsed.source, description: parsed.repo });
+    const manifestFile = findManifestFile(staging);
+    const description = manifestFile
+      ? undefined
+      : await (opts.descriptionResolver ?? githubRepositoryDescription)(parsed.source);
+    const result = inspectPlugin(staging, manifestFile
+      ? undefined
+      : { name: parsed.source, description: description ?? parsed.source });
     return { ...result, root: "." };
   } finally {
     rmSync(staging, { recursive: true, force: true });
