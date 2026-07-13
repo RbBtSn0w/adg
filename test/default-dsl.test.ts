@@ -251,6 +251,23 @@ test("a local structural plugin can be updated from its raw source", async () =>
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("structural updates do not expand a persisted skills-only authorization", async () => {
+  const root = scratch();
+  const source = join(root, "source");
+  const store = join(root, "store");
+  try {
+    skill(source, "one");
+    await addPlugins({ spec: source, pluginsDir: store, only: ["skills"], nonInteractive: true, targets: ["codex"] });
+    const name = Object.keys(readLock(lockPath(store)).plugins)[0]!;
+    const before = readLock(lockPath(store)).plugins[name]!;
+    assert.deepEqual(before.selection?.components, ["skills"]);
+    assert.deepEqual(before.definition?.authorizedComponents, ["skills"]);
+
+    writeFileSync(join(source, ".mcp.json"), JSON.stringify({ mcpServers: { demo: { command: "demo" } } }));
+    assert.throws(() => updateLock(store), /unauthorized hook or MCP component/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("a structural plugin refuses a silent manifest-definition switch on update", async () => {
   const root = scratch();
   const store = join(root, "store");

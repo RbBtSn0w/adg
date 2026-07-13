@@ -247,6 +247,8 @@ export interface AddOptions {
   nonInteractive?: boolean;
   /** Replayed structural authorization from a prior lock entry. */
   authorizedComponents?: ComponentType[];
+  /** Internal update replay of the exact prior partial-install selection. */
+  replaySelection?: PluginSelection;
   /** Last-known structural description, used when remote metadata lookup fails. */
   defaultDescription?: string;
   /** Internal remote checkout reuse for marketplace updates. */
@@ -411,6 +413,11 @@ async function resolveSelections(
     return selections;
   }
 
+  if (opts.replaySelection) {
+    for (const name of selected) selections.set(name, opts.replaySelection);
+    return selections;
+  }
+
   if (!opts.confirmFull || !opts.selectComponents) return selections; // non-interactive default: full
   if (await opts.confirmFull(selected)) return selections; // user kept everything
 
@@ -569,7 +576,8 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
       });
       const authorized = opts.authorizedComponents;
-      if (opts.nonInteractive && generated.components.some((c) => c === "hooks" || c === "mcp") && opts.only === undefined && !authorized) {
+      const unauthorizedRisk = generated.components.some((c) => (c === "hooks" || c === "mcp") && !authorized?.includes(c));
+      if (opts.nonInteractive && unauthorizedRisk && opts.only === undefined) {
         throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
       }
       const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
@@ -606,6 +614,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
 
     // Partial-install selection per user-chosen plugin (auto-deps install full).
     const selections = await resolveSelections(opts, selected, candidates);
+    if (definition && structuralName) {
+      definition = {
+        ...definition,
+        authorizedComponents: selections.get(structuralName)?.components ?? definition.authorizedComponents,
+      };
+    }
 
     // Dependency-first order across every selected plugin (chains deduped).
     const order: string[] = [];
@@ -645,7 +659,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           selection: selections.get(name),
           skipUnchanged: opts.skipUnchanged,
           now: opts.now,
-          definition,
+          definition: name === structuralName ? definition : undefined,
         }),
       );
     }

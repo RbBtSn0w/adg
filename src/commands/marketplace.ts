@@ -218,17 +218,18 @@ export async function updatePlugins(
       }
       const structural = group.installed.flatMap((name) => {
         const definition = lock.plugins[name]?.definition;
-        return definition ? [{ name, definition }] : [];
+        return definition ? [{ name, definition, selection: lock.plugins[name]?.selection }] : [];
       });
       const ordinary = group.installed.filter((name) => !lock.plugins[name]?.definition);
       // A structural profile always describes the source root. Replay each
       // profile independently so its stable --as identity is preserved.
-      const requests: Array<{ plugins?: string[]; as?: string; defaultDescription?: string; authorizedComponents?: import("../types.ts").ComponentType[] }> = [
-        ...structural.map(({ name, definition }) => ({
+      const requests: Array<{ plugins?: string[]; as?: string; defaultDescription?: string; authorizedComponents?: import("../types.ts").ComponentType[]; replaySelection?: import("../types.ts").PluginSelection }> = [
+        ...structural.map(({ name, definition, selection }) => ({
           plugins: [name],
           as: definition.as,
           defaultDescription: definition.description,
           authorizedComponents: definition.authorizedComponents,
+          replaySelection: selection ?? (definition.authorizedComponents ? { components: definition.authorizedComponents } : undefined),
         })),
         ...(ordinary.length > 0 || opts.all ? [{ plugins: opts.all ? undefined : ordinary }] : []),
       ];
@@ -249,6 +250,7 @@ export async function updatePlugins(
             skipUnchanged: true,
             nonInteractive: true,
             ...(request.authorizedComponents ? { authorizedComponents: request.authorizedComponents } : {}),
+            ...(request.replaySelection ? { replaySelection: request.replaySelection } : {}),
             targets: opts.targets,
             marketplaceName: group.source,
             gitRunner: opts.gitRunner,

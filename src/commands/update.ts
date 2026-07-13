@@ -69,6 +69,11 @@ export function updateLock(
     if (!existsSync(join(source, ADG_MANIFEST_PATH))) {
       try {
         const generated = resolveDefaultDsl(source, { name, description: entry.definition?.description ?? name });
+        const authorized = entry.definition?.authorizedComponents;
+        const unauthorizedRisk = generated.components.some((component) => (component === "hooks" || component === "mcp") && !authorized?.includes(component));
+        if (entry.definition && unauthorizedRisk) {
+          throw new Error(`default source exposes an unauthorized hook or MCP component for "${name}"; re-add the plugin with an explicit component selection`);
+        }
         if (entry.definition) definition = { ...entry.definition, description: generated.manifest.description, fingerprint: generated.fingerprint };
         staging = mkdtempSync(join(tmpdir(), "adg-default-update-"));
         copyPluginDir(source, staging);
@@ -85,7 +90,7 @@ export function updateLock(
         source: installSource,
         pluginsDir,
         origin: entry.origin,
-        selection: entry.selection,
+        selection: entry.selection ?? (entry.definition?.authorizedComponents ? { components: entry.definition.authorizedComponents } : undefined),
         skipUnchanged: true,
         now,
         definition,
