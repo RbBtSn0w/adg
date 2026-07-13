@@ -1,3 +1,9 @@
+## [0.6.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.7...0.6.0-beta.8) (2026-07-13)
+
+### Added
+
+* support structural skills repositories as plugins ([#64](https://github.com/RbBtSn0w/adg/issues/64)) ([b4160fc](https://github.com/RbBtSn0w/adg/commit/b4160fca77343525f8cead4db244202e06148b83))
+
 ## [0.6.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.6...0.6.0-beta.7) (2026-07-12)
 
 ### Fixed
