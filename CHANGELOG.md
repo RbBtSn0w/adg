@@ -1,3 +1,9 @@
+## [0.6.0-beta.11](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.10...0.6.0-beta.11) (2026-07-14)
+
+### Changed
+
+* harden maintenance and release contracts ([#66](https://github.com/RbBtSn0w/adg/issues/66)) ([0b87e63](https://github.com/RbBtSn0w/adg/commit/0b87e63f848e05cc143c69e3712be6da82425571))
+
 ## [0.6.0-beta.10](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.9...0.6.0-beta.10) (2026-07-14)
 
 ### Fixed
