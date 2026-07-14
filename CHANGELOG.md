@@ -1,3 +1,9 @@
+## [0.6.0-beta.10](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.9...0.6.0-beta.10) (2026-07-14)
+
+### Fixed
+
+* **deps:** resolve undici security advisories ([#65](https://github.com/RbBtSn0w/adg/issues/65)) ([cb3ca13](https://github.com/RbBtSn0w/adg/commit/cb3ca132923430f16f497fb9b1ec73e8bbb60876))
+
 ## [0.6.0-beta.9](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.8...0.6.0-beta.9) (2026-07-13)
 
 ### Added
