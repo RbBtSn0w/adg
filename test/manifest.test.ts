@@ -64,6 +64,11 @@ test("collectIssues rejects fields excluded by the published schema", () => {
   assert.ok(issues.includes("selectionDependencies.hooks.components must not contain duplicates"));
 });
 
+test("collectIssues rejects the removed adapters manifest field", () => {
+  const issues = collectIssues({ ...baseManifest, adapters: { codex: ".codex-plugin/plugin.json" } });
+  assert.ok(issues.includes("unsupported manifest field: adapters"));
+});
+
 test("validateManifest throws ManifestError with issues", () => {
   assert.throws(() => validateManifest({}), (err: unknown) => err instanceof ManifestError);
 });

@@ -31,8 +31,6 @@ const MANIFEST_FIELDS = new Set([
   "schemaVersion", "name", "version", "description", "author", "license", "category",
   "interface", "skills", "agents", "commands", "apps", "hooks", "mcpServers",
   "dependencies", "selectionDependencies", "strict", "homepage", "changelog",
-  // Deprecated compatibility input: intentionally ignored below.
-  "adapters",
 ]);
 
 export class ManifestError extends Error {
@@ -217,8 +215,6 @@ export function collectIssues(raw: unknown): string[] {
       }
     }
   }
-  // `adapters` is no longer part of the DSL. A stray one from an old manifest is
-  // tolerated (ignored) rather than rejected — output paths are ADG-internal.
   return issues;
 }
 
