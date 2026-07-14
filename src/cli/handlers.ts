@@ -1,21 +1,16 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { adaptPlugin } from "../commands/adapt.ts";
 import { addPlugins } from "../commands/install.ts";
-import { validatePlugin } from "../commands/validate.ts";
 import { listPlugins } from "../commands/list.ts";
 import { importSkills } from "../commands/import.ts";
-import { inspectSource } from "../commands/inspect.ts";
 import { linkPlugins } from "../commands/link.ts";
 import { unlinkPlugins } from "../commands/unlink.ts";
 import { syncPlugins } from "../commands/sync.ts";
 import { removePlugin } from "../commands/remove.ts";
 import { disablePlugins, enablePlugins } from "../commands/state.ts";
 import { migrateLayout } from "../commands/migrate.ts";
-import { pluginStatus } from "../commands/status.ts";
 import { cleanPluginCache, pluginCacheStatus, prunePluginCache, restorePluginCache } from "../commands/cache.ts";
 import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult, type ScopeInfo } from "../commands/marketplace.ts";
-import { initScaffold, type InitType } from "../commands/init.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../commands/select-components.ts";
 import { selectPluginsInteractive } from "../commands/select-plugins.ts";
 import { selectTargetsInteractive } from "../commands/select-agents.ts";
@@ -26,11 +21,8 @@ import { ui } from "../render/ui.ts";
 import {
   renderAgentReport,
   renderMarketplaceList,
-  renderPluginList,
-  renderStatus,
   renderUpdateReport,
 } from "../render/plugins.ts";
-import { pluginsListJson, pluginsStatusJson, printJson } from "../render/json.ts";
 import {
   CACHE_USAGE,
   MARKETPLACE_USAGE,
@@ -50,6 +42,7 @@ import {
   type ParsedValues,
   type PluginCommand,
 } from "./index.ts";
+import { handleCorePluginVerb } from "./core-plugin-handlers.ts";
 
 interface UpdateScopeTarget {
   dir: string;
@@ -346,49 +339,8 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<void> {
 }
 
 async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<void> {
+  if (await handleCorePluginVerb(verb, rest, cmd)) return;
   switch (verb) {
-    case "init": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const name = positionals[0];
-      if (!name) fail("plugins init requires a <name>");
-      const dir = values.dir ? resolve(values.dir) : resolve(process.cwd(), "plugins");
-      const type = (values.type ?? "plugin") as InitType;
-      if (type !== "plugin" && type !== "marketplace" && type !== "all") {
-        fail(`invalid --type "${values.type}" (expected plugin|marketplace|all)`);
-      }
-      const res = initScaffold({ name, dir, type, description: values.description, author: values.author, skill: values.skill?.[0] });
-      console.log(`${ui.ok(`created ${type}`)} at ${ui.name(res.pluginDir)}`);
-      for (const f of res.created) console.log(ui.meta(`  + ${f}`));
-      return;
-    }
-    case "adapt": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const pluginDir = resolve(positionals[0] ?? process.cwd());
-      for (const r of adaptPlugin(pluginDir, resolveTargets(values.target))) {
-        console.log(`${ui.ok("adapted")} ${ui.name(r.target)} ${ui.meta(`-> ${r.file}`)}`);
-      }
-      return;
-    }
-    case "validate": {
-      const { positionals } = parseVerb(verb, cmd.flags, rest);
-      const pluginDir = resolve(positionals[0] ?? process.cwd());
-      const res = validatePlugin(pluginDir);
-      if (res.ok) {
-        console.log(`${ui.ok("ok:")} ${ui.name(pluginDir)} is a valid ADG plugin`);
-      } else {
-        console.error(`${ui.err("invalid:")} ${ui.name(pluginDir)}`);
-        for (const i of res.issues) console.error(ui.warn(`  - ${i}`));
-        process.exit(1);
-      }
-      return;
-    }
-    case "inspect": {
-      const { values, positionals } = parseVerb(verb, cmd.flags, rest);
-      const result = await inspectSource({ spec: positionals[0] ?? process.cwd(), ref: values.ref });
-      if (values.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(`${ui.ok("inspected")} ${ui.name(result.manifest.name)} ${ui.meta(`[${result.kind}] ${result.components.join(", ") || "no components"}`)}`);
-      return;
-    }
     case "add": {
       await handleAdd(rest, cmd);
       return;
@@ -471,32 +423,6 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       if (!res.removedFromLock && !res.removedDir) {
         console.log(ui.warn(`  ${res.name} was not recorded in the lock`));
       }
-      return;
-    }
-    case "list": {
-      const { values } = parseVerb(verb, cmd.flags, rest);
-      const pluginsDir = resolveScopeDir(values);
-      const plugins = listPlugins(pluginsDir);
-      if (values.json) {
-        printJson(pluginsListJson(plugins, pluginsDir));
-        return;
-      }
-      for (const line of renderPluginList(plugins, pluginsDir, { verbose: values.verbose })) {
-        console.log(line);
-      }
-      return;
-    }
-    case "status": {
-      const { values } = parseVerb(verb, cmd.flags, rest);
-      const targets = resolveTargets(values.target);
-      const pluginsDir = resolveScopeDir(values);
-      const scope = scopeOf(values);
-      const statuses = pluginStatus({ pluginsDir, scope, targets });
-      if (values.json) {
-        printJson(pluginsStatusJson(statuses, pluginsDir, scope, targets));
-        return;
-      }
-      for (const line of renderStatus(statuses)) console.log(line);
       return;
     }
     case "migrate": {

@@ -1,4 +1,3 @@
-import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +21,7 @@ import { agents, isUniversalAgent } from './agents.ts';
 import { selfCliArgv } from './self-cli.ts';
 import type { AgentType } from './types.ts';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { runSubprocessSync } from '../../../src/subprocess.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -541,45 +541,10 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    const tracer = getTracer();
-    const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
-      try {
-        span.setAttribute("process.executable.name", "adg");
-        span.setAttribute("process.command_args", ["adg", ...args]);
-
-        const r = spawnSync(
-          process.execPath,
-          selfCliArgv(cliEntry, args),
-          {
-            stdio: ['inherit', 'pipe', 'pipe'],
-            encoding: 'utf-8',
-            shell: process.platform === 'win32',
-          }
-        );
-
-        if (r.pid !== undefined) span.setAttribute("process.pid", r.pid);
-        if (r.status !== null) {
-          span.setAttribute("process.exit.code", r.status);
-          if (r.status !== 0) {
-            span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: `Subprocess exited with status ${r.status}`,
-            });
-          }
-        } else if (r.error) {
-          span.setAttribute("process.exit.code", -1);
-          span.setAttribute("error.type", (r.error as NodeJS.ErrnoException).code || r.error.name || "SpawnError");
-          span.recordException(r.error);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: r.error.message,
-          });
-        }
-        return r;
-      } finally {
-        span.end();
-      }
+    const result = runSubprocessSync(process.execPath, selfCliArgv(cliEntry, args), {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {
@@ -710,51 +675,16 @@ export async function updateProjectSkills(
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
-      const tracer = getTracer();
       // Preserve Eve subagent placement recorded at install time. The lock stores
       // '' for the root agent, which maps to the `root` keyword for `add --subagent`.
       const subagentArgs = skill.entry.subagents?.length
         ? ['--subagent', ...skill.entry.subagents.map((s) => (s === '' ? 'root' : s))]
         : [];
       const args = ['skills', 'add', installUrl, '--skill', skill.name, ...subagentArgs, '-y'];
-      const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
-        try {
-          span.setAttribute("process.executable.name", "adg");
-          span.setAttribute("process.command_args", ["adg", ...args]);
-
-          const r = spawnSync(
-            process.execPath,
-            selfCliArgv(cliEntry, args),
-            {
-              stdio: ['inherit', 'pipe', 'pipe'],
-              encoding: 'utf-8',
-              shell: process.platform === 'win32',
-            }
-          );
-
-          if (r.pid !== undefined) span.setAttribute("process.pid", r.pid);
-          if (r.status !== null) {
-            span.setAttribute("process.exit.code", r.status);
-            if (r.status !== 0) {
-              span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
-              span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: `Subprocess exited with status ${r.status}`,
-              });
-            }
-          } else if (r.error) {
-            span.setAttribute("process.exit.code", -1);
-            span.setAttribute("error.type", (r.error as NodeJS.ErrnoException).code || r.error.name || "SpawnError");
-            span.recordException(r.error);
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: r.error.message,
-            });
-          }
-          return r;
-        } finally {
-          span.end();
-        }
+      const result = runSubprocessSync(process.execPath, selfCliArgv(cliEntry, args), {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
       });
 
       if (result.status === 0) {

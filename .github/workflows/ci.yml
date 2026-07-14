@@ -14,11 +14,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Exercise the current three Node.js release lines on both supported
-          # CI platforms. Windows is a first-class compatibility target, not a
-          # one-version smoke test.
+          # Exercise the declared minimum plus the current three Node.js release
+          # lines. Windows remains a first-class compatibility target.
+          - os: ubuntu-latest
+            node-version: 22.18.0
           - os: ubuntu-latest
             node-version: 24
+            package-smoke: true
           - os: ubuntu-latest
             node-version: 25
           - os: ubuntu-latest
@@ -30,20 +32,25 @@ jobs:
           - os: windows-latest
             node-version: 26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       - run: npm ci
       - run: npm run check:vendor-deps
+      - run: npm run check:docs
       # Keep the shipped CLI's runtime dependencies clean. Dev-only tooling is
       # monitored by Dependabot and constrained with overrides when fixes exist.
       - run: npm run audit:prod
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      - run: npm run check:package-smoke
+        if: matrix.package-smoke == true
+      - run: npm run check:vendor-upstream
+        if: matrix.package-smoke == true
 
   release:
     name: Release
@@ -58,18 +65,18 @@ jobs:
       id-token: write # 某些 npm 发布验证需要
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "lts/*"
       - name: Upgrade npm for trusted publishing
         # npm's OIDC trusted-publishing flow requires npm >= 11.5.1. Node LTS
         # still bundles npm 10.x, which silently skips OIDC and then fails for
         # lack of an NPM_TOKEN. Pin a known-good npm so publish uses OIDC.
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.18.0
       - name: Install dependencies
         run: npm ci
       - name: Build
@@ -131,7 +138,7 @@ jobs:
       # the (already successful) npm / GitHub release.
       - name: Create release bot token
         if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: release-bot
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
@@ -140,7 +147,7 @@ jobs:
           repositories: homebrew-tap
       - name: Checkout homebrew tap
         if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: RbBtSn0w/homebrew-tap
           token: ${{ steps.release-bot.outputs.token }}

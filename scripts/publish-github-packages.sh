@@ -25,7 +25,8 @@ fi
 # Write the auth line with a literal ${GITHUB_TOKEN} placeholder (single quotes
 # stop bash from expanding it). npm substitutes the env var at publish time, so
 # the real token never lands on disk in .npmrc — only the placeholder does.
-cleanup() { rm -f .npmrc; }
+publish_log="$(mktemp)"
+cleanup() { rm -f .npmrc "$publish_log"; }
 trap cleanup EXIT
 {
   echo "@rbbtsn0w:registry=https://npm.pkg.github.com"
@@ -33,5 +34,16 @@ trap cleanup EXIT
 } > .npmrc
 
 echo "Publishing ${version} to GitHub Packages under dist-tag '${tag}'..."
-npm publish --registry https://npm.pkg.github.com --tag "$tag" \
-  || echo "GitHub Packages: nothing to publish or version ${version} already exists."
+if npm publish --registry https://npm.pkg.github.com --tag "$tag" \
+  2> >(tee "$publish_log" >&2); then
+  exit 0
+else
+  status=$?
+fi
+if grep -Eqi 'EPUBLISHCONFLICT|cannot publish over|version .+ already exists' "$publish_log"; then
+  echo "GitHub Packages: version ${version} already exists; skipping mirror publish."
+  exit 0
+fi
+
+echo "GitHub Packages publish failed for ${version}." >&2
+exit "$status"
