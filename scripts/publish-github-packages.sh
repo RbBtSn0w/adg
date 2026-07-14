@@ -34,11 +34,12 @@ trap cleanup EXIT
 } > .npmrc
 
 echo "Publishing ${version} to GitHub Packages under dist-tag '${tag}'..."
-if npm publish --registry https://npm.pkg.github.com --tag "$tag" \
-  2> >(tee "$publish_log" >&2); then
+if npm publish --registry https://npm.pkg.github.com --tag "$tag" 2> "$publish_log"; then
+  cat "$publish_log" >&2
   exit 0
 else
   status=$?
+  cat "$publish_log" >&2
 fi
 if grep -Eqi 'EPUBLISHCONFLICT|cannot publish over|version .+ already exists' "$publish_log"; then
   echo "GitHub Packages: version ${version} already exists; skipping mirror publish."

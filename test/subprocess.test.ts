@@ -70,3 +70,12 @@ test("annotateSubprocess classifies launch failures", () => {
   assert.equal(attributes.get("error.type"), "ENOENT");
   assert.equal(exceptions[0], error);
 });
+
+test("annotateSubprocess preserves signal termination", () => {
+  const { span, attributes, exceptions } = fakeSpan();
+  annotateSubprocess(span, "codex", [], result({ status: null, signal: "SIGTERM" }));
+  assert.equal(attributes.get("process.exit.code"), -1);
+  assert.equal(attributes.get("process.exit.signal"), "SIGTERM");
+  assert.equal(attributes.get("error.type"), "SIGNAL_SIGTERM");
+  assert.equal(exceptions.length, 1);
+});

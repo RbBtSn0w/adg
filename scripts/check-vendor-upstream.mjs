@@ -23,6 +23,7 @@ function run(command, args, cwd, timeout = 300_000) {
     stdio: "inherit",
     timeout,
     env,
+    shell: process.platform === "win32",
   });
   if (result.error || result.status !== 0) {
     throw result.error ?? new Error(`${command} exited with status ${result.status}`);
@@ -57,7 +58,11 @@ try {
     .filter(([name]) => name.startsWith("@opentelemetry/"))
     .map(([name, version]) => `${name}@${version}`);
   run("npx", [...pnpm, "add", "--save-dev", ...otelDependencies], checkout);
-  symlinkSync(join(checkout, "node_modules"), join(scratch, "node_modules"), "dir");
+  symlinkSync(
+    join(checkout, "node_modules"),
+    join(scratch, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
 
   // These upstream assertions intentionally conflict with documented ADG
   // patches and are replaced by root focused tests: authenticated 403/404

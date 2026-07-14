@@ -47,21 +47,26 @@ esac
   }
 }
 
-test("GitHub Packages mirror succeeds when npm publish succeeds", () => {
+const bashAvailable = spawnSync("bash", ["--version"], { stdio: "ignore" }).status === 0;
+const mirrorTest = (name: string, body: () => void): void => {
+  test(name, { skip: bashAvailable ? false : "requires bash to exercise the release script" }, body);
+};
+
+mirrorTest("GitHub Packages mirror succeeds when npm publish succeeds", () => {
   assert.equal(runMirror("success").status, 0);
 });
 
-test("GitHub Packages mirror tolerates an already-published version", () => {
+mirrorTest("GitHub Packages mirror tolerates an already-published version", () => {
   assert.equal(runMirror("duplicate").status, 0);
 });
 
-test("GitHub Packages mirror propagates non-duplicate failures", () => {
+mirrorTest("GitHub Packages mirror propagates non-duplicate failures", () => {
   const result = runMirror("failure");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /authentication failed/);
 });
 
-test("GitHub Packages mirror does not treat an arbitrary conflict as a duplicate", () => {
+mirrorTest("GitHub Packages mirror does not treat an arbitrary conflict as a duplicate", () => {
   assert.notEqual(runMirror("conflict").status, 0);
 });
 
@@ -94,4 +99,16 @@ test("workflows pin third-party actions to immutable commits", () => {
     assert.ok(refs.length > 0, `${file} should use at least one action`);
     for (const ref of refs) assert.match(ref, /^[0-9a-f]{40}$/, `${file} contains a mutable action ref: ${ref}`);
   }
+});
+
+test("maintenance scripts preserve Windows process and filesystem semantics", () => {
+  const packageSmoke = readFileSync(resolve("scripts/check-package-smoke.mjs"), "utf8");
+  const vendorUpstream = readFileSync(resolve("scripts/check-vendor-upstream.mjs"), "utf8");
+  const publish = readFileSync(resolve("scripts/publish-github-packages.sh"), "utf8");
+  assert.match(packageSmoke, /shell:\s*process\.platform === "win32"/);
+  assert.match(packageSmoke, /USERPROFILE:\s*scratch/);
+  assert.match(vendorUpstream, /shell:\s*process\.platform === "win32"/);
+  assert.match(vendorUpstream, /process\.platform === "win32" \? "junction" : "dir"/);
+  assert.doesNotMatch(publish, /2>\s*>\(/);
+  assert.match(publish, /2>\s*"\$publish_log"/);
 });

@@ -75,6 +75,17 @@ export type AgentSpawn = (
   options: { stdio: 'inherit' }
 ) => AgentProcess;
 
+export function agentCloseResult(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): { status: number | null; signal: NodeJS.Signals | null; exitCode: number } {
+  return {
+    status: code ?? (signal ? null : 1),
+    signal,
+    exitCode: code ?? 1,
+  };
+}
+
 interface UseAgentConfig {
   command: string;
   args: string[];
@@ -386,17 +397,17 @@ export async function launchAgentInteractively(
       reject(error);
     });
 
-    child.on('close', (code: number | null) => {
+    child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
       if (settled) return;
       settled = true;
-      const status = code ?? 1;
+      const result = agentCloseResult(code, signal);
       annotateSubprocess(span, config.command, [...config.args, prompt], {
         pid: child.pid,
-        status,
-        signal: null,
+        status: result.status,
+        signal: result.signal,
       });
       span.end();
-      resolve(status);
+      resolve(result.exitCode);
     });
   }));
 }

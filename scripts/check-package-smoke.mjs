@@ -16,6 +16,7 @@ function run(command, args, options = {}) {
     cwd: root,
     encoding: "utf8",
     timeout: 120_000,
+    shell: process.platform === "win32",
     ...options,
   });
   if (result.error || result.status !== 0) {
@@ -45,7 +46,7 @@ try {
 
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const installedBin = join(installRoot, "node_modules", "@rbbtsn0w", "adg", "dist", "bin", "adg.js");
-  const env = { ...process.env, HOME: scratch, XDG_STATE_HOME: join(scratch, "state"), DISABLE_TELEMETRY: "1" };
+  const env = { ...process.env, HOME: scratch, USERPROFILE: scratch, XDG_STATE_HOME: join(scratch, "state"), DISABLE_TELEMETRY: "1" };
   const version = run(process.execPath, [installedBin, "--version"], { env });
   if (version.stdout.trim() !== pkg.version) throw new Error(`installed CLI reported ${version.stdout.trim()}, expected ${pkg.version}`);
   run(process.execPath, [installedBin, "plugins", "--help"], { env });
