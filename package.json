@@ -65,5 +65,9 @@
     "conventional-changelog-conventionalcommits": "^8.0.0",
     "semantic-release": "^25.0.5",
     "typescript": "^5.6.0"
+  },
+  "comment:overrides": "Security floor: npm 11 before 11.18.0 bundles vulnerable undici 6.26.0; keep npm on patched 11.x until @semantic-release/npm supports a newer major.",
+  "overrides": {
+    "npm": "^11.18.0"
   }
 }
