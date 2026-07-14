@@ -36,6 +36,39 @@ test("collectIssues rejects Windows drive-relative component paths", () => {
   assert.ok(issues.includes("skills must stay within the plugin directory"));
 });
 
+test("collectIssues enforces the published object shapes", () => {
+  const issues = collectIssues({
+    ...baseManifest,
+    author: "not-an-object",
+    interface: "not-an-object",
+    dependencies: [{ name: "dep", version: "1.0.0", unexpected: true }],
+  });
+  assert.ok(issues.includes("author must be an object"));
+  assert.ok(issues.includes("interface must be an object"));
+  assert.ok(issues.includes("dependencies[0] contains unsupported field: unexpected"));
+});
+
+test("collectIssues rejects fields excluded by the published schema", () => {
+  const issues = collectIssues({
+    ...baseManifest,
+    unexpected: true,
+    selectionDependencies: {
+      hooks: {
+        components: ["skills", "skills"],
+        unexpected: true,
+      },
+    },
+  });
+  assert.ok(issues.includes("unsupported manifest field: unexpected"));
+  assert.ok(issues.includes("selectionDependencies.hooks contains unsupported field: unexpected"));
+  assert.ok(issues.includes("selectionDependencies.hooks.components must not contain duplicates"));
+});
+
+test("collectIssues rejects the removed adapters manifest field", () => {
+  const issues = collectIssues({ ...baseManifest, adapters: { codex: ".codex-plugin/plugin.json" } });
+  assert.ok(issues.includes("unsupported manifest field: adapters"));
+});
+
 test("validateManifest throws ManifestError with issues", () => {
   assert.throws(() => validateManifest({}), (err: unknown) => err instanceof ManifestError);
 });

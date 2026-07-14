@@ -423,7 +423,7 @@ private discovery path:
 # Developing from source
 
 For working on the CLI itself, or testing a plugin before release. The CLI runs
-directly on **Node ≥ 22.6** via native TypeScript type-stripping — **no build
+directly on **Node ≥ 22.18** via native TypeScript type-stripping — **no build
 step**.
 
 ```bash
@@ -435,8 +435,11 @@ node bin/adg.ts --help
 node bin/adg.ts plugins validate plugins/asc
 
 # quality gates
-npm test                      # node --test  (76 cases)
+npm test                      # node --test
 npm run typecheck             # tsc --noEmit
+npm run check:docs            # internal Markdown links
+npm run build
+npm run check:package-smoke   # install and exercise the packed CLI
 ```
 
 Debugging tips:
@@ -448,11 +451,11 @@ Debugging tips:
   node bin/adg.ts plugins add ./some/repo --dir /tmp/adg-store
   node bin/adg.ts plugins list --dir /tmp/adg-store
   ```
-- **Refreshing reference artifacts:** the `plugins/.plugin-lock.json` and
-  `plugins/marketplace.json` are generated. Re-sync the lock hashes from disk with
-  `node bin/adg.ts plugins update --dir plugins`.
-- **Inspect generated manifests** under each plugin's `.claude-plugin/` and
-  `.codex-plugin/` to confirm adaptation output.
+- **Refreshing scratch artifacts:** `.plugin-lock.json` and `marketplace.json`
+  inside your chosen `--dir` store are generated. Re-sync that store with
+  `node bin/adg.ts plugins update --dir /tmp/adg-store`.
+- **Inspect generated manifests** inside the scratch store to confirm adaptation
+  output without relying on ignored repository-local artifacts.
 - GitHub clone/sparse logic is injectable (`gitRunner`) and covered offline by
   the test suite; live network clones are exercised by `import owner/repo`.
 

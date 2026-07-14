@@ -3,6 +3,9 @@ import { existsSync } from 'fs';
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, stat, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
+import { SpanKind } from '@opentelemetry/api';
+import { annotateSubprocess } from '../../../src/subprocess.ts';
+import { getTracer } from '../../../src/telemetry.ts';
 import { agents } from './agents.ts';
 import { tryBlobInstall, type BlobInstallResult, type BlobSkill } from './blob.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
@@ -62,6 +65,7 @@ export interface MaterializedUseSkill {
 }
 
 export interface AgentProcess {
+  pid?: number;
   on: (event: 'error' | 'close', listener: (...args: any[]) => void) => AgentProcess;
 }
 
@@ -70,6 +74,17 @@ export type AgentSpawn = (
   args: string[],
   options: { stdio: 'inherit' }
 ) => AgentProcess;
+
+export function agentCloseResult(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): { status: number | null; signal: NodeJS.Signals | null; exitCode: number } {
+  return {
+    status: code ?? (signal ? null : 1),
+    signal,
+    exitCode: code ?? 1,
+  };
+}
 
 interface UseAgentConfig {
   command: string;
@@ -355,7 +370,7 @@ export async function launchAgentInteractively(
     throw new UseCommandError(formatUnsupportedAgentError(agent));
   }
 
-  return new Promise((resolve, reject) => {
+  return getTracer().startActiveSpan(config.command, { kind: SpanKind.CLIENT }, (span) => new Promise<number>((resolve, reject) => {
     const child = spawnImpl(config.command, [...config.args, prompt], {
       stdio: 'inherit',
     });
@@ -364,6 +379,13 @@ export async function launchAgentInteractively(
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (settled) return;
       settled = true;
+      annotateSubprocess(span, config.command, [...config.args, prompt], {
+        pid: child.pid,
+        status: null,
+        signal: null,
+        error,
+      });
+      span.end();
       if (error.code === 'ENOENT') {
         reject(
           new UseCommandError(
@@ -375,12 +397,19 @@ export async function launchAgentInteractively(
       reject(error);
     });
 
-    child.on('close', (code: number | null) => {
+    child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
       if (settled) return;
       settled = true;
-      resolve(code ?? 1);
+      const result = agentCloseResult(code, signal);
+      annotateSubprocess(span, config.command, [...config.args, prompt], {
+        pid: child.pid,
+        status: result.status,
+        signal: result.signal,
+      });
+      span.end();
+      resolve(result.exitCode);
     });
-  });
+  }));
 }
 
 function spawnAgent(command: string, args: string[]): AgentProcess {

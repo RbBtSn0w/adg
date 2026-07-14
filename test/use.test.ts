@@ -9,6 +9,7 @@ import {
   buildUsePrompt,
   materializeUseSkill,
   launchAgentInteractively,
+  agentCloseResult,
   type AgentSpawn,
   type AgentProcess,
   type UseSkill,
@@ -178,7 +179,7 @@ test("materializeUseSkill (blob): drops path-traversal entries", async () => {
 
 // ---- launchAgentInteractively ----
 
-function fakeSpawn(behavior: { code?: number | null; error?: NodeJS.ErrnoException }): {
+function fakeSpawn(behavior: { code?: number | null; signal?: NodeJS.Signals | null; error?: NodeJS.ErrnoException }): {
   spawn: AgentSpawn;
   calls: Array<{ command: string; args: string[] }>;
 } {
@@ -194,7 +195,7 @@ function fakeSpawn(behavior: { code?: number | null; error?: NodeJS.ErrnoExcepti
     };
     setImmediate(() => {
       if (behavior.error) listeners.error!.forEach((l) => l(behavior.error));
-      else listeners.close!.forEach((l) => l("code" in behavior ? behavior.code : 0));
+      else listeners.close!.forEach((l) => l("code" in behavior ? behavior.code : 0, behavior.signal ?? null));
     });
     return proc;
   };
@@ -218,6 +219,11 @@ test("launchAgentInteractively: propagates a non-zero exit code", async () => {
 test("launchAgentInteractively: a null close code maps to 1", async () => {
   const fake = fakeSpawn({ code: null });
   assert.equal(await launchAgentInteractively("claude-code", "p", fake.spawn), 1);
+});
+
+test("agentCloseResult preserves signal termination for telemetry", () => {
+  assert.deepEqual(agentCloseResult(null, "SIGTERM"), { status: null, signal: "SIGTERM", exitCode: 1 });
+  assert.deepEqual(agentCloseResult(null, null), { status: 1, signal: null, exitCode: 1 });
 });
 
 test("launchAgentInteractively: ENOENT becomes a friendly 'command not found'", async () => {

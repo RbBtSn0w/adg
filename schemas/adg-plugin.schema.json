@@ -25,6 +25,7 @@
     "description": { "type": "string", "minLength": 1 },
     "author": {
       "type": "object",
+      "required": ["name"],
       "properties": {
         "name": { "type": "string" },
         "url": { "type": "string" },
