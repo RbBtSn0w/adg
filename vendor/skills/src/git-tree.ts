@@ -1,7 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { runSubprocessSync } from '../../../src/subprocess.ts';
 
 /**
  * ADG-added file (see vendor/skills/PROVENANCE.md → Local patches).
@@ -27,7 +24,8 @@ export async function gitTreeShaForFolder(
 ): Promise<string | null> {
   const spec = folder ? `HEAD:${folder}` : 'HEAD^{tree}';
   try {
-    const { stdout } = await execFileAsync('git', ['-C', repoDir, 'rev-parse', spec]);
+    const { stdout, status } = runSubprocessSync('git', ['-C', repoDir, 'rev-parse', spec], { encoding: 'utf8' });
+    if (status !== 0) return null;
     const sha = stdout.trim();
     return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
   } catch {

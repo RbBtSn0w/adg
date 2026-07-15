@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { SpanKind } from "@opentelemetry/api";
 import { codexMarketplaceRoot, globalPluginsDir, marketplacePath } from "../paths.ts";
 import { readMarketplace, writeMarketplace } from "../marketplace.ts";
 import { makeCli, skippedResult } from "./base.ts";
+import { reconcileCodexMarketplaceAliases } from "../codex-marketplace-migration.ts";
+import { getTracer, recordTelemetryEvent } from "../telemetry.ts";
 import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentSyncResult } from "./types.ts";
+
+const UNRECOGNIZED_PLUGIN_LIST = "codex plugin list returned unrecognized output";
+const MARKETPLACE = "adg";
 
 /**
  * Codex agent.
@@ -23,15 +29,15 @@ function codexHome(env: NodeJS.ProcessEnv): string {
 const { available, run } = makeCli("codex", { probeArgs: ["plugin", "--help"] });
 
 /**
- * Codex's default global marketplace is historically named `plugins`. Project
- * and explicit stores get a store-scoped name to avoid colliding with a global
- * or another project's configured marketplace.
+ * Keep Codex's global marketplace identity aligned with the Claude projection.
+ * Project and explicit stores get a store-scoped name to avoid colliding with
+ * the global store or another project's configured marketplace.
  */
 export function codexMarketplaceName(pluginsDir: string): string {
   const normalized = resolve(pluginsDir);
-  if (normalized === resolve(globalPluginsDir())) return "plugins";
+  if (normalized === resolve(globalPluginsDir())) return MARKETPLACE;
   const hash = createHash("sha1").update(normalized.split("\\").join("/")).digest("hex").slice(0, 8);
-  return `adg-${hash}`;
+  return `${MARKETPLACE}-${hash}`;
 }
 
 /** Ensure the generated Codex marketplace export uses this store's scoped name. */
@@ -47,10 +53,44 @@ export function writeCodexMarketplaceName(pluginsDir: string): string {
 }
 
 /** Register the local marketplace root Codex expects for this store. */
-function syncMarketplace(pluginsDir: string, marketplace: string): void {
+export function syncMarketplace(
+  pluginsDir: string,
+  marketplace: string,
+  runner: typeof run = run,
+  warn: (message: string) => void = console.warn,
+): void {
   const root = codexMarketplaceRoot(pluginsDir);
-  const add = run(["plugin", "marketplace", "add", root]);
-  if (!add.ok) run(["plugin", "marketplace", "upgrade", marketplace]);
+  const add = runner(["plugin", "marketplace", "add", root]);
+  if (add.ok) return;
+  const upgraded = runner(["plugin", "marketplace", "upgrade", marketplace]);
+  if (!upgraded.ok) {
+    warn(`failed to sync Codex marketplace (${marketplace}): ${upgraded.out.trim() || add.out.trim() || "codex plugin marketplace sync failed without an error message"}`);
+  }
+}
+
+/**
+ * Best-effort retirement of historical aliases after canonical installs succeed.
+ * Keep this compatibility path only until telemetry reports no legacy aliases for
+ * two release cycles.
+ */
+function reconcileLegacyAliases(pluginsDir: string, marketplace: string, plugins: string[]): void {
+  getTracer().startActiveSpan("adg.codex.marketplace_alias_migration", { kind: SpanKind.INTERNAL }, (span) => {
+    try {
+      const result = reconcileCodexMarketplaceAliases({
+        pluginsDir,
+        marketplace,
+        plugins,
+        readConfig: () => readFileSync(join(codexHome(process.env), "config.toml"), "utf8"),
+        run,
+        report: (attributes) => recordTelemetryEvent("adg.codex.marketplace_alias_migration", attributes, span),
+      });
+      if (result.outcome === "partial") {
+        console.warn("Codex legacy marketplace alias cleanup was only partially completed; rerun `adg plugins sync --target codex` to retry.");
+      }
+    } finally {
+      span.end();
+    }
+  });
 }
 
 export const codexAgent: Agent = {
@@ -68,6 +108,7 @@ export const codexAgent: Agent = {
     for (const p of ctx.plugins) {
       if (run(["plugin", "add", `${p}@${mp}`]).ok) affected.push(p);
     }
+    if (ctx.reconcileLegacyAliases && affected.length > 0) reconcileLegacyAliases(ctx.pluginsDir, mp, affected);
     return { agent: "codex", affected, skipped: false };
   },
 
@@ -96,9 +137,17 @@ export const codexAgent: Agent = {
     if (!available()) return undefined;
     const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!mp) return undefined; // no generated marketplace → can't scope the query
-    const res = run(["plugin", "list"]);
-    if (!res.ok) return codexListFailure(res.out);
-    return parseCodexPluginList(res.out, mp);
+    const jsonRes = run(["plugin", "list", "--json"]);
+    if (jsonRes.ok) {
+      const parsed = parseCodexPluginListJson(jsonRes.out, mp);
+      if (parsed !== undefined) return parsed;
+      return codexUnrecognizedListFailure(jsonRes.out);
+    }
+    const textRes = run(["plugin", "list"]);
+    if (!textRes.ok) return codexListFailure(textRes.out || jsonRes.out);
+    const fallback = parseCodexPluginList(textRes.out, mp);
+    if (fallback.length > 0 || textRes.out.trim() === "") return fallback;
+    return codexUnrecognizedListFailure(textRes.out);
   },
 };
 
@@ -110,6 +159,37 @@ export function codexListFailure(out: string): AgentListFailure {
     error: detail,
     ...(staleMarketplace ? { recoveryCommand: `codex plugin marketplace remove ${staleMarketplace[1]}` } : {}),
   };
+}
+
+export function codexUnrecognizedListFailure(out: string): AgentListFailure {
+  const detail = out.trim() || "codex plugin list failed without an error message";
+  return { error: `${UNRECOGNIZED_PLUGIN_LIST}: ${detail}` };
+}
+
+/** Parse `codex plugin list --json` into installed and enabled plugin names for one marketplace. */
+export function parseCodexPluginListJson(out: string, marketplace: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const installed = (parsed as Record<string, unknown>).installed;
+    if (!Array.isArray(installed)) return undefined;
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of installed) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      const name = typeof record.name === "string" ? record.name : undefined;
+      const mp = typeof record.marketplaceName === "string" ? record.marketplaceName : undefined;
+      const isInstalled = record.installed === true;
+      const enabled = record.enabled === true;
+      if (!name || mp !== marketplace || !isInstalled || !enabled || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    return names;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -65,6 +65,20 @@ test("migrateLayout leaves local installs flat and is idempotent", () => {
   rmSync(work, { recursive: true });
 });
 
+test("migrateLayout rejects array-shaped locks and plugin maps", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  try {
+    mkdirSync(store, { recursive: true });
+    const lock = join(store, ".plugin-lock.json");
+    writeFileSync(lock, "[]");
+    assert.throws(() => migrateLayout(store), /not a valid lock file/);
+
+    writeFileSync(lock, JSON.stringify({ version: 4, plugins: [] }));
+    assert.throws(() => migrateLayout(store), /not a valid lock file/);
+  } finally { rmSync(work, { recursive: true, force: true }); }
+});
+
 test("migrateLayout upgrades v2 locks without losing unselected source payload", () => {
   const work = tmp();
   const store = join(work, "store");
@@ -100,7 +114,7 @@ test("migrateLayout upgrades v2 locks without losing unselected source payload",
 
   assert.deepEqual(res.moved, []);
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.equal(lock.version, 3);
+  assert.equal(lock.version, 5);
   assert.match(lock.plugins.demo.sourceHash, /^sha256-/);
   assert.match(lock.plugins.demo.installedHash, /^sha256-/);
   assert.equal(lock.plugins.demo.installedAt, "2026-01-01T00:00:00Z");
@@ -149,7 +163,7 @@ test("v2 migration is retryable after a later plugin fails", () => {
   writeFileSync(join(second, "skills", "chosen", "SKILL.md"), "chosen\n");
   migrateLayout(store);
 
-  assert.equal(JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8")).version, 3);
+  assert.equal(JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8")).version, 5);
   assert.ok(existsSync(join(pluginSourceCacheDir(store, "first"), "skills", "other", "SKILL.md")), "retry reuses complete cache");
   rmSync(work, { recursive: true });
 });

@@ -37,6 +37,11 @@ CI.
 5. Open a **Pull Request with base branch `beta`** and fill in the PR template.
 6. Wait for CI and code review. A maintainer merges once both pass.
 
+CI runs the full check sequence (`npm ci`, dependency/audit checks, typecheck,
+build, and tests) on Ubuntu and Windows with the current three Node.js release
+lines: Node 24, 25, and 26. The Windows lanes are required guards for
+path-separator and shell-quoting behavior.
+
 ## Test conventions
 
 - **Name test files after the module or behavior under test** (`adapters.test.ts`,

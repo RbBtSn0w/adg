@@ -14,7 +14,7 @@ import {
   prereleaseChannel,
 } from "../src/semver.ts";
 import { resolveInstallOrder, DependencyError, type PluginCandidate } from "../src/deps.ts";
-import { parseSource, cloneGitHub, scanPlugins, scanNativePlugins, type GitRunner, type GitHubSource } from "../src/sources.ts";
+import { parseRemoteRevision, parseSource, cloneGitHub, scanPlugins, scanNativePlugins, type GitRunner, type GitHubSource } from "../src/sources.ts";
 import { addPlugins } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../src/types.ts";
 
@@ -44,6 +44,14 @@ function candidate(name: string, version: string, deps?: AdgManifest["dependenci
   } as AdgManifest;
   return [name, { dir: `/virtual/${name}`, manifest }];
 }
+
+test("parseRemoteRevision prefers an annotated tag's peeled commit", () => {
+  const tag = "1111111111111111111111111111111111111111";
+  const commit = "2222222222222222222222222222222222222222";
+  assert.equal(parseRemoteRevision(`${tag}\trefs/tags/v1.0.0\n${commit}\trefs/tags/v1.0.0^{}`, "v1.0.0"), commit);
+  assert.equal(parseRemoteRevision(`${tag}\trefs/tags/v1.0.0`, "v1.0.0"), tag);
+  assert.equal(parseRemoteRevision(`${commit}\tHEAD`, undefined), commit);
+});
 
 // ---- semver ----
 
@@ -223,7 +231,10 @@ test("parseSource normalizes backslashes in manifest paths from browser URLs", (
 });
 
 test("parseSource throws on an unparseable spec", () => {
-  assert.throws(() => parseSource("not a valid spec!!"), /cannot parse install source/);
+  assert.throws(
+    () => parseSource("not a valid spec!!"),
+    /expected a local path, owner\/repo\[@ref\], or a github\.com URL/,
+  );
 });
 
 test("scanPlugins finds plugins by manifest name and does not descend into them", () => {
@@ -321,7 +332,7 @@ test("github add (injected clone) records github provenance", async () => {
   const { order } = await addPlugins({
     spec: "RbBtSn0w/plugins",
     ref: "v0.1.0",
-    path: "plugins/asc",
+    plugins: ["asc"],
     pluginsDir: store,
     gitRunner,
     now: "2026-06-11T00:00:00Z",
@@ -329,7 +340,7 @@ test("github add (injected clone) records github provenance", async () => {
 
   assert.deepEqual(order, ["github-cr", "asc"]);
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.equal(lock.version, 3);
+  assert.equal(lock.version, 5);
   assert.deepEqual(lock.plugins.asc.origin, {
     type: "github",
     repo: "RbBtSn0w/plugins",
@@ -343,7 +354,7 @@ test("github add (injected clone) records github provenance", async () => {
   rmSync(work, { recursive: true });
 });
 
-test("github add accepts a blob URL to a native manifest and installs the containing plugin", async () => {
+test("github add selects an explicitly declared plugin from a marketplace source", async () => {
   const work = tmp();
   const remote = join(work, "remote");
   const pluginRoot = join(remote, "honeycomb");
@@ -365,7 +376,8 @@ test("github add accepts a blob URL to a native manifest and installs the contai
 
   const store = join(work, "store");
   const { order, installed } = await addPlugins({
-    spec: "https://github.com/owner/repo/blob/main/honeycomb/.agents/.plugin.json",
+    spec: "owner/repo",
+    plugins: ["honeycomb"],
     pluginsDir: store,
     gitRunner,
     now: "2026-06-11T00:00:00Z",
@@ -375,6 +387,19 @@ test("github add accepts a blob URL to a native manifest and installs the contai
   assert.equal(installed.length, 1);
   assert.ok(existsSync(join(installed[0]!.installedTo, ".agents", ".plugin.json")));
   rmSync(work, { recursive: true });
+});
+
+test("github add rejects a subdirectory URL as a plugin selector", async () => {
+  const work = tmp();
+  try {
+    await assert.rejects(
+      () => addPlugins({
+        spec: "https://github.com/owner/repo/tree/main/plugins/demo",
+        pluginsDir: join(work, "store"),
+      }),
+      /GitHub subdirectory sources are not supported/,
+    );
+  } finally { rmSync(work, { recursive: true, force: true }); }
 });
 
 test("scanNativePlugins resolves Claude before Codex when both coexist", () => {

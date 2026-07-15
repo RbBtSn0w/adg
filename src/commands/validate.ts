@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { ADG_MANIFEST_PATH, collectIssues } from "../manifest.ts";
+import { resolveDefaultDsl } from "../default-dsl.ts";
 
 export interface ValidateResult {
   ok: boolean;
@@ -14,7 +15,12 @@ export interface ValidateResult {
 export function validatePlugin(pluginDir: string): ValidateResult {
   const manifestFile = join(pluginDir, ADG_MANIFEST_PATH);
   if (!existsSync(manifestFile)) {
-    return { ok: false, issues: [`${ADG_MANIFEST_PATH} not found in ${pluginDir}`] };
+    try {
+      resolveDefaultDsl(pluginDir, { name: basename(pluginDir), description: basename(pluginDir) });
+      return { ok: true, issues: [] };
+    } catch (error) {
+      return { ok: false, issues: [error instanceof Error ? error.message : String(error)] };
+    }
   }
 
   let raw: unknown;

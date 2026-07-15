@@ -3,7 +3,7 @@
  */
 
 export const ADG_SCHEMA_VERSION = "adg.plugin/v1";
-export const LOCK_VERSION = 3;
+export const LOCK_VERSION = 5;
 
 export interface AdgAuthor {
   name: string;
@@ -13,6 +13,7 @@ export interface AdgAuthor {
 
 export interface AdgInterface {
   displayName?: string;
+  shortDescription?: string;
   icon?: string;
   [key: string]: unknown;
 }
@@ -80,6 +81,8 @@ export interface PluginSelection {
   components: ComponentType[];
   /** When "skills" is selected, expose only these skill names (else all). */
   skills?: string[];
+  /** When "mcp" is selected, expose only these mcp server names (else all). */
+  mcp?: string[];
 }
 
 /** Canonicalize user intent without adding derived component dependencies. */
@@ -87,9 +90,11 @@ export function normalizePluginSelection(selection: PluginSelection | undefined)
   if (!selection) return undefined;
   const components = new Set<ComponentType>(selection.components);
   if (selection.skills !== undefined) components.add("skills");
+  if (selection.mcp !== undefined) components.add("mcp");
   return {
     components: COMPONENT_TYPES.filter((component) => components.has(component)),
     ...(selection.skills !== undefined ? { skills: [...new Set(selection.skills)].sort() } : {}),
+    ...(selection.mcp !== undefined ? { mcp: [...new Set(selection.mcp)].sort() } : {}),
   };
 }
 
@@ -131,10 +136,24 @@ export function resolveSelectionDependencies(
   return {
     components: COMPONENT_TYPES.filter((component) => components.has(component)),
     ...(skills ? { skills: [...skills].sort() } : {}),
+    ...(normalized.mcp !== undefined ? { mcp: [...new Set(normalized.mcp)].sort() } : {}),
   };
 }
 
 export type PluginState = "enabled" | "disabled";
+
+/** How ADG derived a plugin definition when the source had no manifest. */
+export interface DefaultDefinitionProfile {
+  kind: "default-dsl/v1";
+  /** Default DSL is always discovered from the source root. */
+  root: ".";
+  /** Optional user-selected installed identity. */
+  as?: string;
+  description: string;
+  fingerprint: string;
+  /** Components explicitly authorized when this structural source was installed. */
+  authorizedComponents?: ComponentType[];
+}
 
 export interface LockEntry {
   /** Upstream provenance the plugin was installed from. */
@@ -142,6 +161,8 @@ export interface LockEntry {
   version: string;
   /** Content digest of the complete cached source payload. */
   sourceHash: Integrity;
+  /** Immutable remote commit used to create this snapshot (v4+ remote entries). */
+  resolvedRevision?: string;
   /** Content digest of the effective runtime installation. */
   installedHash: Integrity;
   installedAt: string;
@@ -151,6 +172,7 @@ export interface LockEntry {
   selection?: PluginSelection;
   /** Desired cross-agent projection state. Absent means enabled. */
   state?: PluginState;
+  definition?: DefaultDefinitionProfile;
 }
 
 export function pluginState(entry?: LockEntry | null): PluginState {

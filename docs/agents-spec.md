@@ -80,7 +80,28 @@ are ADG-internal conventions, not declared in the manifest.
 
 ---
 
-## 3. Packaging — manifest-driven allowlist
+## 3. Default directory DSL
+
+When `.agents/.plugin.json` is absent, ADG recognizes only these fixed source
+slots: `skills/<name>/SKILL.md`, `hooks/hooks.json`, and `.mcp.json`. At least
+one valid slot is required. A skill needs non-empty frontmatter `description`;
+hooks and MCP files must be valid JSON (MCP must contain an object of servers).
+
+An explicit source manifest remains the only customization mechanism. Its
+`skills`, `hooks`, and `mcpServers` fields replace the corresponding default
+slot; omitted fields inherit valid defaults. A malformed inherited default slot
+is an error, while an explicitly overridden slot is not interpreted. `--as` is
+available only for structural sources. `--only` controls both copied payload and
+runtime projection; non-interactive hooks/MCP discovery requires explicit
+`--only`. Default DSL is source-root only.
+
+Default DSL is deliberately **not** a monorepo discovery convention. A source
+repository containing multiple plugins must declare every member with its own
+`.agents/.plugin.json` (and may use `.agents/.marketplace.json` as its catalog).
+Consumers select declared members with `--plugin` or `--all`; a source
+subdirectory is never an install/inspect selector.
+
+## 4. Packaging — manifest-driven allowlist
 
 ADG first stores the complete declared payload in an internal source cache, then
 materializes an **effective installation** into the runtime-facing plugins
@@ -102,9 +123,11 @@ The lock records two hashes: `sourceHash` covers the complete cached payload and
 `installedHash` covers the effective selection. Runtime projections are excluded
 from both hashes so re-adapting does not churn content identity.
 
-The cache is scoped by a stable store id under the store's sibling
-`cache/plugins/` tree. `adg plugins cache status` reports its contents,
-`cache prune` removes orphan snapshots, and `cache clean --force` removes all
+The cache is scoped by a stable store id under the OS-managed
+system cache tree (`~/Library/Caches/adg/plugins/` on macOS,
+`$XDG_CACHE_HOME/adg/plugins/` on Linux). `adg plugins cache status` reports
+its contents, `cache restore` recreates missing snapshots from the exact lock
+revision, `cache prune` removes orphan snapshots, and `cache clean --force` removes all
 snapshots. A missing remote snapshot must be restored with `plugins update` or
 `plugins add`; a still-available local source is used directly as fallback.
 

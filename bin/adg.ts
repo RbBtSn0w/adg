@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +9,7 @@ import { TOP_USAGE, fail } from "../src/cli/index.ts";
 import { runPlugins } from "../src/cli/handlers.ts";
 import { getTracer, shutdownTelemetry, sanitizeArgs } from "../src/telemetry.ts";
 import { SpanKind, SpanStatusCode, propagation, context } from "@opentelemetry/api";
+import { runSubprocessSync } from "../src/subprocess.ts";
 
 // ---------------------------------------------------------------------------
 // `adg` entry point: thin wire-up only.
@@ -56,7 +56,8 @@ function runSkills(verb: string | undefined, rest: string[]): number {
   const envCarrier: Record<string, string> = {};
   propagation.inject(context.active(), envCarrier);
 
-  const r = spawnSync(process.execPath, skillsChildArgv(entry, args), {
+  const childArgs = skillsChildArgv(entry, args);
+  const r = runSubprocessSync(process.execPath, childArgs, {
     stdio: "inherit",
     env: {
       ...process.env,
@@ -73,7 +74,7 @@ function runSelfUpdate(args: string[]): number {
     return 0;
   }
   const command = selfUpdateCommand(options.beta);
-  const r = spawnSync(command.command, command.args, selfUpdateSpawnOptions());
+  const r = runSubprocessSync(command.command, command.args, selfUpdateSpawnOptions());
   if (r.error) {
     console.error(r.error.message);
     return 1;
@@ -119,7 +120,6 @@ async function main(argv: string[]): Promise<number | void> {
     let status = 0;
     try {
       span.setAttribute("process.executable.name", "adg");
-      span.setAttribute("process.executable.path", process.argv[1] || process.execPath);
       span.setAttribute("process.pid", process.pid);
       span.setAttribute("process.command_args", sanitizeArgs(["adg", ...argv]));
 

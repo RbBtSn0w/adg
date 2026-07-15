@@ -5,6 +5,10 @@ Guidance for AI agents (and humans) contributing to this repository. See
 [docs/branching-and-release.md](docs/branching-and-release.md) for the full
 process.
 
+See [docs/agents-spec.md](docs/agents-spec.md) for the canonical authoring and
+projection model and [docs/hooks-strategy.md](docs/hooks-strategy.md) for the
+standards-first adapter philosophy.
+
 ## Branch & PR rules
 
 - **All pull requests must target the `beta` branch.** Never open a PR against
@@ -34,6 +38,18 @@ npm run typecheck
 npm run build
 npm test
 ```
+
+## Telemetry
+
+- **OpenTelemetry (OTel)**: For every new feature or requirement added, ensure you implement corresponding OpenTelemetry instrumentation (spans, events, or metrics) to maintain observability.
+- **OTel CLI Compliance**: All CLI programs and external subprocess wrappers must strictly follow the official [Semantic conventions for CLI programs](https://opentelemetry.io/docs/specs/semconv/cli/cli-spans/):
+  - Use `SpanKind.INTERNAL` for the CLI's own execution (callee spans) and `SpanKind.CLIENT` for subprocess calls (caller spans).
+  - Span names must default to `{process.executable.name}` (e.g. `"git"`, `"claude"`) or documented low-cardinality values.
+  - Correctly record all **Required** attributes: `process.executable.name` and `process.exit.code`.
+  - Record `process.pid` when available (Recommended).
+  - Correctly record `error.type` on failure spans (when `process.exit.code !== 0`) as **Conditionally Required**.
+  - Do NOT collect `process.executable.path` — it is always PII and provides no analytical value after sanitization.
+- **Telemetry Privacy**: **All telemetry data must comply with privacy standards**—never log raw file paths, personally identifiable information (PII), or user secrets/tokens. Sanitization (e.g., `sanitizeArgs()`) is mandatory before collecting `process.command_args`.
 
 ## Do not
 

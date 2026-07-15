@@ -31,6 +31,21 @@ See [docs/authoring.md](docs/authoring.md) to author a plugin, and
 - **Reproducibility** — `.plugin-lock.json` records source, version and a content
   hash for every installed plugin.
 
+## Default plugin layout
+
+A repository without a manifest is also installable when it uses the standard
+plugin locations: `skills/<name>/SKILL.md`, `hooks/hooks.json`, or `.mcp.json`.
+ADG derives a default manifest from the locations that exist. Add
+`.agents/.plugin.json` only when a source needs custom component paths or other
+plugin metadata; its `skills`, `hooks`, and `mcpServers` fields override only
+their matching defaults, while omitted fields inherit valid standard locations.
+For structural sources, `--as` sets a stable installed identity and `--only`
+limits both the stored payload and runtime exposure. In non-interactive runs,
+discovered hooks or MCP require explicit `--only`. Default DSL applies only to
+the source root. It is not a monorepo convention: every member of a
+multi-plugin repository must declare its own `.agents/.plugin.json` and be
+selected with `--plugin` or `--all`.
+
 ---
 
 # Install and quick start
@@ -156,6 +171,20 @@ adg plugins update --global
 adg plugins link --target claude --global
 ```
 
+### Example 3 — `cloudflare/skills` (auto-discovery and selective installation)
+
+A repository containing skills for the Cloudflare Developer Platform. Although the repository doesn't explicitly declare an MCP configuration in its native `.claude-plugin/plugin.json` manifest, it includes a `.mcp.json` file in its root. ADG auto-discovers this file, allowing you to selectively choose which components, skills, or MCP servers to install:
+
+```bash
+# Add the cloudflare plugin globally (interactive guide asks which skills/MCP servers to install)
+adg plugins add https://github.com/cloudflare/skills --global
+
+# Or install it non-interactively, limiting to specific skills and MCP servers:
+adg plugins add https://github.com/cloudflare/skills --global \
+  --skill agents-sdk --skill cloudflare --skill durable-objects \
+  --mcp wrangler-mcp --mcp d1-mcp
+```
+
 > Both repos are pulled by `owner/repo` shorthand over a shallow clone (sparse
 > checkout when `--sparse` is given). Provenance — `{type:"github",repo,ref,path}`
 > — plus a `sha256` integrity hash land in `.plugin-lock.json`, so the install is
@@ -252,9 +281,9 @@ adg plugins add plugins/my-plugin --project        # <repo>/.agents/plugins
 adg plugins add plugins/my-plugin --global         # ~/.agents/plugins
 adg plugins add plugins/asc --dir plugins          # explicit target dir
 
-# add from GitHub (shorthand, @ref, or full URL); --path selects a monorepo subdir
+# add from GitHub (shorthand, @ref, or full URL)
 adg plugins add owner/repo --dir plugins
-adg plugins add owner/repo@v0.1.0 --path plugins/asc --dir plugins
+adg plugins add owner/repo@v0.1.0 --plugin asc --dir plugins
 adg plugins add https://github.com/owner/repo.git --ref main --dir plugins
 adg plugins add plugins/asc --dir plugins --no-deps   # skip transitive deps
 
@@ -394,7 +423,7 @@ private discovery path:
 # Developing from source
 
 For working on the CLI itself, or testing a plugin before release. The CLI runs
-directly on **Node ≥ 22.6** via native TypeScript type-stripping — **no build
+directly on **Node ≥ 22.18** via native TypeScript type-stripping — **no build
 step**.
 
 ```bash
@@ -406,8 +435,11 @@ node bin/adg.ts --help
 node bin/adg.ts plugins validate plugins/asc
 
 # quality gates
-npm test                      # node --test  (76 cases)
+npm test                      # node --test
 npm run typecheck             # tsc --noEmit
+npm run check:docs            # internal Markdown links
+npm run build
+npm run check:package-smoke   # install and exercise the packed CLI
 ```
 
 Debugging tips:
@@ -419,11 +451,11 @@ Debugging tips:
   node bin/adg.ts plugins add ./some/repo --dir /tmp/adg-store
   node bin/adg.ts plugins list --dir /tmp/adg-store
   ```
-- **Refreshing reference artifacts:** the `plugins/.plugin-lock.json` and
-  `plugins/marketplace.json` are generated. Re-sync the lock hashes from disk with
-  `node bin/adg.ts plugins update --dir plugins`.
-- **Inspect generated manifests** under each plugin's `.claude-plugin/` and
-  `.codex-plugin/` to confirm adaptation output.
+- **Refreshing scratch artifacts:** `.plugin-lock.json` and `marketplace.json`
+  inside your chosen `--dir` store are generated. Re-sync that store with
+  `node bin/adg.ts plugins update --dir /tmp/adg-store`.
+- **Inspect generated manifests** inside the scratch store to confirm adaptation
+  output without relying on ignored repository-local artifacts.
 - GitHub clone/sparse logic is injectable (`gitRunner`) and covered offline by
   the test suite; live network clones are exercised by `import owner/repo`.
 

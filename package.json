@@ -1,6 +1,6 @@
 {
   "name": "@rbbtsn0w/adg",
-  "version": "0.6.0",
+  "version": "0.7.0-beta.1",
   "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
   "type": "module",
   "license": "MIT",
@@ -24,8 +24,13 @@
   "scripts": {
     "adg": "node ./bin/adg.ts",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --noCheck && node -e \"require('fs').chmodSync('dist/bin/adg.js',0o755)\"",
-    "test": "node --test 'test/**/*.test.ts'",
+    "test": "node scripts/run-tests.mjs \"test/**/*.test.ts\" test/cache-sandbox.test.mjs",
+    "test:codex-sandbox": "node --test test/codex-sandbox.test.mjs",
+    "test:cache-sandbox": "node --test test/cache-sandbox.test.mjs",
+    "check:docs": "node scripts/check-doc-links.mjs",
+    "check:package-smoke": "node scripts/check-package-smoke.mjs",
     "check:vendor-deps": "node scripts/check-vendor-deps.mjs",
+    "check:vendor-upstream": "node scripts/check-vendor-upstream.mjs",
     "audit:prod": "npm audit --omit=dev",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run typecheck",
@@ -34,7 +39,9 @@
   "files": [
     "dist",
     "schemas",
-    "vendor",
+    "vendor/skills/LICENSE",
+    "vendor/skills/PROVENANCE.md",
+    "vendor/skills/ThirdPartyNoticeText.txt",
     "docs"
   ],
   "comment:dependencies": "Runtime deps below are required only by the vendored skills CLI (vendor/skills); ADG's own plugins code has zero runtime deps. Root is the single source of truth: each range MUST be >= the floor declared in vendor/skills/package.json, since that is the version the vendored source was authored against. `npm run check:vendor-deps` enforces this and fails on drift.",
@@ -63,5 +70,9 @@
     "conventional-changelog-conventionalcommits": "^8.0.0",
     "semantic-release": "^25.0.5",
     "typescript": "^5.6.0"
+  },
+  "comment:overrides": "Security floor: npm 11 before 11.18.0 bundles vulnerable undici 6.26.0; keep npm on patched 11.x until @semantic-release/npm supports a newer major.",
+  "overrides": {
+    "npm": "^11.18.0"
   }
 }

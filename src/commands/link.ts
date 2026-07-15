@@ -1,9 +1,7 @@
-import { adaptedFilesForTarget, selectInstalled } from "./projection.ts";
-import { pluginRematerializationSource } from "../paths.ts";
+import { adaptedFilesForTarget, rematerializeInstalled, selectInstalled } from "./projection.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
-import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
+import type { AdapterTarget } from "../adapters/index.ts";
 import { pluginState } from "../types.ts";
-import { installPlugin } from "./install.ts";
 
 /** A single runtime to link into. Any registered adapter target (claude/codex/antigravity). */
 export type LinkTarget = AdapterTarget;
@@ -52,18 +50,8 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
     throw new Error(`disabled plugin(s): ${names.join(", ")}. Run \`adg plugins enable ${names.join(" ")}\`.`);
   }
   const enabled = selected.filter((p) => pluginState(p) === "enabled");
-  const actions: LinkAction[] = [];
-  for (const p of enabled) {
-    const result = installPlugin({
-      source: pluginRematerializationSource(opts.pluginsDir, p.name, p.origin),
-      pluginsDir: opts.pluginsDir,
-      origin: p.origin,
-      selection: p.selection,
-      targets: [...ADAPTER_TARGETS],
-      forceMaterialize: true,
-    });
-    actions.push({ name: p.name, adapted: adaptedFilesForTarget(result.installedTo, result.adapted, adaptTarget) });
-  }
+  const actions: LinkAction[] = rematerializeInstalled(opts.pluginsDir, enabled)
+    .map((result) => ({ name: result.name, adapted: adaptedFilesForTarget(result.installedTo, result.adapted, adaptTarget) }));
 
   if (!agent) return { target: opts.target, actions };
   if (actions.length === 0) return { target: opts.target, actions };
@@ -72,6 +60,7 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
     pluginsDir: opts.pluginsDir,
     plugins: actions.map((a) => a.name),
     scope: opts.global ? "user" : "project",
+    ...(opts.target === "codex" ? { reconcileLegacyAliases: true } : {}),
   });
   for (const a of actions) if (res.affected.includes(a.name)) a.linkedTo = agent.displayName;
   return { target: opts.target, actions, cliSkipped: res.skipped };

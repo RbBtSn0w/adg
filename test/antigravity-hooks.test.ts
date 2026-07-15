@@ -54,7 +54,7 @@ test("Antigravity projects Claude SessionStart without modifying the canonical h
     assert.deepEqual(Object.keys(rootHooks.superpowers), ["PreInvocation"]);
     assert.equal(rootHooks.superpowers.PreInvocation[0]?.type, "command");
     assert.equal(rootHooks.superpowers.PreInvocation[0]?.timeout, 30);
-    assert.match(rootHooks.superpowers.PreInvocation[0]?.command ?? "", /\.antigravity-plugin\/hook-runner\.mjs/);
+    assert.match(rootHooks.superpowers.PreInvocation[0]?.command ?? "", /\.antigravity-plugin[\\/]hook-runner\.mjs/);
     assert.ok(rootHooks.superpowers.PreInvocation[0]?.command.includes(dir), "runner path must not depend on Antigravity cwd");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -170,7 +170,7 @@ if (mode === "pre") {
       };
     };
     const run = (hookCommand: string, input: unknown) => spawnSync(hookCommand, {
-      cwd: "/tmp",
+      cwd: tmpdir(),
       shell: true,
       encoding: "utf8",
       input: JSON.stringify(input),

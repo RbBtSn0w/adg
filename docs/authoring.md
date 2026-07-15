@@ -62,6 +62,23 @@ authoring artifact:
 
 ---
 
+## Conventional skills repositories
+
+A repository may omit `.agents/.plugin.json` when it follows the fixed Default
+DSL: `skills/<name>/SKILL.md`, `hooks/hooks.json`, and/or `.mcp.json`. ADG
+derives one plugin only from the source root; it does not recursively guess
+other directories.
+
+Default DSL is not available to a member directory of a multi-plugin repository.
+For a marketplace, give every member its own `.agents/.plugin.json`; consumers
+select that explicit member with `--plugin` rather than by source subdirectory.
+
+Add `.agents/.plugin.json` for non-standard paths or metadata. Its `skills`,
+`hooks`, and `mcpServers` fields replace their respective defaults; omitted
+fields inherit valid conventional locations. In automation, explicitly use
+`--only` before enabling discovered hooks or MCP. Consumers may use `--as` only
+when installing a manifest-free structural source.
+
 ## The `.agents/.plugin.json` DSL
 
 ```jsonc
@@ -74,7 +91,7 @@ authoring artifact:
   "author": { "name": "You", "url": "…", "email": "…" },
   "license": "MIT",
   "category": "Developer Tools",
-  "interface": { "displayName": "ASC", "icon": "asc.png" },
+  "interface": { "displayName": "ASC", "shortDescription": "Ship App Store releases with asc.", "icon": "asc.png" },
 
   // ── Components: path pointers, never inlined content ──
   "skills":   "./skills/",                     // string (root dir) | string[] (explicit paths)
@@ -108,7 +125,7 @@ authoring artifact:
 | `author` | `{ name, url?, email? }` | | |
 | `license` | string | | SPDX id, e.g. `MIT`. |
 | `category` | string | | Free-form, e.g. `Developer Tools`. |
-| `interface` | `{ displayName?, icon? }` | | Presentation only. |
+| `interface` | `{ displayName?, shortDescription?, icon? }` | | Presentation metadata. Codex uses `shortDescription` in its plugin picker; when omitted, ADG uses the manifest `description`. |
 | `skills` | string \| string[] | | Root dir (auto-scan) or explicit skill paths. |
 | `commands` | string | | Directory of slash-command `.md` files. |
 | `agents` | string | | Directory of sub-agent `.md` files. |

@@ -25,6 +25,7 @@
     "description": { "type": "string", "minLength": 1 },
     "author": {
       "type": "object",
+      "required": ["name"],
       "properties": {
         "name": { "type": "string" },
         "url": { "type": "string" },
@@ -38,6 +39,7 @@
       "type": "object",
       "properties": {
         "displayName": { "type": "string" },
+        "shortDescription": { "type": "string" },
         "icon": { "type": "string" }
       },
       "additionalProperties": true

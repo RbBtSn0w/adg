@@ -60,3 +60,19 @@ test("syncMarketplace does not add when the marketplace update succeeds", () => 
     ["plugin", "marketplace", "update", "adg"],
   ]);
 });
+
+test("syncMarketplace warns when the add fallback also fails", () => {
+  const warnings: string[] = [];
+  const runner = (args: string[]): RunResult => {
+    if (args[2] === "list") return result(true, JSON.stringify([{ name: "adg" }]));
+    if (args[2] === "update") return result(false, "update failed");
+    if (args[2] === "add") return result(false, "add failed");
+    return result(false, `unexpected call: ${args.join(" ")}`);
+  };
+
+  syncMarketplace("/tmp/plugins", "adg", runner, (message) => warnings.push(message));
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /failed to sync Claude marketplace/i);
+  assert.match(warnings[0]!, /add failed/);
+});

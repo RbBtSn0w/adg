@@ -1,4 +1,3 @@
-import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +21,7 @@ import { agents, isUniversalAgent } from './agents.ts';
 import { selfCliArgv } from './self-cli.ts';
 import type { AgentType } from './types.ts';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { runSubprocessSync } from '../../../src/subprocess.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,9 +32,34 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * our actual TS entry, run via Node's type-stripping (Node >= 22.6), exactly how
  * `adg skills` launches the CLI. See vendor/skills/PROVENANCE.md.
  */
-const SELF_CLI_ENTRY = existsSync(join(__dirname, '../../../bin/adg.ts'))
-  ? join(__dirname, '../../../bin/adg.ts')
-  : join(__dirname, '../../../dist/bin/adg.js');
+export function resolveSelfCliEntry(
+  moduleDir: string = __dirname,
+  exists: (path: string) => boolean = existsSync
+): string {
+  const sourceEntry = join(moduleDir, '../../../bin/adg.ts');
+  if (exists(sourceEntry)) return sourceEntry;
+  return join(moduleDir, '../../../bin/adg.js');
+}
+
+const SELF_CLI_ENTRY = resolveSelfCliEntry();
+
+function recordSelfCliEntrypointMissing(): void {
+  const tracer = getTracer();
+  const span = tracer.startSpan("adg", { kind: SpanKind.CLIENT });
+  try {
+    span.setAttribute("process.executable.name", "adg");
+    span.setAttribute("process.command_args", ["adg", "skills", "add"]);
+    span.setAttribute("process.exit.code", -1);
+    span.setAttribute("error.type", "CLI_ENTRYPOINT_NOT_FOUND");
+    span.recordException(new Error("CLI entrypoint not found"));
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: "CLI entrypoint not found",
+    });
+  } finally {
+    span.end();
+  }
+}
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -507,53 +532,19 @@ export async function updateGlobalSkills(
     const installUrl = buildUpdateInstallSource(update.entry);
 
     const cliEntry = SELF_CLI_ENTRY;
+    const args = ['skills', 'add', installUrl, '-g', '-y'];
     if (!existsSync(cliEntry)) {
       failCount++;
+      recordSelfCliEntrypointMissing();
       console.log(
         `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
       );
       continue;
     }
-    const tracer = getTracer();
-    const args = ['skills', 'add', installUrl, '-g', '-y'];
-    const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
-      try {
-        span.setAttribute("process.executable.name", "adg");
-        span.setAttribute("process.command_args", ["adg", ...args]);
-
-        const r = spawnSync(
-          process.execPath,
-          selfCliArgv(cliEntry, args),
-          {
-            stdio: ['inherit', 'pipe', 'pipe'],
-            encoding: 'utf-8',
-            shell: process.platform === 'win32',
-          }
-        );
-
-        if (r.pid !== undefined) span.setAttribute("process.pid", r.pid);
-        if (r.status !== null) {
-          span.setAttribute("process.exit.code", r.status);
-          if (r.status !== 0) {
-            span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: `Subprocess exited with status ${r.status}`,
-            });
-          }
-        } else if (r.error) {
-          span.setAttribute("process.exit.code", -1);
-          span.setAttribute("error.type", (r.error as NodeJS.ErrnoException).code || r.error.name || "SpawnError");
-          span.recordException(r.error);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: r.error.message,
-          });
-        }
-        return r;
-      } finally {
-        span.end();
-      }
+    const result = runSubprocessSync(process.execPath, selfCliArgv(cliEntry, args), {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {
@@ -635,6 +626,7 @@ export async function updateProjectSkills(
   const cliEntry = SELF_CLI_ENTRY;
 
   if (!existsSync(cliEntry)) {
+    recordSelfCliEntrypointMissing();
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
     return { successCount, failCount: updatable.length, foundCount: projectSkills.length };
   }
@@ -683,51 +675,16 @@ export async function updateProjectSkills(
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
-      const tracer = getTracer();
       // Preserve Eve subagent placement recorded at install time. The lock stores
       // '' for the root agent, which maps to the `root` keyword for `add --subagent`.
       const subagentArgs = skill.entry.subagents?.length
         ? ['--subagent', ...skill.entry.subagents.map((s) => (s === '' ? 'root' : s))]
         : [];
       const args = ['skills', 'add', installUrl, '--skill', skill.name, ...subagentArgs, '-y'];
-      const result = tracer.startActiveSpan("adg", { kind: SpanKind.CLIENT }, (span) => {
-        try {
-          span.setAttribute("process.executable.name", "adg");
-          span.setAttribute("process.command_args", ["adg", ...args]);
-
-          const r = spawnSync(
-            process.execPath,
-            selfCliArgv(cliEntry, args),
-            {
-              stdio: ['inherit', 'pipe', 'pipe'],
-              encoding: 'utf-8',
-              shell: process.platform === 'win32',
-            }
-          );
-
-          if (r.pid !== undefined) span.setAttribute("process.pid", r.pid);
-          if (r.status !== null) {
-            span.setAttribute("process.exit.code", r.status);
-            if (r.status !== 0) {
-              span.setAttribute("error.type", `EXIT_CODE_${r.status}`);
-              span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: `Subprocess exited with status ${r.status}`,
-              });
-            }
-          } else if (r.error) {
-            span.setAttribute("process.exit.code", -1);
-            span.setAttribute("error.type", (r.error as NodeJS.ErrnoException).code || r.error.name || "SpawnError");
-            span.recordException(r.error);
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: r.error.message,
-            });
-          }
-          return r;
-        } finally {
-          span.end();
-        }
+      const result = runSubprocessSync(process.execPath, selfCliArgv(cliEntry, args), {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
       });
 
       if (result.status === 0) {
@@ -807,6 +764,7 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   }
   if (totalFail > 0) {
     console.log(`${DIM}Failed to update ${totalFail} skill(s)${RESET}`);
+    process.exitCode = 1;
   }
 
   track({

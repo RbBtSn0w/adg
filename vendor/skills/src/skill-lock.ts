@@ -2,8 +2,8 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
-import { execSync } from 'child_process';
 import pc from 'picocolors';
+import { runSubprocessSync } from '../../../src/subprocess.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -169,10 +169,11 @@ export function getGitHubToken(): string | null {
     _ghWarningShown = true;
   }
   try {
-    const token = execSync('gh auth token', {
+    const result = runSubprocessSync('gh', ['auth', 'token'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    });
+    const token = result.status === 0 ? result.stdout.trim() : '';
     if (token) {
       return token;
     }

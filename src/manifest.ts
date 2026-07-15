@@ -3,6 +3,7 @@ import { isAbsolute, join } from "node:path";
 import type { Span } from "@opentelemetry/api";
 import { ADG_SCHEMA_VERSION, COMPONENT_TYPES, type AdgManifest } from "./types.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
+import { probeDefaultDsl } from "./default-dsl.ts";
 
 /** Canonical, vendor-neutral source manifest location (a plugin). */
 export const ADG_MANIFEST_PATH = join(".agents", ".plugin.json");
@@ -26,6 +27,11 @@ export function findManifestFile(pluginDir: string): string | undefined {
 
 const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
+const MANIFEST_FIELDS = new Set([
+  "schemaVersion", "name", "version", "description", "author", "license", "category",
+  "interface", "skills", "agents", "commands", "apps", "hooks", "mcpServers",
+  "dependencies", "selectionDependencies", "strict", "homepage", "changelog",
+]);
 
 export class ManifestError extends Error {
   readonly issues: string[];
@@ -49,7 +55,28 @@ export function readManifest(pluginDir: string, telemetrySpan?: Pick<Span, "addE
     throw new ManifestError([`${file} is not valid JSON: ${(err as Error).message}`]);
   }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
-    const schemaVersion = (raw as Record<string, unknown>).schemaVersion;
+    const m = raw as Record<string, unknown>;
+    // A repository manifest is an explicit mapping only for fields it names.
+    // Standard skills/hooks/MCP locations remain the default DSL for omitted
+    // component fields, keeping source authors from repeating boilerplate.
+    if (typeof m.name === "string" && typeof m.description === "string") {
+      try {
+        const ignored = new Set<"skills" | "hooks" | "mcp">();
+        if (m.skills !== undefined) ignored.add("skills");
+        if (m.hooks !== undefined) ignored.add("hooks");
+        if (m.mcpServers !== undefined) ignored.add("mcp");
+        const defaults = probeDefaultDsl(pluginDir, { ignore: ignored }).manifest;
+        for (const key of ["skills", "hooks", "mcpServers"] as const) {
+          if (m[key] === undefined && defaults[key] !== undefined) m[key] = defaults[key];
+        }
+      } catch (error) {
+        // A manifest may use entirely custom locations and therefore have no
+        // conventional component. Any malformed conventional component that it
+        // *inherits*, however, is a source error and must never be hidden.
+        if (!(error instanceof Error) || !error.message.includes("no default plugin component")) throw error;
+      }
+    }
+    const schemaVersion = m.schemaVersion;
     if (typeof schemaVersion === "string") {
       recordTelemetryEvent("adg.manifest.read", {
         "schema.version": schemaVersion === ADG_SCHEMA_VERSION ? schemaVersion : "other",
@@ -75,6 +102,10 @@ export function collectIssues(raw: unknown): string[] {
   }
   const m = raw as Record<string, unknown>;
 
+  for (const key of Object.keys(m)) {
+    if (!MANIFEST_FIELDS.has(key)) issues.push(`unsupported manifest field: ${key}`);
+  }
+
   if (m.schemaVersion !== ADG_SCHEMA_VERSION) {
     issues.push(`schemaVersion must be "${ADG_SCHEMA_VERSION}"`);
   }
@@ -86,6 +117,29 @@ export function collectIssues(raw: unknown): string[] {
   }
   if (typeof m.description !== "string" || m.description.length === 0) {
     issues.push("description is required and must be a non-empty string");
+  }
+
+  if (m.author !== undefined) {
+    if (!isRecord(m.author)) {
+      issues.push("author must be an object");
+    } else {
+      for (const key of Object.keys(m.author)) {
+        if (!["name", "url", "email"].includes(key)) issues.push(`author contains unsupported field: ${key}`);
+      }
+      if (typeof m.author.name !== "string") issues.push("author.name must be a string");
+      for (const key of ["url", "email"] as const) {
+        if (m.author[key] !== undefined && typeof m.author[key] !== "string") issues.push(`author.${key} must be a string`);
+      }
+    }
+  }
+  if (m.interface !== undefined) {
+    if (!isRecord(m.interface)) {
+      issues.push("interface must be an object");
+    } else {
+      for (const key of ["displayName", "shortDescription", "icon"] as const) {
+        if (m.interface[key] !== undefined && typeof m.interface[key] !== "string") issues.push(`interface.${key} must be a string`);
+      }
+    }
   }
 
   if (m.skills !== undefined && typeof m.skills !== "string" && !isStringArray(m.skills)) {
@@ -115,11 +169,14 @@ export function collectIssues(raw: unknown): string[] {
       issues.push("dependencies must be an array");
     } else {
       m.dependencies.forEach((dep, i) => {
-        if (typeof dep !== "object" || dep === null) {
+        if (!isRecord(dep)) {
           issues.push(`dependencies[${i}] must be an object`);
           return;
         }
-        const d = dep as Record<string, unknown>;
+        const d = dep;
+        for (const key of Object.keys(d)) {
+          if (!["name", "version"].includes(key)) issues.push(`dependencies[${i}] contains unsupported field: ${key}`);
+        }
         if (typeof d.name !== "string") issues.push(`dependencies[${i}].name must be a string`);
         if (typeof d.version !== "string") issues.push(`dependencies[${i}].version must be a string`);
       });
@@ -139,23 +196,34 @@ export function collectIssues(raw: unknown): string[] {
           continue;
         }
         const requirement = rawRequirement as Record<string, unknown>;
+        for (const key of Object.keys(requirement)) {
+          if (!["components", "skills"].includes(key)) {
+            issues.push(`selectionDependencies.${component} contains unsupported field: ${key}`);
+          }
+        }
         if (requirement.components !== undefined && (!isStringArray(requirement.components)
           || requirement.components.some((value) => !COMPONENT_TYPES.includes(value as (typeof COMPONENT_TYPES)[number])))) {
           issues.push(`selectionDependencies.${component}.components must contain supported component names`);
+        } else if (isStringArray(requirement.components) && new Set(requirement.components).size !== requirement.components.length) {
+          issues.push(`selectionDependencies.${component}.components must not contain duplicates`);
         }
         if (requirement.skills !== undefined && !isStringArray(requirement.skills)) {
           issues.push(`selectionDependencies.${component}.skills must be an array of strings`);
+        } else if (isStringArray(requirement.skills) && new Set(requirement.skills).size !== requirement.skills.length) {
+          issues.push(`selectionDependencies.${component}.skills must not contain duplicates`);
         }
       }
     }
   }
-  // `adapters` is no longer part of the DSL. A stray one from an old manifest is
-  // tolerated (ignored) rather than rejected — output paths are ADG-internal.
   return issues;
 }
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isSafeRelativePointer(value: string): boolean {

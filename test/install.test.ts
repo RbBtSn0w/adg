@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 import { readManifest } from "../src/manifest.ts";
 import { readLock } from "../src/lock.ts";
-import { marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
+import { legacyPluginCacheRoot, legacyPluginSourceCacheDir, marketplaceSourcePath, pluginSourceCacheDir } from "../src/paths.ts";
 import { initPlugin, initScaffold } from "../src/commands/init.ts";
 import { adaptPlugin } from "../src/commands/adapt.ts";
 import { installPlugin } from "../src/commands/install.ts";
@@ -136,8 +136,54 @@ test("cache status, prune, and clean manage source snapshots without touching in
   assert.deepEqual(prunePluginCache(store), ["orphan"]);
   assert.ok(existsSync(join(store, "cached")));
   cleanPluginCache(store);
-  assert.deepEqual(pluginCacheStatus(store).entries, []);
+  assert.deepEqual(pluginCacheStatus(store).entries.map((entry) => [entry.name, entry.recovery]), [["cached", "missing-recoverable"]]);
   assert.ok(existsSync(join(store, "cached")), "clean only removes rebuildable cache data");
+  rmSync(work, { recursive: true, force: true });
+});
+
+test("cache status reports legacy snapshot path and size", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "legacy-status", dir: join(work, "src") });
+  const store = join(work, "store");
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const modern = pluginSourceCacheDir(store, "legacy-status");
+  const legacy = legacyPluginSourceCacheDir(store, "legacy-status");
+  mkdirSync(join(legacy, ".."), { recursive: true });
+  renameSync(modern, legacy);
+  const entry = pluginCacheStatus(store).entries.find((item) => item.name === "legacy-status")!;
+  assert.equal(entry.recovery, "legacy");
+  assert.equal(entry.path, legacy);
+  assert.ok(entry.bytes > 0);
+  rmSync(work, { recursive: true, force: true });
+});
+
+/*
+## Test Intent
+### Risk
+Pre-migration source snapshots can become unbounded disk usage if cache maintenance only sees the new system cache.
+### Why Automation
+The behavior spans both cache roots and destructive lifecycle commands; inspection cannot prove orphan cleanup leaves recoverable state intact.
+### Why Existing Tests Insufficient
+The existing cache test covers only system-cache snapshots and cannot detect legacy-root leaks.
+### Chosen Layer
+Integration Test - install, status, prune, and clean share the real path derivation and filesystem lifecycle.
+### Fragility Analysis
+The test asserts public cache command effects and does not depend on platform cache paths or timing.
+### If Omitted
+Users with historical ADG installations can retain unreachable cache data indefinitely.
+*/
+test("cache prune and clean include legacy cache snapshots", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "legacy-clean", dir: join(work, "src") });
+  const store = join(work, "store");
+  installPlugin({ source: pluginDir, pluginsDir: store });
+  const orphan = join(legacyPluginCacheRoot(store), "orphan");
+  mkdirSync(orphan, { recursive: true });
+  writeFileSync(join(orphan, "payload"), "orphan");
+  assert.deepEqual(prunePluginCache(store), ["orphan"]);
+  assert.ok(!existsSync(orphan));
+  cleanPluginCache(store);
+  assert.ok(!existsSync(legacyPluginCacheRoot(store)));
   rmSync(work, { recursive: true, force: true });
 });
 
@@ -223,7 +269,7 @@ test("init -> adapt -> install -> update end to end", () => {
   assert.ok(existsSync(join(store, "sample", ".agents", ".plugin.json")));
 
   const lock = JSON.parse(readFileSync(join(store, ".plugin-lock.json"), "utf8"));
-  assert.equal(lock.version, 3);
+  assert.equal(lock.version, 5);
   assert.equal(lock.plugins.sample.sourceHash, res.sourceHash);
   assert.equal(lock.plugins.sample.installedHash, res.installedHash);
   assert.ok(res.sourceHash.startsWith("sha256-"));
@@ -339,5 +385,76 @@ test("validatePlugin flags a missing referenced path", () => {
   const res = validatePlugin(pluginDir);
   assert.equal(res.ok, false);
   assert.ok(res.issues.some((i) => i.includes("commands")));
+  rmSync(work, { recursive: true });
+});
+
+test("install filters mcp servers when selection specifies a subset", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "mcpkit", dir: work, description: "MCP kit." });
+  writeFileSync(
+    join(pluginDir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        serverA: { command: "node", args: ["a.js"] },
+        serverB: { command: "node", args: ["b.js"] },
+      },
+    }),
+  );
+
+  const store = join(work, "store");
+  installPlugin({
+    source: pluginDir,
+    pluginsDir: store,
+    now: "2026-06-11T00:00:00Z",
+    selection: {
+      components: ["mcp"],
+      mcp: ["serverB"],
+    },
+  });
+  const out = join(store, "mcpkit");
+
+  assert.ok(existsSync(join(out, ".mcp.json")), "mcpServers target ships");
+  const mcpJson = JSON.parse(readFileSync(join(out, ".mcp.json"), "utf8"));
+  assert.deepEqual(mcpJson, {
+    mcpServers: {
+      serverB: { command: "node", args: ["b.js"] },
+    },
+  });
+
+  const antigravity = JSON.parse(readFileSync(join(out, "mcp_config.json"), "utf8"));
+  assert.deepEqual(antigravity, {
+    mcpServers: {
+      serverB: { command: "node", args: ["b.js"] },
+    },
+  });
+
+  rmSync(work, { recursive: true });
+});
+
+test("install throws when selection specifies an unknown mcp server", () => {
+  const work = tmp();
+  const { pluginDir } = initPlugin({ name: "mcpkit", dir: work, description: "MCP kit." });
+  writeFileSync(
+    join(pluginDir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        serverA: { command: "node", args: ["a.js"] },
+      },
+    }),
+  );
+
+  const store = join(work, "store");
+  assert.throws(() => {
+    installPlugin({
+      source: pluginDir,
+      pluginsDir: store,
+      now: "2026-06-11T00:00:00Z",
+      selection: {
+        components: ["mcp"],
+        mcp: ["unknownServer"],
+      },
+    });
+  }, /selected mcp server\(s\) not declared: unknownServer/);
+
   rmSync(work, { recursive: true });
 });

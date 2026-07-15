@@ -1,4 +1,88 @@
+## [0.7.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.6.0...0.7.0-beta.1) (2026-07-15)
+
+### Added
+
+* add support for resolved Git revisions in DSL and plugin rendering ([ddd6a8b](https://github.com/RbBtSn0w/adg/commit/ddd6a8b28fdfd1c8806e666737040701360267fb))
+* mcp selective install ([#58](https://github.com/RbBtSn0w/adg/issues/58)) ([9cdd463](https://github.com/RbBtSn0w/adg/commit/9cdd46377b52bb47025c502b3b9fb8dc80236c3d))
+* support structural skills repositories as plugins ([#64](https://github.com/RbBtSn0w/adg/issues/64)) ([b4160fc](https://github.com/RbBtSn0w/adg/commit/b4160fca77343525f8cead4db244202e06148b83))
+
+### Fixed
+
+* Bugfix ([#62](https://github.com/RbBtSn0w/adg/issues/62)) ([9db7d4a](https://github.com/RbBtSn0w/adg/commit/9db7d4ab03f719fe5c85f8f6b84e61d6c48f1e94))
+* **deps:** resolve undici security advisories ([#65](https://github.com/RbBtSn0w/adg/issues/65)) ([cb3ca13](https://github.com/RbBtSn0w/adg/commit/cb3ca132923430f16f497fb9b1ec73e8bbb60876))
+* harden Codex plugin cache recovery ([#63](https://github.com/RbBtSn0w/adg/issues/63)) ([77cdb3b](https://github.com/RbBtSn0w/adg/commit/77cdb3b0f9759c3ddcb074916718c4ba074f867f))
+* harden plugin agent runtime integration ([#57](https://github.com/RbBtSn0w/adg/issues/57)) ([be23048](https://github.com/RbBtSn0w/adg/commit/be2304818ff88aef6273e3f44f7ff8685a6941fb))
+* report skills update entrypoint failures ([#60](https://github.com/RbBtSn0w/adg/issues/60)) ([6af4eeb](https://github.com/RbBtSn0w/adg/commit/6af4eeb1ec44a6edc8a30a53c4f4e406485f0875))
+
+### Changed
+
+* Enhance OpenTelemetry compliance and improve error handling ([#59](https://github.com/RbBtSn0w/adg/issues/59)) ([0451923](https://github.com/RbBtSn0w/adg/commit/0451923bb5d498825e4a343b9c397a034185979b))
+* harden maintenance and release contracts ([#66](https://github.com/RbBtSn0w/adg/issues/66)) ([0b87e63](https://github.com/RbBtSn0w/adg/commit/0b87e63f848e05cc143c69e3712be6da82425571))
+
+## [0.6.0-beta.11](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.10...0.6.0-beta.11) (2026-07-14)
+
+### Changed
+
+* harden maintenance and release contracts ([#66](https://github.com/RbBtSn0w/adg/issues/66)) ([0b87e63](https://github.com/RbBtSn0w/adg/commit/0b87e63f848e05cc143c69e3712be6da82425571))
+
+## [0.6.0-beta.10](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.9...0.6.0-beta.10) (2026-07-14)
+
+### Fixed
+
+* **deps:** resolve undici security advisories ([#65](https://github.com/RbBtSn0w/adg/issues/65)) ([cb3ca13](https://github.com/RbBtSn0w/adg/commit/cb3ca132923430f16f497fb9b1ec73e8bbb60876))
+
+## [0.6.0-beta.9](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.8...0.6.0-beta.9) (2026-07-13)
+
+### Added
+
+* add support for resolved Git revisions in DSL and plugin rendering ([ddd6a8b](https://github.com/RbBtSn0w/adg/commit/ddd6a8b28fdfd1c8806e666737040701360267fb))
+
+## [0.6.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.7...0.6.0-beta.8) (2026-07-13)
+
+### Added
+
+* support structural skills repositories as plugins ([#64](https://github.com/RbBtSn0w/adg/issues/64)) ([b4160fc](https://github.com/RbBtSn0w/adg/commit/b4160fca77343525f8cead4db244202e06148b83))
+
+## [0.6.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.6...0.6.0-beta.7) (2026-07-12)
+
+### Fixed
+
+* harden Codex plugin cache recovery ([#63](https://github.com/RbBtSn0w/adg/issues/63)) ([77cdb3b](https://github.com/RbBtSn0w/adg/commit/77cdb3b0f9759c3ddcb074916718c4ba074f867f))
+
+## [0.6.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.5...0.6.0-beta.6) (2026-07-10)
+
+### Fixed
+
+* Bugfix ([#62](https://github.com/RbBtSn0w/adg/issues/62)) ([9db7d4a](https://github.com/RbBtSn0w/adg/commit/9db7d4ab03f719fe5c85f8f6b84e61d6c48f1e94))
+
+## [0.6.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.4...0.6.0-beta.5) (2026-07-09)
+
+### Fixed
+
+* report skills update entrypoint failures ([#60](https://github.com/RbBtSn0w/adg/issues/60)) ([6af4eeb](https://github.com/RbBtSn0w/adg/commit/6af4eeb1ec44a6edc8a30a53c4f4e406485f0875))
+
+## [0.6.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.3...0.6.0-beta.4) (2026-07-08)
+
+### Changed
+
+* Enhance OpenTelemetry compliance and improve error handling ([#59](https://github.com/RbBtSn0w/adg/issues/59)) ([0451923](https://github.com/RbBtSn0w/adg/commit/0451923bb5d498825e4a343b9c397a034185979b))
+
+## [0.6.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.2...0.6.0-beta.3) (2026-07-07)
+
+### Added
+
+* mcp selective install ([#58](https://github.com/RbBtSn0w/adg/issues/58)) ([9cdd463](https://github.com/RbBtSn0w/adg/commit/9cdd46377b52bb47025c502b3b9fb8dc80236c3d))
+
+## [0.6.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.6.0-beta.1...0.6.0-beta.2) (2026-07-06)
+
+### Fixed
+
+* harden plugin agent runtime integration ([#57](https://github.com/RbBtSn0w/adg/issues/57)) ([be23048](https://github.com/RbBtSn0w/adg/commit/be2304818ff88aef6273e3f44f7ff8685a6941fb))
+
+## [0.6.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.5.0...0.6.0-beta.1) (2026-07-05)
+
 ## [0.6.0](https://github.com/RbBtSn0w/adg/compare/0.5.0...0.6.0) (2026-07-05)
+
 
 ### Added
 

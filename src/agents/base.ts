@@ -2,6 +2,7 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import type { AgentId, AgentSyncResult } from "./types.ts";
 import { SpanKind, SpanStatusCode, type Span } from "@opentelemetry/api";
 import { getTracer, sanitizeArgs } from "../telemetry.ts";
+import { runSubprocessSync } from "../subprocess.ts";
 
 /** Outcome of a CLI invocation: exit success plus combined stdout+stderr. */
 export interface RunResult {
@@ -132,7 +133,7 @@ export function makeCli(bin: string, opts: CliOptions): Cli {
   // so importing an agent module never spawns a subprocess.
   let probed: boolean | undefined;
   return {
-    available: () => (probed ??= spawnSync(bin, opts.probeArgs, { stdio: "ignore" }).status === 0),
+    available: () => (probed ??= runSubprocessSync(bin, opts.probeArgs, { stdio: "ignore" }).status === 0),
     run: (args) => {
       const tracer = getTracer();
       return tracer.startActiveSpan(bin, { kind: SpanKind.CLIENT }, (span) => {

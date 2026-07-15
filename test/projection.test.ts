@@ -171,8 +171,46 @@ test("sync regenerates the manifest and refreshes (not activates) the plugin", (
     lockBefore,
     "projection-only repair must not rewrite source-update metadata",
   );
-  assert.deepEqual(rec.refresh.map((c) => c.plugins), [["alpha"]]);
+  assert.deepEqual(rec.refresh, [{
+    pluginsDir: store,
+    plugins: ["alpha"],
+    scope: "project",
+    reconcileLegacyAliases: true,
+  }]);
   assert.deepEqual(rec.activate, [], "sync uses refresh, never activate");
+  rmSync(work, { recursive: true });
+});
+
+/*
+## Test Intent
+### Risk
+A projection refresh can erase the immutable commit needed to recover a remote source after cache cleanup.
+### Why Automation
+The regression is only visible after link/sync rewrites the lock, not in an adapter manifest assertion.
+### Why Existing Tests Insufficient
+The existing sync test covers unchanged local metadata only, never a remote v4 revision.
+### Chosen Layer
+Integration Test - sync exercises source resolution, installation, and lock persistence together.
+### Fragility Analysis
+Uses the existing local snapshot while changing only persisted provenance; no network or CLI output is asserted.
+### If Omitted
+A successful sync can silently make a later strict cache restore impossible.
+*/
+test("sync preserves a remote plugin's immutable resolved revision", () => {
+  const work = tmp();
+  const store = join(work, "store");
+  seed(store, "remote");
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins.remote!.origin = { type: "github", repo: "owner/repo", path: "." };
+  lock.plugins.remote!.resolvedRevision = "0123456789abcdef0123456789abcdef01234567";
+  writeLock(join(store, ".plugin-lock.json"), lock);
+
+  syncPlugins({ pluginsDir: store, target: "codex", agent: fakeAgent("codex", recorder()) });
+
+  assert.equal(
+    readLock(join(store, ".plugin-lock.json")).plugins.remote!.resolvedRevision,
+    "0123456789abcdef0123456789abcdef01234567",
+  );
   rmSync(work, { recursive: true });
 });
 

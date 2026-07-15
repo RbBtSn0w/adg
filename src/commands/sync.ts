@@ -1,9 +1,7 @@
-import { adaptedFilesForTarget, selectInstalled } from "./projection.ts";
-import { pluginRematerializationSource } from "../paths.ts";
+import { adaptedFilesForTarget, rematerializeInstalled, selectInstalled } from "./projection.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
-import { ADAPTER_TARGETS, type AdapterTarget } from "../adapters/index.ts";
+import type { AdapterTarget } from "../adapters/index.ts";
 import { pluginState } from "../types.ts";
-import { installPlugin } from "./install.ts";
 
 /**
  * `adg plugins sync` — reconcile one agent's copy of the selected plugins to the
@@ -53,16 +51,8 @@ export function syncPlugins(opts: SyncOptions): SyncResult {
   const enabled = selected.filter((p) => pluginState(p) === "enabled");
   const disabled = selected.filter((p) => pluginState(p) === "disabled");
   const actions: SyncAction[] = disabled.map((p) => ({ name: p.name, adapted: [], synced: false }));
-  for (const p of enabled) {
-    const result = installPlugin({
-      source: pluginRematerializationSource(opts.pluginsDir, p.name, p.origin),
-      pluginsDir: opts.pluginsDir,
-      origin: p.origin,
-      selection: p.selection,
-      targets: [...ADAPTER_TARGETS],
-      forceMaterialize: true,
-    });
-    actions.push({ name: p.name, adapted: adaptedFilesForTarget(result.installedTo, result.adapted, adaptTarget), synced: false });
+  for (const result of rematerializeInstalled(opts.pluginsDir, enabled)) {
+    actions.push({ name: result.name, adapted: adaptedFilesForTarget(result.installedTo, result.adapted, adaptTarget), synced: false });
   }
 
   if (!agent) return { target: opts.target, actions };
@@ -70,7 +60,12 @@ export function syncPlugins(opts: SyncOptions): SyncResult {
   const scope = opts.global ? "user" : "project";
   const parts = [
     ...(disabled.length > 0 ? [agent.deactivate({ pluginsDir: opts.pluginsDir, plugins: disabled.map((p) => p.name), scope })] : []),
-    ...(enabled.length > 0 ? [agent.refresh({ pluginsDir: opts.pluginsDir, plugins: enabled.map((p) => p.name), scope })] : []),
+    ...(enabled.length > 0 ? [agent.refresh({
+      pluginsDir: opts.pluginsDir,
+      plugins: enabled.map((p) => p.name),
+      scope,
+      ...(opts.target === "codex" ? { reconcileLegacyAliases: true } : {}),
+    })] : []),
   ];
   for (const action of actions) if (parts.some((part) => part.affected.includes(action.name))) action.synced = true;
   return { target: opts.target, actions, cliSkipped: parts.length > 0 && parts.every((part) => part.skipped) };

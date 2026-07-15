@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { AdgManifest, ComponentType, PluginSelection } from "./types.ts";
 import { copyPluginDir, ensureDir, toPosix, writeJson } from "./fsutil.ts";
 import { ADG_MANIFEST_PATH } from "./manifest.ts";
-import { mcpConfigPath } from "./mcp.ts";
+import { filterMcpConfig, mcpConfigPath } from "./mcp.ts";
 import { packageFilter } from "./package.ts";
 
 const META_RE = /^(README|LICEN[CS]E|CHANGELOG|NOTICE)(\..+)?$/i;
@@ -114,6 +114,10 @@ export function materializePlugin(opts: MaterializePluginOptions): AdgManifest {
 
   try {
     copyPluginDir(opts.source, staging, effectivePackageFilter(opts.manifest, opts.selection));
+    const mcp = mcpConfigPath(opts.manifest);
+    if (mcp && opts.selection?.components.includes("mcp") && opts.selection.mcp) {
+      filterMcpConfig(join(staging, mcp), opts.selection.mcp);
+    }
     writeJson(join(staging, ADG_MANIFEST_PATH), effectiveManifest);
     opts.build(staging, effectiveManifest);
 

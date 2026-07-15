@@ -64,35 +64,42 @@ export async function shutdownTelemetry(): Promise<void> {
   }
 }
 
+/**
+ * Unconditionally redact any non-empty string passed to it.
+ * Telemetry consumers need the command skeleton (subcommands + flags),
+ * not path details. Returning a fixed placeholder eliminates all
+ * path-related privacy edge cases.
+ */
+export function sanitizePath(path: string | undefined): string {
+  if (!path) return "";
+  return "[PATH]";
+}
+
 export function sanitizeArgs(args: string[]): string[] {
   return args.map((arg) => {
-    if (
-      arg.startsWith("ghp_") ||
-      arg.startsWith("gho_") ||
-      arg.startsWith("ghu_") ||
-      arg.startsWith("ghs_") ||
-      arg.startsWith("ghr_") ||
-      arg.startsWith("github_pat_")
-    ) {
-      return "[REDACTED_TOKEN]";
-    }
-    if (arg.includes("@") && (arg.startsWith("http://") || arg.startsWith("https://"))) {
-      try {
-        const url = new URL(arg);
-        if (url.username) {
-          url.username = "[REDACTED]";
-        }
-        if (url.password) {
-          url.password = "[REDACTED]";
-        }
-        return url.toString();
-      } catch {
-        return "[REDACTED_URL]";
+    if (arg.startsWith("-")) {
+      const eqIndex = arg.indexOf("=");
+      if (eqIndex !== -1) {
+        return `${arg.slice(0, eqIndex)}=[VALUE]`;
       }
+      if (arg.startsWith("--") && /^--[a-zA-Z0-9-]+$/.test(arg)) {
+        return arg;
+      }
+      if (/^-[a-zA-Z0-9]$/.test(arg)) {
+        return arg;
+      }
+      if (/^-[a-zA-Z0-9]/.test(arg)) {
+        return `${arg.slice(0, 2)}[VALUE]`;
+      }
+      return "[VALUE]";
     }
-    return arg;
+    if (/^[a-z]+(-[a-z]+)*$/.test(arg) || /^[0-9]+$/.test(arg)) {
+      return arg;
+    }
+    return "[VALUE]";
   });
 }
+
 
 /** Record a privacy-safe event without allowing telemetry to affect CLI behavior. */
 export function recordTelemetryEvent(

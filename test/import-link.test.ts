@@ -71,6 +71,14 @@ test("fromNativeManifest maps native MCP fields to ADG mcpServers", () => {
   assert.equal(adg.mcpServers, "./.mcp.json");
 });
 
+test("fromNativeManifest accepts the deprecated native mcp field as an alias", () => {
+  const adg = fromNativeManifest(
+    { name: "mcpkit", version: "1.0.0", description: "MCP.", skills: "./skills/", mcp: "./legacy-mcp.json" },
+    "codex",
+  );
+  assert.equal(adg.mcpServers, "./legacy-mcp.json");
+});
+
 test("fromNativeManifest canonicalizes Windows-style codex skill ids", () => {
   // A native manifest authored on Windows may use backslash separators.
   const adg = fromNativeManifest(
@@ -110,6 +118,17 @@ test("fromNativeManifest defaults missing version and skills", () => {
   const adg = fromNativeManifest({ name: "x" }, "claude");
   assert.equal(adg.version, "0.0.0");
   assert.equal(adg.skills, "./skills/");
+});
+
+test("fromNativeManifest infers hooks from a plugin directory", () => {
+  const dir = tmp();
+  mkdirSync(join(dir, "hooks"), { recursive: true });
+  writeFileSync(join(dir, "hooks", "hooks.json"), JSON.stringify({ hooks: {} }));
+
+  const adg = fromNativeManifest({ name: "hooky", version: "1.0.0", description: "Hooks." }, "claude", dir);
+
+  assert.equal(adg.hooks, "./hooks/");
+  rmSync(dir, { recursive: true });
 });
 
 // ---- native → ADG → native round-trips ----
@@ -241,7 +260,12 @@ test("link --target codex regenerates the manifest and activates via the agent",
   assert.equal(res.actions[0]!.name, "demo");
   assert.ok(existsSync(join(store, "demo", ".codex-plugin", "plugin.json")));
   assert.equal(res.actions[0]!.linkedTo, "Codex");
-  assert.deepEqual(calls.map((c) => c.plugins), [["demo"]]);
+  assert.deepEqual(calls, [{
+    pluginsDir: store,
+    plugins: ["demo"],
+    scope: "project",
+    reconcileLegacyAliases: true,
+  }]);
   rmSync(work, { recursive: true });
 });
 
@@ -289,11 +313,11 @@ test("claudeMarketplaceName preserves the historical global marketplace name", (
   assert.equal(claudeMarketplaceName(globalPluginsDir()), "adg");
 });
 
-test("codex marketplace naming preserves global and scopes project stores", () => {
+test("codex marketplace naming aligns the global ADG identity and scopes project stores", () => {
   const work = tmp();
   try {
     const store = join(work, "project", ".agents", "plugins");
-    assert.equal(codexMarketplaceName(globalPluginsDir()), "plugins");
+    assert.equal(codexMarketplaceName(globalPluginsDir()), "adg");
     assert.match(codexMarketplaceName(store), /^adg-[0-9a-f]{8}$/);
   } finally {
     rmSync(work, { recursive: true });
