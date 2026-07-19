@@ -23,6 +23,7 @@ const UNSAFE_INHERITED_GIT_ENV_KEYS = [
   'GIT_CONFIG',
   'GIT_CONFIG_COUNT',
   'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_PARAMETERS',
   'GIT_CONFIG_SYSTEM',
   'GIT_EDITOR',
   'GIT_EXEC_PATH',
@@ -37,6 +38,9 @@ const UNSAFE_INHERITED_GIT_ENV_KEYS = [
   'PREFIX',
   'SSH_ASKPASS',
 ] as const;
+const UNSAFE_INHERITED_GIT_ENV_KEY_SET = new Set(
+  UNSAFE_INHERITED_GIT_ENV_KEYS.map((key) => key.toUpperCase())
+);
 
 interface GitHubRepoInfo {
   owner: string;
@@ -132,8 +136,10 @@ function createGitEnvironment(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // available; only environment entries that can execute or redirect Git are
   // removed. Explicit ADG-controlled overrides are applied afterwards.
   const gitEnv: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of UNSAFE_INHERITED_GIT_ENV_KEYS) {
-    delete gitEnv[key];
+  for (const key of Object.keys(gitEnv)) {
+    if (UNSAFE_INHERITED_GIT_ENV_KEY_SET.has(key.toUpperCase())) {
+      delete gitEnv[key];
+    }
   }
 
   return {

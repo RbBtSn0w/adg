@@ -9,18 +9,20 @@ import { cleanupTempDir, cloneRepo } from "../vendor/skills/src/git.ts";
 
 /**
  * Test Intent
- * Risk: IDE-injected askpass variables prevent anonymous clones of public skill repositories.
- * Why Automation: a normal local clone does not exercise the inherited askpass boundary.
+ * Risk: inherited Git hooks or config injection prevent anonymous clones or execute unsafe helpers.
+ * Why Automation: a normal local clone does not exercise mixed-case hooks or config injection.
  * Why Existing Tests Insufficient: no test covers the environment passed to the vendored git client.
  * Chosen Layer: Integration Test - clone a local repository through the real git client without network access.
  * Fragility Analysis: normalize platform checkout line endings, then assert the cloned content.
  * If Omitted: dependency security hardening can regress the primary skill installation path.
  */
-test("cloneRepo ignores inherited askpass helpers for anonymous clones", async () => {
+test("cloneRepo ignores inherited Git hooks and config injection", async () => {
   const sourceDir = await mkdtemp(join(tmpdir(), "adg-git-source-"));
   let clonedDir: string | undefined;
   const previousGitAskPass = process.env.GIT_ASKPASS;
+  const previousMixedCaseGitAskPass = process.env.Git_AskPass;
   const previousSshAskPass = process.env.SSH_ASKPASS;
+  const previousGitConfigParameters = process.env.GIT_CONFIG_PARAMETERS;
 
   try {
     await writeFile(join(sourceDir, "SKILL.md"), "# Fixture\n", "utf8");
@@ -39,18 +41,26 @@ test("cloneRepo ignores inherited askpass helpers for anonymous clones", async (
       "test: add fixture",
     ]);
 
-    process.env.GIT_ASKPASS = "/nonexistent/adg-askpass";
+    delete process.env.GIT_ASKPASS;
+    process.env.Git_AskPass = "/nonexistent/adg-askpass";
     process.env.SSH_ASKPASS = "/nonexistent/adg-ssh-askpass";
+    process.env.GIT_CONFIG_PARAMETERS = "invalid";
 
     clonedDir = await cloneRepo(sourceDir);
 
     const clonedSkill = await readFile(join(clonedDir, "SKILL.md"), "utf8");
     assert.equal(clonedSkill.replaceAll("\r\n", "\n"), "# Fixture\n");
   } finally {
-    if (previousGitAskPass === undefined) delete process.env.GIT_ASKPASS;
-    else process.env.GIT_ASKPASS = previousGitAskPass;
+    delete process.env.GIT_ASKPASS;
+    delete process.env.Git_AskPass;
+    if (previousGitAskPass !== undefined) process.env.GIT_ASKPASS = previousGitAskPass;
+    if (previousMixedCaseGitAskPass !== undefined) {
+      process.env.Git_AskPass = previousMixedCaseGitAskPass;
+    }
     if (previousSshAskPass === undefined) delete process.env.SSH_ASKPASS;
     else process.env.SSH_ASKPASS = previousSshAskPass;
+    if (previousGitConfigParameters === undefined) delete process.env.GIT_CONFIG_PARAMETERS;
+    else process.env.GIT_CONFIG_PARAMETERS = previousGitConfigParameters;
     if (clonedDir) await cleanupTempDir(clonedDir);
     await rm(sourceDir, { recursive: true, force: true });
   }
