@@ -13,7 +13,7 @@ import { cleanupTempDir, cloneRepo } from "../vendor/skills/src/git.ts";
  * Why Automation: a normal local clone does not exercise the inherited askpass boundary.
  * Why Existing Tests Insufficient: no test covers the environment passed to the vendored git client.
  * Chosen Layer: Integration Test - clone a local repository through the real git client without network access.
- * Fragility Analysis: assert only the observable clone result, not simple-git calls or argument order.
+ * Fragility Analysis: normalize platform checkout line endings, then assert the cloned content.
  * If Omitted: dependency security hardening can regress the primary skill installation path.
  */
 test("cloneRepo ignores inherited askpass helpers for anonymous clones", async () => {
@@ -44,7 +44,8 @@ test("cloneRepo ignores inherited askpass helpers for anonymous clones", async (
 
     clonedDir = await cloneRepo(sourceDir);
 
-    assert.equal(await readFile(join(clonedDir, "SKILL.md"), "utf8"), "# Fixture\n");
+    const clonedSkill = await readFile(join(clonedDir, "SKILL.md"), "utf8");
+    assert.equal(clonedSkill.replaceAll("\r\n", "\n"), "# Fixture\n");
   } finally {
     if (previousGitAskPass === undefined) delete process.env.GIT_ASKPASS;
     else process.env.GIT_ASKPASS = previousGitAskPass;
