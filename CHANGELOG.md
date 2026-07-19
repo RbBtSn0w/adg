@@ -1,3 +1,9 @@
+## [0.7.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.0...0.7.1-beta.1) (2026-07-19)
+
+### Fixed
+
+* **skills:** sanitize inherited git clone environment ([#70](https://github.com/RbBtSn0w/adg/issues/70)) ([3045c1e](https://github.com/RbBtSn0w/adg/commit/3045c1e0b164ba150b8e071536bc1adf2040d1d4))
+
 ## [0.7.0](https://github.com/RbBtSn0w/adg/compare/0.6.0...0.7.0) (2026-07-15)
 
 ### Added
