@@ -318,8 +318,8 @@ Hooks require the most complex adapter logic. See also
 | :--- | :--- | :--- | :--- |
 | **Config file** | `.mcp.json` or inline in manifest | `.mcp.json` reference | `mcp_config.json` at plugin root |
 | **Manifest key** | `mcpServers` | `mcpServers` | N/A (discovered by file presence) |
-| **Format** | `{ "mcpServers": { "<name>": { "command": ... } } }` | Same as Claude | Same as Claude |
-| **Projection** | Passed through | Passed through | Copied from source `.mcp.json` to `mcp_config.json` |
+| **Format** | `{ "mcpServers": { "<name>": { "command": ... } } }` | Same as Claude | Native schema (`serverUrl`, `headers`, and other camelCase fields) |
+| **Projection** | Passed through | Passed through | Field-normalized from source `.mcp.json`; native `mcp_config.json` overrides pass through |
 
 ---
 

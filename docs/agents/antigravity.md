@@ -74,9 +74,11 @@ plugin root. The ADG adapter materializes files at these conventional locations.
 
 - **Config file name**: `mcp_config.json` (at plugin root — required conventional name).
 - **Config key**: N/A (no manifest key; discovered by file presence).
-- **Special handling**: ADG copies (or symlinks) the source `.mcp.json` to
-  `mcp_config.json` at the plugin root. If the source IS already `mcp_config.json`,
-  no copy is performed.
+- **Special handling**: ADG projects the source `.mcp.json` to `mcp_config.json`
+  at the plugin root, normalizing canonical aliases such as `url`, `http_headers`,
+  and `disabled_tools` to Antigravity's schema. Unsupported source-runtime fields
+  are omitted. If the source IS already `mcp_config.json`, it is treated as a
+  native override and left unchanged.
 
 ---
 
