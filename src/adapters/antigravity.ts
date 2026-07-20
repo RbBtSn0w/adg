@@ -43,7 +43,10 @@ function toAntigravityMcpServer(value: unknown): unknown {
 }
 
 function toAntigravityMcpConfig(source: string): unknown {
-  const config = JSON.parse(readFileSync(source, "utf8")) as Record<string, unknown>;
+  const parsed: unknown = JSON.parse(readFileSync(source, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
+
+  const config = parsed as Record<string, unknown>;
   const servers = config.mcpServers ?? config.servers;
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) return config;
 
@@ -87,8 +90,9 @@ export function writeAntigravityMcpConfig(
   // generated projection. Never remove or copy it onto itself.
   if (source === resolve(target)) return;
 
-  rmSync(target, { force: true });
   if (source && isExposed(selection, "mcp") && existsSync(source)) {
     writeFileSync(target, `${JSON.stringify(toAntigravityMcpConfig(source), null, 2)}\n`);
+    return;
   }
+  rmSync(target, { force: true });
 }

@@ -157,6 +157,67 @@ test("ensureAntigravityRoot normalizes the legacy servers top-level key", () => 
   }
 });
 
+test("ensureAntigravityRoot handles a non-object MCP config root", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "null-mcp",
+      version: "0.1.0",
+      description: "Null MCP root",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), "null\n");
+
+    ensureAntigravityRoot(dir);
+
+    assert.equal(readFileSync(join(dir, "mcp_config.json"), "utf8"), "null\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot preserves the last-known-good MCP config when projection fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "broken-mcp",
+      version: "0.1.0",
+      description: "Broken MCP source",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), "{broken");
+    writeFileSync(join(dir, "mcp_config.json"), "last-known-good\n");
+
+    assert.throws(() => ensureAntigravityRoot(dir), SyntaxError);
+    assert.equal(readFileSync(join(dir, "mcp_config.json"), "utf8"), "last-known-good\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot leaves an authored native MCP config unchanged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "native-mcp",
+      version: "0.1.0",
+      description: "Native MCP override",
+      mcpServers: "./mcp_config.json",
+    });
+    const native = "{\n  \"mcpServers\": {\n    \"remote\": { \"serverUrl\": \"https://example.com/mcp\" }\n  }\n}\n";
+    writeFileSync(join(dir, "mcp_config.json"), native);
+
+    ensureAntigravityRoot(dir);
+
+    assert.equal(readFileSync(join(dir, "mcp_config.json"), "utf8"), native);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ensureAntigravityRoot aliases a non-convention component dir to its convention name", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
