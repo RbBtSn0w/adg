@@ -1,3 +1,9 @@
+## [0.7.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.1...0.7.1-beta.2) (2026-07-20)
+
+### Fixed
+
+* **antigravity:** normalize MCP config projection ([#71](https://github.com/RbBtSn0w/adg/issues/71)) ([c6a2e9c](https://github.com/RbBtSn0w/adg/commit/c6a2e9c898b2dfb262df5aad9bd40cf609452410))
+
 ## [0.7.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.0...0.7.1-beta.1) (2026-07-19)
 
 ### Fixed
