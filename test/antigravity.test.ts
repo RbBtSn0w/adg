@@ -79,10 +79,23 @@ test("toAntigravityManifest emits a name-only root plugin.json", () => {
   assert.deepEqual(out.manifest, { name: "asc" });
 });
 
-test("ensureAntigravityRoot writes the manifest and conventional MCP config in place", () => {
+test("ensureAntigravityRoot projects canonical remote MCP fields", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
-    const mcp = { mcpServers: { asc: { command: "asc", args: ["mcp", "serve"] } } };
+    const mcp = {
+      mcpServers: {
+        asc: { command: "asc", args: ["mcp", "serve"] },
+        appscope: {
+          type: "http",
+          url: "https://appscope.example/mcp",
+          http_headers: { Authorization: "Bearer test-token" },
+          required: false,
+          startup_timeout_sec: 15,
+          tool_timeout_sec: 60,
+          disabled_tools: ["admin"],
+        },
+      },
+    };
     writePlugin(dir, {
       schemaVersion: ADG_SCHEMA_VERSION,
       name: "asc",
@@ -101,10 +114,44 @@ test("ensureAntigravityRoot writes the manifest and conventional MCP config in p
     ensureAntigravityRoot(dir);
 
     assert.deepEqual(JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")), { name: "asc" });
-    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), mcp);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
+      mcpServers: {
+        asc: { command: "asc", args: ["mcp", "serve"] },
+        appscope: {
+          serverUrl: "https://appscope.example/mcp",
+          headers: { Authorization: "Bearer test-token" },
+          disabledTools: ["admin"],
+        },
+      },
+    });
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, ".mcp.json"), "utf8")), mcp);
     // Convention-named component dirs are read in place (no alias, no copy).
     assert.equal(readFileSync(join(dir, "skills", "metadata-sync", "SKILL.md"), "utf8"), "# skill");
     assert.equal(readFileSync(join(dir, "agents", "release-captain.md"), "utf8"), "# agent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot normalizes the legacy servers top-level key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "legacy-mcp",
+      version: "0.1.0",
+      description: "Legacy MCP shape",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({
+      servers: { remote: { url: "https://example.com/mcp" } },
+    }));
+
+    ensureAntigravityRoot(dir);
+
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
+      mcpServers: { remote: { serverUrl: "https://example.com/mcp" } },
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
