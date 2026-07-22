@@ -171,6 +171,66 @@ test("updatePlugins --all preserves a remote Default DSL alias", async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("updatePlugins migrates a remote Default DSL alias to a matching explicit plugin", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    mkdirSync(join(remote, "skills", "demo"), { recursive: true });
+    writeFileSync(join(remote, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({
+      spec: "acme/market",
+      as: "asc",
+      pluginsDir,
+      only: ["skills"],
+      targets: ["codex"],
+      gitRunner,
+    });
+
+    mkdirSync(join(remote, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(remote, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "asc",
+      version: "1.0.0",
+      description: "Explicit ASC plugin.",
+      skills: "./skills/",
+    }));
+
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    const entry = readLock(lockPath(pluginsDir)).plugins.asc!;
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.deepEqual(result.remote[0]!.updated, ["asc"]);
+    assert.equal(entry.version, "1.0.0");
+    assert.equal(entry.definition, undefined);
+    assert.deepEqual(entry.selection, { components: ["skills"] });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins refuses a Default DSL migration when the explicit plugin identity differs", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    mkdirSync(join(remote, "skills", "demo"), { recursive: true });
+    writeFileSync(join(remote, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", as: "asc", pluginsDir, targets: ["codex"], gitRunner });
+
+    mkdirSync(join(remote, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(remote, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "different-plugin",
+      version: "1.0.0",
+      description: "Different plugin.",
+      skills: "./skills/",
+    }));
+
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    assert.match(result.remote[0]!.failed ?? "", /none match the installed identity "asc"/);
+    assert.deepEqual(lockNames(pluginsDir), ["asc"]);
+    assert.equal(readLock(lockPath(pluginsDir)).plugins.asc!.definition?.as, "asc");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("updatePlugins avoids cloning when a revision probe matches the stored revision", async () => {
   const root = scratch();
   try {
