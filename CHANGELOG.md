@@ -1,3 +1,9 @@
+## [0.7.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.2...0.7.1-beta.3) (2026-07-22)
+
+### Fixed
+
+* migrate structural plugins to explicit manifests ([#72](https://github.com/RbBtSn0w/adg/issues/72)) ([1b0b6d3](https://github.com/RbBtSn0w/adg/commit/1b0b6d33d6c4ca93aafddc0133a8ba207fd2f7ab))
+
 ## [0.7.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.1...0.7.1-beta.2) (2026-07-20)
 
 ### Fixed
