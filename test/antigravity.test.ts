@@ -199,6 +199,8 @@ test("ensureAntigravityRoot projects stdio OAuth bridges without synthesizing au
           "-y",
           "mcp-remote@latest",
           "https://opentelemetry.mcp.kapa.ai/",
+          "--static-oauth-client-metadata",
+          '{"scope":"openid"}',
         ],
       },
     };
@@ -221,6 +223,8 @@ test("ensureAntigravityRoot projects stdio OAuth bridges without synthesizing au
             "-y",
             "mcp-remote@latest",
             "https://opentelemetry.mcp.kapa.ai/",
+            "--static-oauth-client-metadata",
+            '{"scope":"openid"}',
           ],
         },
       },
