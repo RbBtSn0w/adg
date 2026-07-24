@@ -1,3 +1,9 @@
+## [0.7.1-beta.4](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.3...0.7.1-beta.4) (2026-07-24)
+
+### Fixed
+
+* **antigravity:** normalize unwrapped MCP server maps and preserve type field ([#73](https://github.com/RbBtSn0w/adg/issues/73)) ([1547a51](https://github.com/RbBtSn0w/adg/commit/1547a514fc53d0298590daa28955e19891bb10e9))
+
 ## [0.7.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.2...0.7.1-beta.3) (2026-07-22)
 
 ### Fixed
