@@ -8,7 +8,6 @@ import type { AdapterResult } from "./index.ts";
 export const ANTIGRAVITY_MCP_CONFIG = "mcp_config.json";
 
 const ANTIGRAVITY_MCP_SERVER_KEYS = new Set([
-  "type",
   "command",
   "serverUrl",
   "args",
@@ -40,6 +39,7 @@ function toAntigravityMcpServer(value: unknown): unknown {
       server[targetKey] = source[sourceKey];
     }
   }
+
   return server;
 }
 

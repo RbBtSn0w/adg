@@ -118,7 +118,6 @@ test("ensureAntigravityRoot projects canonical remote MCP fields", () => {
       mcpServers: {
         asc: { command: "asc", args: ["mcp", "serve"] },
         appscope: {
-          type: "http",
           serverUrl: "https://appscope.example/mcp",
           headers: { Authorization: "Bearer test-token" },
           disabledTools: ["admin"],
@@ -158,7 +157,7 @@ test("ensureAntigravityRoot normalizes the legacy servers top-level key", () => 
   }
 });
 
-test("ensureAntigravityRoot projects flat MCP server maps and preserves type field", () => {
+test("ensureAntigravityRoot projects flat MCP server maps without source-runtime type", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
     const mcp = {
@@ -181,8 +180,86 @@ test("ensureAntigravityRoot projects flat MCP server maps and preserves type fie
     assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
       mcpServers: {
         honeycomb: {
-          type: "http",
           serverUrl: "https://mcp.honeycomb.io/mcp",
+        },
+      },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot projects stdio OAuth bridges without synthesizing authentication", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const mcp = {
+      "opentelemetry-mcp": {
+        command: "npx",
+        args: [
+          "-y",
+          "mcp-remote@latest",
+          "https://opentelemetry.mcp.kapa.ai/",
+        ],
+      },
+    };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "optional-kit",
+      version: "0.1.0",
+      description: "Optional Kit",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
+
+    ensureAntigravityRoot(dir);
+
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
+      mcpServers: {
+        "opentelemetry-mcp": {
+          command: "npx",
+          args: [
+            "-y",
+            "mcp-remote@latest",
+            "https://opentelemetry.mcp.kapa.ai/",
+          ],
+        },
+      },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot preserves explicitly authored native OAuth configuration", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const oauth = {
+      clientId: "registered-client-id",
+      clientSecret: "registered-client-secret",
+    };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "registered-oauth",
+      version: "0.1.0",
+      description: "Registered OAuth client",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        registered: {
+          url: "https://example.com/mcp",
+          oauth,
+        },
+      },
+    }));
+
+    ensureAntigravityRoot(dir);
+
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
+      mcpServers: {
+        registered: {
+          serverUrl: "https://example.com/mcp",
+          oauth,
         },
       },
     });

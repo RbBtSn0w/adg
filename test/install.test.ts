@@ -328,13 +328,22 @@ test("install resolves root ./.mcp.json from mcpServers and adapts every runtime
   const m = JSON.parse(readFileSync(mf, "utf8"));
   m.mcpServers = "./.mcp.json";
   writeFileSync(mf, JSON.stringify(m));
-  writeFileSync(join(pluginDir, ".mcp.json"), JSON.stringify({ mcpServers: { idocs: { command: "idocs", args: ["mcp"] } } }));
+  const mcp = {
+    mcpServers: {
+      "opentelemetry-mcp": {
+        command: "npx",
+        args: ["-y", "mcp-remote@latest", "https://opentelemetry.mcp.kapa.ai/"],
+      },
+    },
+  };
+  writeFileSync(join(pluginDir, ".mcp.json"), JSON.stringify(mcp));
 
   const store = join(work, "store");
   installPlugin({ source: pluginDir, pluginsDir: store, now: "2026-06-11T00:00:00Z" });
   const out = join(store, "mcpkit");
 
   assert.ok(existsSync(join(out, ".mcp.json")), "mcpServers target ships as declared payload");
+  assert.deepEqual(JSON.parse(readFileSync(join(out, ".mcp.json"), "utf8")), mcp);
   const codex = JSON.parse(readFileSync(join(out, ".codex-plugin", "plugin.json"), "utf8"));
   assert.equal(codex.mcpServers, "./.mcp.json");
   const claude = JSON.parse(readFileSync(join(out, ".claude-plugin", "plugin.json"), "utf8"));
@@ -344,7 +353,7 @@ test("install resolves root ./.mcp.json from mcpServers and adapts every runtime
   assert.deepEqual(antigravity, { name: "mcpkit" });
   assert.deepEqual(
     JSON.parse(readFileSync(join(out, "mcp_config.json"), "utf8")),
-    { mcpServers: { idocs: { command: "idocs", args: ["mcp"] } } },
+    mcp,
   );
   rmSync(work, { recursive: true });
 });
