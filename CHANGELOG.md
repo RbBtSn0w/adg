@@ -1,3 +1,9 @@
+## [0.7.1-beta.5](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.4...0.7.1-beta.5) (2026-07-24)
+
+### Fixed
+
+* **antigravity:** keep OAuth ownership in authored MCP config ([#75](https://github.com/RbBtSn0w/adg/issues/75)) ([f5cc0d1](https://github.com/RbBtSn0w/adg/commit/f5cc0d18a61d9ad5218683cae34d375a379160c4))
+
 ## [0.7.1-beta.4](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.3...0.7.1-beta.4) (2026-07-24)
 
 ### Fixed
