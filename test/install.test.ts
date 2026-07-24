@@ -332,7 +332,13 @@ test("install resolves root ./.mcp.json from mcpServers and adapts every runtime
     mcpServers: {
       "opentelemetry-mcp": {
         command: "npx",
-        args: ["-y", "mcp-remote@latest", "https://opentelemetry.mcp.kapa.ai/"],
+        args: [
+          "-y",
+          "mcp-remote@latest",
+          "https://opentelemetry.mcp.kapa.ai/",
+          "--static-oauth-client-metadata",
+          '{"scope":"openid"}',
+        ],
       },
     },
   };

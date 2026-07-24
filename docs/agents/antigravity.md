@@ -82,7 +82,9 @@ plugin root. The ADG adapter materializes files at these conventional locations.
 - **Authentication boundary**: The adapter passes through explicitly authored
   native `oauth` configuration, but never synthesizes OAuth client credentials or
   overrides Dynamic Client Registration. Compatibility workarounds belong in the
-  authored MCP transport (for example, a stdio bridge), not in ADG's DSL.
+  authored MCP transport (for example, a stdio bridge). Provider-specific OAuth
+  metadata, such as an explicit scope required by that bridge, must also remain
+  in its authored arguments rather than being inferred by ADG.
 
 ---
 
