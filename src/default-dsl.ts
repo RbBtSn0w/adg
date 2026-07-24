@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "./types.ts";
+import { extractMcpServers } from "./mcp.ts";
 import { readSkillDescription } from "./skills.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
 import type { Span } from "@opentelemetry/api";
@@ -116,10 +117,12 @@ function isRegularFile(path: string): boolean {
 
 function validMcp(file: string): boolean {
   if (!validJson(file)) return false;
-  const json = JSON.parse(readFileSync(file, "utf8")) as unknown;
-  if (json === null || typeof json !== "object" || Array.isArray(json)) return false;
-  const servers = (json as Record<string, unknown>).mcpServers ?? (json as Record<string, unknown>).servers;
-  return typeof servers === "object" && servers !== null && !Array.isArray(servers);
+  try {
+    const json = JSON.parse(readFileSync(file, "utf8"));
+    return extractMcpServers(json) !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 function hashTree(hasher: ReturnType<typeof createHash>, dir: string, rel: string): void {

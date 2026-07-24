@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { resolveSkills } from "./skills.ts";
 import { COMPONENT_TYPES, type AdgManifest, type ComponentType, type PluginSelection } from "./types.ts";
-import { mcpConfigPath } from "./mcp.ts";
+import { extractMcpServers, mcpConfigPath } from "./mcp.ts";
 
 export { COMPONENT_TYPES };
 
@@ -40,13 +40,13 @@ function membersOf(dir: string, rel: string | undefined): string[] {
   return [fileMemberName(abs)]; // a single file
 }
 
-/** Server names declared in an MCP config file (mcpServers/servers map). */
+/** Server names declared in an MCP config file (mcpServers/servers map or flat map). */
 function mcpServers(file: string): string[] {
   if (!existsSync(file)) return [];
   try {
-    const json = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-    const servers = (json.mcpServers ?? json.servers) as Record<string, unknown> | undefined;
-    return servers && typeof servers === "object" ? Object.keys(servers).sort() : [];
+    const json = JSON.parse(readFileSync(file, "utf8"));
+    const servers = extractMcpServers(json);
+    return servers ? Object.keys(servers).sort() : [];
   } catch {
     return [];
   }

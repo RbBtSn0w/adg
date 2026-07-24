@@ -118,6 +118,7 @@ test("ensureAntigravityRoot projects canonical remote MCP fields", () => {
       mcpServers: {
         asc: { command: "asc", args: ["mcp", "serve"] },
         appscope: {
+          type: "http",
           serverUrl: "https://appscope.example/mcp",
           headers: { Authorization: "Bearer test-token" },
           disabledTools: ["admin"],
@@ -152,6 +153,64 @@ test("ensureAntigravityRoot normalizes the legacy servers top-level key", () => 
     assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
       mcpServers: { remote: { serverUrl: "https://example.com/mcp" } },
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot projects flat MCP server maps and preserves type field", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const mcp = {
+      honeycomb: {
+        type: "http",
+        url: "https://mcp.honeycomb.io/mcp",
+      },
+    };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "honeycomb",
+      version: "0.1.0",
+      description: "Honeycomb",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(mcp));
+
+    ensureAntigravityRoot(dir);
+
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
+      mcpServers: {
+        honeycomb: {
+          type: "http",
+          serverUrl: "https://mcp.honeycomb.io/mcp",
+        },
+      },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot does not mistake generic object maps for MCP server maps", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    const nonMcp = {
+      author: { name: "snow" },
+      metadata: { key: "value" },
+    };
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "non-mcp",
+      version: "0.1.0",
+      description: "Non MCP map",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify(nonMcp));
+
+    ensureAntigravityRoot(dir);
+
+    // Non-MCP object map must not produce an mcpServers wrapper of author/metadata
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), nonMcp);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
