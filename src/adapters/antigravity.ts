@@ -2,12 +2,13 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
 import { isExposed } from "../components.ts";
-import { mcpConfigPath } from "../mcp.ts";
+import { extractMcpServers, mcpConfigPath } from "../mcp.ts";
 import type { AdapterResult } from "./index.ts";
 
 export const ANTIGRAVITY_MCP_CONFIG = "mcp_config.json";
 
 const ANTIGRAVITY_MCP_SERVER_KEYS = new Set([
+  "type",
   "command",
   "serverUrl",
   "args",
@@ -46,15 +47,12 @@ function toAntigravityMcpConfig(source: string): unknown {
   const parsed: unknown = JSON.parse(readFileSync(source, "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
 
-  const config = parsed as Record<string, unknown>;
-  const servers = config.mcpServers ?? config.servers;
-  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return config;
+  const servers = extractMcpServers(parsed);
+  if (!servers) return parsed;
 
   const projected: Record<string, unknown> & { mcpServers: Record<string, unknown> } = {
-    ...config,
     mcpServers: {},
   };
-  delete projected.servers;
   for (const [name, value] of Object.entries(servers)) {
     projected.mcpServers[name] = toAntigravityMcpServer(value);
   }
