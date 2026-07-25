@@ -175,10 +175,9 @@ export function runGit(args: string[], captureOutput = false): string | undefine
         span.setAttribute("process.pid", error.pid);
       }
       span.setAttribute("error.type", gitErrorType(error, exitCode));
-      span.recordException(error as Error);
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: error.message,
+        message: "Git subprocess failed",
       });
       throw error;
     } finally {

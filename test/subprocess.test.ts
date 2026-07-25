@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SpawnSyncReturns } from "node:child_process";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 import { annotateSubprocess, type SubprocessSpan } from "../src/subprocess.ts";
 
@@ -48,7 +49,7 @@ test("annotateSubprocess records required success attributes", () => {
   assert.equal(attributes.get("process.executable.name"), "node");
   assert.equal(attributes.get("process.pid"), 42);
   assert.equal(attributes.get("process.exit.code"), 0);
-  assert.deepEqual(attributes.get("process.command_args"), ["node", "[VALUE]", "--json"]);
+  assert.deepEqual(attributes.get("process.command_args"), ["node", "[VALUE]", "[FLAG]"]);
   assert.equal(exceptions.length, 0);
 });
 
@@ -58,17 +59,18 @@ test("annotateSubprocess classifies non-zero exits without recording raw argumen
   assert.equal(attributes.get("process.exit.code"), 7);
   assert.equal(attributes.get("error.type"), "EXIT_CODE_7");
   assert.deepEqual(attributes.get("process.command_args"), ["npm", "install", "[VALUE]"]);
-  assert.equal(exceptions.length, 1);
+  assert.equal(exceptions.length, 0);
   assert.equal(statuses.length, 1);
 });
 
 test("annotateSubprocess classifies launch failures", () => {
-  const error = Object.assign(new Error("missing"), { code: "ENOENT" });
-  const { span, attributes, exceptions } = fakeSpan();
+  const error = Object.assign(new Error("spawn /Users/private/tool ENOENT"), { code: "ENOENT" });
+  const { span, attributes, exceptions, statuses } = fakeSpan();
   annotateSubprocess(span, "missing-cli", [], result({ status: null, error }));
   assert.equal(attributes.get("process.exit.code"), -1);
   assert.equal(attributes.get("error.type"), "ENOENT");
-  assert.equal(exceptions[0], error);
+  assert.equal(exceptions.length, 0);
+  assert.deepEqual(statuses, [{ code: SpanStatusCode.ERROR, message: "Subprocess failed to start" }]);
 });
 
 test("annotateSubprocess preserves signal termination", () => {
@@ -77,5 +79,5 @@ test("annotateSubprocess preserves signal termination", () => {
   assert.equal(attributes.get("process.exit.code"), -1);
   assert.equal(attributes.get("process.exit.signal"), "SIGTERM");
   assert.equal(attributes.get("error.type"), "SIGNAL_SIGTERM");
-  assert.equal(exceptions.length, 1);
+  assert.equal(exceptions.length, 0);
 });
