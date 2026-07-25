@@ -1,3 +1,9 @@
+## [0.7.1-beta.6](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.5...0.7.1-beta.6) (2026-07-25)
+
+### Fixed
+
+* **telemetry:** report gateway command outcomes ([#77](https://github.com/RbBtSn0w/adg/issues/77)) ([304efa7](https://github.com/RbBtSn0w/adg/commit/304efa7168d06f41705b2e5b5d19e26d76c4a927))
+
 ## [0.7.1-beta.5](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.4...0.7.1-beta.5) (2026-07-24)
 
 ### Fixed
