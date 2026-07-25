@@ -42,10 +42,8 @@ export function annotateSubprocess(
     span.setAttribute("process.exit.code", result.status);
     if (result.status !== 0) {
       const errorType = `EXIT_CODE_${result.status}`;
-      const error = new Error(`${executableName} exited with status ${result.status}`);
       span.setAttribute("error.type", errorType);
-      span.recordException(error);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+      span.setStatus({ code: SpanStatusCode.ERROR, message: `Subprocess exited with status ${result.status}` });
     }
     return;
   }
@@ -53,19 +51,16 @@ export function annotateSubprocess(
   span.setAttribute("process.exit.code", -1);
   if (result.signal) {
     const errorType = `SIGNAL_${result.signal}`;
-    const error = new Error(`${executableName} terminated by signal ${result.signal}`);
     span.setAttribute("error.type", errorType);
     span.setAttribute("process.exit.signal", result.signal);
-    span.recordException(error);
-    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: `Subprocess terminated by signal ${result.signal}` });
     return;
   }
 
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
     span.setAttribute("error.type", code ?? result.error.name ?? "SpawnError");
-    span.recordException(result.error);
-    span.setStatus({ code: SpanStatusCode.ERROR, message: result.error.message });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: "Subprocess failed to start" });
   }
 }
 

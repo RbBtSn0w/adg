@@ -118,7 +118,7 @@ test("run() stays silent on failure when echoStderr is unset", () => {
   assert.equal(calls, 0);
 });
 
-test("annotateCliRun records a synthetic exception for non-zero exits", () => {
+test("annotateCliRun records low-cardinality status only for non-zero exits", () => {
   const { span, attrs, exceptions, statuses } = makeSpan();
   const r = {
     output: [],
@@ -134,16 +134,14 @@ test("annotateCliRun records a synthetic exception for non-zero exits", () => {
   assert.equal(attrs["process.pid"], 123);
   assert.equal(attrs["process.exit.code"], 1);
   assert.equal(attrs["error.type"], "EXIT_CODE_1");
-  assert.equal(attrs["exception.slug"], "cli-nonzero-exit");
-  assert.equal(attrs["cli.stderr_excerpt"], "merge conflict while updating marketplace");
-  assert.equal(exceptions.length, 1);
-  assert.match(exceptions[0]!.message, /claude plugin marketplace update adg exited with status 1/);
-  assert.match(exceptions[0]!.message, /merge conflict while updating marketplace/);
+  assert.equal(attrs["exception.slug"], undefined);
+  assert.equal(attrs["cli.stderr_excerpt"], undefined);
+  assert.equal(exceptions.length, 0);
   assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
-  assert.match(statuses[0]!.message ?? "", /merge conflict while updating marketplace/);
+  assert.equal(statuses[0]!.message, "CLI process exited with status 1");
 });
 
-test("annotateCliRun records stdout excerpts under a stdout-specific key", () => {
+test("annotateCliRun never exports stdout or stderr excerpts", () => {
   const { span, attrs, exceptions, statuses } = makeSpan();
   const r = {
     output: [],
@@ -156,13 +154,13 @@ test("annotateCliRun records stdout excerpts under a stdout-specific key", () =>
 
   annotateCliRun(span, "claude", ["plugin", "list"], r);
 
-  assert.equal(attrs["cli.stdout_excerpt"], "printed to stdout");
+  assert.equal(attrs["cli.stdout_excerpt"], undefined);
   assert.equal(attrs["cli.stderr_excerpt"], undefined);
-  assert.equal(exceptions.length, 1);
+  assert.equal(exceptions.length, 0);
   assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
 });
 
-test("annotateCliRun redacts credentials from exported failure details", () => {
+test("annotateCliRun omits credentials and all other failure details", () => {
   const { span, attrs, exceptions, statuses } = makeSpan();
   const r = {
     output: [],
@@ -175,11 +173,8 @@ test("annotateCliRun redacts credentials from exported failure details", () => {
 
   annotateCliRun(span, "claude", ["plugin", "list"], r);
 
-  assert.equal(
-    attrs["cli.stderr_excerpt"],
-    "request failed with [REDACTED_TOKEN] and Authorization: Bearer [REDACTED_TOKEN]",
-  );
-  assert.doesNotMatch(exceptions[0]!.message, /github_pat_|secret-value/);
+  assert.equal(attrs["cli.stderr_excerpt"], undefined);
+  assert.equal(exceptions.length, 0);
   assert.doesNotMatch(statuses[0]!.message ?? "", /github_pat_|secret-value/);
 });
 
@@ -200,14 +195,13 @@ test("annotateCliRun records signal-terminated processes as failures", () => {
   assert.equal(attrs["process.exit.code"], -1);
   assert.equal(attrs["process.exit.signal"], "SIGTERM");
   assert.equal(attrs["error.type"], "SIGNAL_SIGTERM");
-  assert.equal(attrs["exception.slug"], "cli-signal-exit");
-  assert.equal(attrs["cli.stderr_excerpt"], "terminated");
-  assert.equal(exceptions.length, 1);
-  assert.match(exceptions[0]!.message, /terminated by signal SIGTERM/);
+  assert.equal(attrs["exception.slug"], undefined);
+  assert.equal(attrs["cli.stderr_excerpt"], undefined);
+  assert.equal(exceptions.length, 0);
   assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
 });
 
-test("annotateCliRun preserves real spawn failures", () => {
+test("annotateCliRun classifies spawn failures without exporting raw details", () => {
   const { span, attrs, exceptions, statuses } = makeSpan();
   const spawnError = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
   const r = {
@@ -225,11 +219,10 @@ test("annotateCliRun preserves real spawn failures", () => {
   assert.equal(attrs["process.pid"], 456);
   assert.equal(attrs["process.exit.code"], -1);
   assert.equal(attrs["error.type"], "ENOENT");
-  assert.equal(attrs["exception.slug"], "cli-spawn-failure");
-  assert.equal(exceptions.length, 1);
-  assert.equal(exceptions[0], spawnError);
+  assert.equal(attrs["exception.slug"], undefined);
+  assert.equal(exceptions.length, 0);
   assert.equal(statuses[0]!.code, SpanStatusCode.ERROR);
-  assert.equal(statuses[0]!.message, "spawn ENOENT");
+  assert.equal(statuses[0]!.message, "CLI process failed to start");
 });
 
 test("annotateCliRun leaves successful exits as success metadata only", () => {

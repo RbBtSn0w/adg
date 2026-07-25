@@ -1,25 +1,8 @@
-import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
-import * as opentelemetry from "@opentelemetry/api";
 import { type Tracer, propagation, ROOT_CONTEXT } from "@opentelemetry/api";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const baseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-function normalizeTraceEndpoint(endpoint: string): string {
-  const normalized = endpoint.replace(/\/$/, "");
-  return normalized.endsWith("/v1/traces") ? normalized : `${normalized}/v1/traces`;
-}
-
-const TELEMETRY_URL =
-  process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ||
-  (baseEndpoint
-    ? normalizeTraceEndpoint(baseEndpoint)
-    : "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
+import { getTracer as getAdgTracer, shutdownTelemetry } from "../../../src/telemetry.ts";
 
 const AUDIT_URL = "https://add-skill.vercel.sh/audit";
 
@@ -71,8 +54,6 @@ type TelemetryData =
   | FindTelemetryData
   | SyncTelemetryData;
 
-let provider: NodeTracerProvider | null = null;
-let activeTracer: Tracer | null = null;
 let detectedAgentName: string | null = null;
 
 export function setDetectedAgent(agentName: string | null): void {
@@ -163,26 +144,7 @@ export async function fetchAuditData(
 }
 
 export function getTracer(): Tracer {
-  if (!isEnabled()) {
-    return opentelemetry.trace.getTracer("adg-noop");
-  }
-  if (!activeTracer) {
-    const exporter = new OTLPTraceExporter({
-      url: TELEMETRY_URL,
-    });
-
-    provider = new NodeTracerProvider({
-      resource: resourceFromAttributes({
-        [SemanticResourceAttributes.SERVICE_NAME]: "adg",
-      }),
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
-    });
-
-    provider.register();
-
-    activeTracer = opentelemetry.trace.getTracer("adg");
-  }
-  return activeTracer;
+  return getAdgTracer();
 }
 
 export function track(data: TelemetryData): void {
@@ -201,16 +163,16 @@ export function track(data: TelemetryData): void {
     if (isCI()) {
       span.setAttribute("ci", true);
     }
-    if (detectedAgentName) {
-      span.setAttribute("agent", detectedAgentName);
-    }
-
-    // Set event attributes
-    for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined && value !== null) {
-        span.setAttribute(key, String(value));
-      }
-    }
+    if (detectedAgentName) span.setAttribute("adg.command.target", detectedAgentName);
+    span.setAttribute("adg.skills.operation", data.event);
+    if ("sourceType" in data && data.sourceType) span.setAttribute("adg.source.type", data.sourceType);
+    if ("global" in data) span.setAttribute("adg.command.scope", data.global === "1" ? "global" : "project");
+    if ("scope" in data && data.scope) span.setAttribute("adg.command.scope", data.scope);
+    if ("skillCount" in data) span.setAttribute("adg.skills.count", Number(data.skillCount));
+    if ("successCount" in data) span.setAttribute("adg.skills.success_count", Number(data.successCount));
+    if ("failCount" in data) span.setAttribute("adg.skills.failed_count", Number(data.failCount));
+    if ("resultCount" in data) span.setAttribute("adg.skills.result_count", Number(data.resultCount));
+    if ("interactive" in data) span.setAttribute("adg.command.interactive", data.interactive === "1");
 
     span.end();
   } catch {
@@ -219,8 +181,5 @@ export function track(data: TelemetryData): void {
 }
 
 export async function flushTelemetry(timeoutMs = 5000): Promise<void> {
-  if (provider) {
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
-    await Promise.race([provider.shutdown(), timeout]);
-  }
+  await shutdownTelemetry(Math.min(timeoutMs, 1500));
 }
