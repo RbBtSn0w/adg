@@ -1,3 +1,9 @@
+## [0.7.1-beta.7](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.6...0.7.1-beta.7) (2026-08-02)
+
+### Fixed
+
+* **ci:** validate native stack member target refs ([#81](https://github.com/RbBtSn0w/adg/issues/81)) ([d6a16ba](https://github.com/RbBtSn0w/adg/commit/d6a16ba96dd57488ec5b144d3ad10176d9a7f7ee))
+
 ## [0.7.1-beta.6](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.5...0.7.1-beta.6) (2026-07-25)
 
 ### Fixed
