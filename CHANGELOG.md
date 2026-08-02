@@ -1,3 +1,10 @@
+## [0.7.1-beta.8](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.7...0.7.1-beta.8) (2026-08-02)
+
+### Fixed
+
+* **telemetry:** handle dash-prefixed option values ([e118b4c](https://github.com/RbBtSn0w/adg/commit/e118b4cec8c9e9491940169d416714cc389f8b9c))
+* **telemetry:** preserve commands after option values ([11d90bd](https://github.com/RbBtSn0w/adg/commit/11d90bdbaeb56846bd0f3da2f97294bef1c088de))
+
 ## [0.7.1-beta.7](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.6...0.7.1-beta.7) (2026-08-02)
 
 ### Fixed
