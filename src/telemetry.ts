@@ -206,15 +206,15 @@ export function sanitizeArgs(args: string[]): string[] {
   let commandPositionFound = false;
   let optionValueExpected = false;
   return [executableName ?? "", ...rest.map((arg, index) => {
+    if (optionValueExpected) {
+      optionValueExpected = false;
+      return "[VALUE]";
+    }
     if (arg.startsWith("-")) {
       if (!commandPositionFound && !arg.includes("=") && optionsWithValues.has(arg)) {
         optionValueExpected = true;
       }
       return arg.includes("=") ? "[FLAG]=[VALUE]" : "[FLAG]";
-    }
-    if (optionValueExpected) {
-      optionValueExpected = false;
-      return "[VALUE]";
     }
     const positionIsStructural =
       (executableName === "adg" && index <= 1) ||

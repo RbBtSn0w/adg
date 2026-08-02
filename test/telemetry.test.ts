@@ -569,6 +569,10 @@ test("sanitizeArgs preserves safe subcommands after option values", () => {
     ["git", "[FLAG]", "[VALUE]", "rev-parse", "[VALUE]"],
   );
   assert.deepEqual(
+    sanitizeArgs(["git", "-C", "-worktree", "rev-parse", "HEAD"]),
+    ["git", "[FLAG]", "[VALUE]", "rev-parse", "[VALUE]"],
+  );
+  assert.deepEqual(
     sanitizeArgs(["git", "-C", "/Users/snow/private", "sparse-checkout", "set", "src"]),
     ["git", "[FLAG]", "[VALUE]", "sparse-checkout", "[VALUE]", "[VALUE]"],
   );
