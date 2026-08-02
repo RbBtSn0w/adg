@@ -3,11 +3,11 @@ name: PR Target Branch
 # Enforce the contribution flow: feature/fix PRs must target `beta`.
 # The only PR allowed to target `main` is the maintainer release PR from `beta`.
 #
-# Uses `pull_request` (not `pull_request_target`): the check only reads
-# base_ref/head_ref — no secrets or write access — and `pull_request` reports
-# the status check reliably so it can be required by branch protection. A fork
-# that neuters this file just fails to report the required check, which blocks
-# the merge (fail-safe).
+# Uses `pull_request` (not `pull_request_target`): the check only reads the
+# event's member-specific PR refs — no secrets or write access. The shortcut
+# github.base_ref may identify a native stack's trunk instead of the selected
+# member's direct base. A fork that neuters this file just fails to report the
+# required check, which blocks the merge (fail-safe).
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
@@ -23,8 +23,8 @@ jobs:
     steps:
       - name: Check PR target
         env:
-          BASE: ${{ github.base_ref }}
-          HEAD: ${{ github.head_ref }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
           echo "PR: ${HEAD} -> ${BASE}"
           if [ "${BASE}" = "beta" ]; then
