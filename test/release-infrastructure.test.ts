@@ -103,8 +103,8 @@ test("workflows pin third-party actions to immutable commits", () => {
 
 test("PR target validation uses each stack member's own refs", () => {
   const workflow = readFileSync(resolve(".github/workflows/pr-target.yml"), "utf8");
-  assert.match(workflow, /github\.event\.pull_request\.base\.ref/);
-  assert.match(workflow, /github\.event\.pull_request\.head\.ref/);
+  assert.match(workflow, /\$\{\{\s*github\.event\.pull_request\.base\.ref\s*\}\}/);
+  assert.match(workflow, /\$\{\{\s*github\.event\.pull_request\.head\.ref\s*\}\}/);
   assert.doesNotMatch(workflow, /\$\{\{\s*github\.(?:base_ref|head_ref)\s*\}\}/);
 });
 
