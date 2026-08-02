@@ -193,18 +193,35 @@ export function sanitizeArgs(args: string[]): string[] {
     executableName === "adg"
       ? new Set(["plugin", "plugins", "skill", "skills", "update", "add", "remove", "sync", "list", "status", "inspect", "validate", "migrate", "cache", "marketplace", "link", "unlink", "enable", "disable", "import-skills"])
       : executableName === "git"
-        ? new Set(["clone", "fetch", "pull", "rev-parse", "ls-remote", "show", "init", "add", "commit"])
+        ? new Set(["clone", "fetch", "pull", "rev-parse", "ls-remote", "show", "init", "add", "commit", "sparse-checkout"])
         : executableName === "npm"
           ? new Set(["install", "update", "exec"])
           : new Set();
+  const optionsWithValues: ReadonlySet<string> =
+    executableName === "git"
+      ? new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env", "--attr-source"])
+      : executableName === "npm"
+        ? new Set(["--prefix", "--workspace", "-w", "--userconfig", "--cache", "--registry"])
+        : new Set();
+  let commandPositionFound = false;
+  let optionValueExpected = false;
   return [executableName ?? "", ...rest.map((arg, index) => {
+    if (optionValueExpected) {
+      optionValueExpected = false;
+      return "[VALUE]";
+    }
     if (arg.startsWith("-")) {
+      if (!commandPositionFound && !arg.includes("=") && optionsWithValues.has(arg)) {
+        optionValueExpected = true;
+      }
       return arg.includes("=") ? "[FLAG]=[VALUE]" : "[FLAG]";
     }
     const positionIsStructural =
       (executableName === "adg" && index <= 1) ||
-      (executableName === "git" && index === 0) ||
-      (executableName === "npm" && index === 0);
+      ((executableName === "git" || executableName === "npm") && !commandPositionFound);
+    if (executableName === "git" || executableName === "npm") {
+      commandPositionFound = true;
+    }
     if (positionIsStructural && safePositionals.has(arg)) {
       return arg;
     }

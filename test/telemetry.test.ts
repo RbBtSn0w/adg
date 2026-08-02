@@ -562,3 +562,22 @@ test("sanitizeArgs only retains executable-specific command skeletons", () => {
     ["unknown-cli", "[VALUE]", "[VALUE]"],
   );
 });
+
+test("sanitizeArgs preserves safe subcommands after option values", () => {
+  assert.deepEqual(
+    sanitizeArgs(["git", "-C", "/Users/snow/private", "rev-parse", "HEAD"]),
+    ["git", "[FLAG]", "[VALUE]", "rev-parse", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["git", "-C", "-worktree", "rev-parse", "HEAD"]),
+    ["git", "[FLAG]", "[VALUE]", "rev-parse", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["git", "-C", "/Users/snow/private", "sparse-checkout", "set", "src"]),
+    ["git", "[FLAG]", "[VALUE]", "sparse-checkout", "[VALUE]", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["npm", "--prefix", "/Users/snow/private", "install", "private-package"]),
+    ["npm", "[FLAG]", "[VALUE]", "install", "[VALUE]"],
+  );
+});
