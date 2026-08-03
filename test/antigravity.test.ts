@@ -337,6 +337,75 @@ test("ensureAntigravityRoot preserves the last-known-good MCP config when projec
   }
 });
 
+test("ensureAntigravityRoot replaces a stale MCP projection symlink without mutating its source", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "linked-mcp",
+      version: "0.1.0",
+      description: "Linked MCP projection",
+      mcpServers: "./.mcp.json",
+    });
+    const source = '{"mcpServers":{"local":{"command":"server"}}}\n';
+    writeFileSync(join(dir, ".mcp.json"), source);
+    symlinkSync(".mcp.json", join(dir, "mcp_config.json"));
+
+    ensureAntigravityRoot(dir);
+
+    assert.equal(readFileSync(join(dir, ".mcp.json"), "utf8"), source);
+    assert.equal(lstatSync(join(dir, "mcp_config.json")).isSymbolicLink(), false);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8")), {
+      mcpServers: { local: { command: "server" } },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot replaces a broken MCP projection symlink", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "broken-link-mcp",
+      version: "0.1.0",
+      description: "Broken MCP projection link",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), '{"mcpServers":{}}\n');
+    symlinkSync("missing.json", join(dir, "mcp_config.json"));
+
+    ensureAntigravityRoot(dir);
+
+    assert.equal(lstatSync(join(dir, "mcp_config.json")).isSymbolicLink(), false);
+    assert.equal(existsSync(join(dir, "missing.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAntigravityRoot refuses to replace an unexpected MCP projection directory", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "directory-mcp",
+      version: "0.1.0",
+      description: "Directory MCP projection",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(join(dir, ".mcp.json"), '{"mcpServers":{}}\n');
+    mkdirSync(join(dir, "mcp_config.json"));
+    writeFileSync(join(dir, "mcp_config.json", "keep.txt"), "keep\n");
+
+    assert.throws(() => ensureAntigravityRoot(dir));
+    assert.equal(readFileSync(join(dir, "mcp_config.json", "keep.txt"), "utf8"), "keep\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ensureAntigravityRoot leaves an authored native MCP config unchanged", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {

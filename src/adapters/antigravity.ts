@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
 import { isExposed } from "../components.ts";
@@ -25,6 +25,19 @@ const ANTIGRAVITY_MCP_KEY_ALIASES: Record<string, string> = {
   http_headers: "headers",
   disabled_tools: "disabledTools",
 };
+
+function removeProjectionTarget(target: string): void {
+  try {
+    if (lstatSync(target).isSymbolicLink()) {
+      unlinkSync(target);
+      return;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  rmSync(target, { force: true });
+}
 
 function toAntigravityMcpServer(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
@@ -89,8 +102,10 @@ export function writeAntigravityMcpConfig(
   if (source === resolve(target)) return;
 
   if (source && isExposed(selection, "mcp") && existsSync(source)) {
-    writeFileSync(target, `${JSON.stringify(toAntigravityMcpConfig(source), null, 2)}\n`);
+    const projected = `${JSON.stringify(toAntigravityMcpConfig(source), null, 2)}\n`;
+    removeProjectionTarget(target);
+    writeFileSync(target, projected);
     return;
   }
-  rmSync(target, { force: true });
+  removeProjectionTarget(target);
 }
