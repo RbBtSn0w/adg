@@ -90,7 +90,7 @@ export function writeAntigravityMcpConfig(
 
   if (source && isExposed(selection, "mcp") && existsSync(source)) {
     const projected = `${JSON.stringify(toAntigravityMcpConfig(source), null, 2)}\n`;
-    rmSync(target, { recursive: true, force: true });
+    rmSync(target, { force: true });
     writeFileSync(target, projected);
     return;
   }
