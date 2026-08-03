@@ -247,6 +247,8 @@ export interface AddOptions {
   nonInteractive?: boolean;
   /** Replayed structural authorization from a prior lock entry. */
   authorizedComponents?: ComponentType[];
+  /** Internal update guard for migrating a prior structural definition in place. */
+  structuralIdentity?: string;
   /** Internal update replay of the exact prior partial-install selection. */
   replaySelection?: PluginSelection;
   /** Last-known structural description, used when remote metadata lookup fails. */
@@ -565,12 +567,19 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   try {
     let { candidates, converted } = discoverPlugins(workRoot);
     const existingLock = readLock(lockPath(opts.pluginsDir));
-    if (candidates.size > 0 && opts.as) {
-      throw new Error("--as is only supported for a default structural plugin source");
+    if (candidates.size > 0) {
+      if (opts.structuralIdentity && !candidates.has(opts.structuralIdentity)) {
+        throw new Error(
+          `source definition changed from Default DSL to explicit plugin(s), but none match the installed identity "${opts.structuralIdentity}"; re-add or migrate the plugin explicitly`,
+        );
+      }
+      if (opts.as && !opts.structuralIdentity) {
+        throw new Error("--as is only supported for a default structural plugin source");
+      }
     }
     if (candidates.size === 0) {
       if (parsed.kind === "github" && !opts.preparedSourceDir && !opts.defaultDescription) defaultDescription = await githubRepositoryDescription(parsed.source);
-      const structuralIdentity = opts.as ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
+      const structuralIdentity = opts.as ?? opts.structuralIdentity ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
       const generated = resolveDefaultDsl(workRoot, {
         name: structuralIdentity,
         description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
@@ -637,7 +646,9 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     }
     // A generated Default DSL replay retains its definition profile. Only an
     // explicit manifest discovered from the source may replace that profile.
-    const definitionSwitches = definition ? [] : order.filter((name) => existingLock.plugins[name]?.definition);
+    const definitionSwitches = definition
+      ? []
+      : order.filter((name) => existingLock.plugins[name]?.definition && name !== opts.structuralIdentity);
     if (definitionSwitches.length > 0) {
       const names = definitionSwitches.sort().map((name) => `"${name}"`).join(", ");
       throw new Error(`source definition changed from default DSL to a manifest for ${names}; re-add or migrate the plugin explicitly`);

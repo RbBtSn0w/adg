@@ -1,3 +1,60 @@
+## [0.7.1-beta.9](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.8...0.7.1-beta.9) (2026-08-03)
+
+### Fixed
+
+* **antigravity:** preserve unexpected projection directories ([147583b](https://github.com/RbBtSn0w/adg/commit/147583b51cc464184d3931ffe5fdb39d5061f8ce))
+* **antigravity:** replace stale MCP projection targets ([f14ec18](https://github.com/RbBtSn0w/adg/commit/f14ec18364027470034bf7d4002a0dbfe2a0fa6b))
+* **antigravity:** unlink stale MCP projection aliases ([1578f9a](https://github.com/RbBtSn0w/adg/commit/1578f9a74bae6c3099db7eba7aaab7e27fcd4457))
+
+## [0.7.1-beta.8](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.7...0.7.1-beta.8) (2026-08-02)
+
+### Fixed
+
+* **telemetry:** handle dash-prefixed option values ([e118b4c](https://github.com/RbBtSn0w/adg/commit/e118b4cec8c9e9491940169d416714cc389f8b9c))
+* **telemetry:** preserve commands after option values ([11d90bd](https://github.com/RbBtSn0w/adg/commit/11d90bdbaeb56846bd0f3da2f97294bef1c088de))
+
+## [0.7.1-beta.7](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.6...0.7.1-beta.7) (2026-08-02)
+
+### Fixed
+
+* **ci:** validate native stack member target refs ([#81](https://github.com/RbBtSn0w/adg/issues/81)) ([d6a16ba](https://github.com/RbBtSn0w/adg/commit/d6a16ba96dd57488ec5b144d3ad10176d9a7f7ee))
+
+## [0.7.1-beta.6](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.5...0.7.1-beta.6) (2026-07-25)
+
+### Fixed
+
+* **telemetry:** report gateway command outcomes ([#77](https://github.com/RbBtSn0w/adg/issues/77)) ([304efa7](https://github.com/RbBtSn0w/adg/commit/304efa7168d06f41705b2e5b5d19e26d76c4a927))
+
+## [0.7.1-beta.5](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.4...0.7.1-beta.5) (2026-07-24)
+
+### Fixed
+
+* **antigravity:** keep OAuth ownership in authored MCP config ([#75](https://github.com/RbBtSn0w/adg/issues/75)) ([f5cc0d1](https://github.com/RbBtSn0w/adg/commit/f5cc0d18a61d9ad5218683cae34d375a379160c4))
+
+## [0.7.1-beta.4](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.3...0.7.1-beta.4) (2026-07-24)
+
+### Fixed
+
+* **antigravity:** normalize unwrapped MCP server maps and preserve type field ([#73](https://github.com/RbBtSn0w/adg/issues/73)) ([1547a51](https://github.com/RbBtSn0w/adg/commit/1547a514fc53d0298590daa28955e19891bb10e9))
+
+## [0.7.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.2...0.7.1-beta.3) (2026-07-22)
+
+### Fixed
+
+* migrate structural plugins to explicit manifests ([#72](https://github.com/RbBtSn0w/adg/issues/72)) ([1b0b6d3](https://github.com/RbBtSn0w/adg/commit/1b0b6d33d6c4ca93aafddc0133a8ba207fd2f7ab))
+
+## [0.7.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.1...0.7.1-beta.2) (2026-07-20)
+
+### Fixed
+
+* **antigravity:** normalize MCP config projection ([#71](https://github.com/RbBtSn0w/adg/issues/71)) ([c6a2e9c](https://github.com/RbBtSn0w/adg/commit/c6a2e9c898b2dfb262df5aad9bd40cf609452410))
+
+## [0.7.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.0...0.7.1-beta.1) (2026-07-19)
+
+### Fixed
+
+* **skills:** sanitize inherited git clone environment ([#70](https://github.com/RbBtSn0w/adg/issues/70)) ([3045c1e](https://github.com/RbBtSn0w/adg/commit/3045c1e0b164ba150b8e071536bc1adf2040d1d4))
+
 ## [0.7.0](https://github.com/RbBtSn0w/adg/compare/0.6.0...0.7.0) (2026-07-15)
 
 ### Added

@@ -17,6 +17,31 @@ const CLONE_TIMEOUT_MS = (() => {
 })();
 const execFileAsync = promisify(execFile);
 
+const UNSAFE_INHERITED_GIT_ENV_KEYS = [
+  'EDITOR',
+  'GIT_ASKPASS',
+  'GIT_CONFIG',
+  'GIT_CONFIG_COUNT',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_SYSTEM',
+  'GIT_EDITOR',
+  'GIT_EXEC_PATH',
+  'GIT_EXTERNAL_DIFF',
+  'GIT_PAGER',
+  'GIT_PROXY_COMMAND',
+  'GIT_SEQUENCE_EDITOR',
+  'GIT_SSH',
+  'GIT_SSH_COMMAND',
+  'GIT_TEMPLATE_DIR',
+  'PAGER',
+  'PREFIX',
+  'SSH_ASKPASS',
+] as const;
+const UNSAFE_INHERITED_GIT_ENV_KEY_SET = new Set(
+  UNSAFE_INHERITED_GIT_ENV_KEYS.map((key) => key.toUpperCase())
+);
+
 interface GitHubRepoInfo {
   owner: string;
   repo: string;
@@ -101,6 +126,32 @@ function isAuthFailure(message: string): boolean {
   );
 }
 
+function createGitEnvironment(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  // ADG patch: hosts such as VS Code inject executable Git helpers (notably
+  // GIT_ASKPASS) even when the user has no GitHub account configured.
+  // simple-git correctly rejects those inherited hooks as unsafe, but that
+  // rejection happened before anonymous public-repository clones could run.
+  // Clone from a sanitized copy of the parent environment instead. Normal
+  // credential helpers, proxy settings, certificates, and SSH_AUTH_SOCK remain
+  // available; only environment entries that can execute or redirect Git are
+  // removed. Explicit ADG-controlled overrides are applied afterwards.
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(gitEnv)) {
+    if (UNSAFE_INHERITED_GIT_ENV_KEY_SET.has(key.toUpperCase())) {
+      delete gitEnv[key];
+    }
+  }
+
+  return {
+    ...gitEnv,
+    GIT_TERMINAL_PROMPT: '0',
+    // When git-lfs IS installed, tell it not to download LFS content during
+    // checkout. See #952 for context and empirical impact.
+    GIT_LFS_SKIP_SMUDGE: '1',
+    ...extraEnv,
+  };
+}
+
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
   return simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
@@ -131,20 +182,16 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     // exactly the intent of the config above. See vendor/skills/PROVENANCE.md.
     unsafe: {
       allowUnsafeFilter: true,
+      // Only permits the fixed BatchMode command supplied by the HTTPS auth
+      // fallback below; inherited GIT_SSH_COMMAND is removed from gitEnv.
+      allowUnsafeSshCommand: true,
     },
     // ADG patch: env must be applied via `.env()`, not as a constructor option.
     // simple-git's factory only reads baseDir/maxConcurrentProcesses/trimmed from
     // the options object and silently drops `env`, so the GIT_TERMINAL_PROMPT /
     // GIT_LFS_SKIP_SMUDGE / GIT_SSH_COMMAND overrides below never reached the
     // spawned git before this. See vendor/skills/PROVENANCE.md.
-  }).env({
-    ...process.env,
-    GIT_TERMINAL_PROMPT: '0',
-    // When git-lfs IS installed, tell it not to download LFS content during
-    // checkout. See #952 for context and empirical impact.
-    GIT_LFS_SKIP_SMUDGE: '1',
-    ...extraEnv,
-  });
+  }).env(createGitEnvironment(extraEnv));
 }
 
 async function resetTempDir(dir: string): Promise<void> {
@@ -158,7 +205,7 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   try {
     const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status', '-h', 'github.com'], {
       timeout: 5000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      env: createGitEnvironment(),
     });
     const statusOutput = `${stdout}${stderr}`;
     if (/Git operations protocol:\s+ssh/i.test(statusOutput)) {
@@ -171,7 +218,7 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
   await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
     timeout: CLONE_TIMEOUT_MS,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: createGitEnvironment(),
   });
   return true;
 }
@@ -246,7 +293,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         await createGitClient({
-          GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
+          GIT_SSH_COMMAND: 'ssh -o BatchMode=yes',
         }).clone(repo.sshUrl, tempDir, cloneOptions);
         return tempDir;
       } catch {

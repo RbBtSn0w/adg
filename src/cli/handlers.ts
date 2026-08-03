@@ -43,6 +43,7 @@ import {
   type PluginCommand,
 } from "./index.ts";
 import { handleCorePluginVerb } from "./core-plugin-handlers.ts";
+import { commandOutcome, type CommandOutcome } from "../command-outcome.ts";
 
 interface UpdateScopeTarget {
   dir: string;
@@ -50,6 +51,16 @@ interface UpdateScopeTarget {
   label: string;
   /** Section heading printed before this scope's report (only set for "both"). */
   heading?: string;
+}
+
+export function updateResultCounts(result: PluginUpdateResult): { succeeded: number; failed: number } {
+  const failedRemote = result.remote.filter((source) => source.failed !== undefined).length;
+  return {
+    succeeded:
+      result.remote.length - failedRemote +
+      result.local.results.length,
+    failed: failedRemote + result.local.missing.length,
+  };
 }
 
 /**
@@ -191,11 +202,11 @@ function printCliUnavailableNote(target: string, message: string): void {
  * (or the marketplace sub-dispatcher). Kept free of `spawnSync` so the whole
  * dispatch surface is unit-testable.
  */
-export async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<void> {
+export async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<CommandOutcome> {
   // `adg plugins` (no verb) or an explicit help request → the L1 overview.
   if (rawVerb === undefined || rawVerb === "-h" || rawVerb === "--help" || rawVerb === "help") {
     console.log(renderPluginsHelp());
-    return;
+    return commandOutcome("success");
   }
 
   const verb = PLUGIN_ALIASES[rawVerb] ?? rawVerb;
@@ -203,19 +214,26 @@ export async function runPlugins(rawVerb: string | undefined, rest: string[]): P
   if (!cmd) {
     console.error(`${ui.err("error:")} unknown plugins subcommand: ${rawVerb}\n`);
     console.error(renderPluginsHelp());
-    process.exit(1);
+    fail(`unknown plugins subcommand: ${rawVerb}`);
   }
 
   // `adg plugins <verb> -h` → just this command's help. (marketplace handles
   // its own sub-help, so let it through.)
   if (!cmd.delegated && wantsHelp(rest)) {
     console.log(renderVerbHelp(verb));
-    return;
+    return commandOutcome("success");
   }
 
-  if (verb === "marketplace") return runMarketplace(rest);
-  if (verb === "cache") return runCache(rest);
-  return runPluginsVerb(verb, rest, cmd);
+  if (verb === "marketplace") {
+    return runMarketplace(rest);
+  }
+  if (verb === "cache") {
+    await runCache(rest);
+    return commandOutcome("success");
+  }
+  if (verb === "update") return handleUpdate(rest, cmd);
+  await runPluginsVerb(verb, rest, cmd);
+  return commandOutcome("success");
 }
 
 async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
@@ -317,9 +335,11 @@ async function handleSync(rest: string[], cmd: PluginCommand): Promise<void> {
   }
 }
 
-async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<void> {
+async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
   const { values, positionals } = parseVerb("update", cmd.flags, rest);
   const source = positionals[0];
+  let succeeded = 0;
+  let failed = 0;
   for (const sc of await resolveUpdateScopes(values)) {
     if (sc.heading) console.log(`${ui.name(sc.heading)}`);
     try {
@@ -332,10 +352,16 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<void> {
         scope: { label: sc.label, globalDir: globalPluginsDir() },
       });
       printUpdateReport(result);
+      const counts = updateResultCounts(result);
+      succeeded += counts.succeeded;
+      failed += counts.failed;
     } catch (err) {
       console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+      failed += 1;
     }
   }
+  if (failed === 0) return commandOutcome("success");
+  return commandOutcome(succeeded > 0 ? "partial" : "failure", "dependency");
 }
 
 async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<void> {
@@ -392,10 +418,8 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       await handleSync(rest, cmd);
       return;
     }
-    case "update": {
-      await handleUpdate(rest, cmd);
-      return;
-    }
+    case "update":
+      throw new Error("plugins update must be routed by runPlugins");
     case "remove": {
       const { values, positionals } = parseVerb(verb, cmd.flags, rest);
       const name = positionals[0];
@@ -443,12 +467,12 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
   }
 }
 
-async function runMarketplace(args: string[]): Promise<void> {
+async function runMarketplace(args: string[]): Promise<CommandOutcome> {
   const [sub, ...rest] = args;
   // `marketplace <sub> -h` → the marketplace help (it documents every sub + flags).
   if (sub !== undefined && wantsHelp(rest)) {
     console.log(MARKETPLACE_USAGE);
-    return;
+    return commandOutcome("success");
   }
   switch (sub) {
     case undefined:
@@ -456,7 +480,7 @@ async function runMarketplace(args: string[]): Promise<void> {
     case "--help":
     case "help":
       console.log(MARKETPLACE_USAGE);
-      return;
+      return commandOutcome("success");
     case "list": {
       const { values } = parseVerb("marketplace", ["verbose", ...SCOPE], rest);
       const dir = resolveScopeDir(values);
@@ -464,7 +488,7 @@ async function runMarketplace(args: string[]): Promise<void> {
       // Verbose: drill each plugin down to its components (reuses `plugins list -v`).
       const byName = values.verbose ? new Map(listPlugins(dir).map((p) => [p.name, p])) : undefined;
       for (const line of renderMarketplaceList(groups, byName)) console.log(line);
-      return;
+      return commandOutcome("success");
     }
     case "upgrade": {
       // Deprecated: a thin alias for `adg plugins update`. It runs the exact same
@@ -476,6 +500,8 @@ async function runMarketplace(args: string[]): Promise<void> {
       // (project/global/both, with the home==global trap guard) so the deprecated
       // alias can't drift from the verb it aliases. `--target` narrows the runtimes.
       const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
+      let succeeded = 0;
+      let failed = 0;
       for (const sc of await resolveUpdateScopes(values)) {
         if (sc.heading) console.log(`${ui.name(sc.heading)}`);
         // Mirror `plugins update`'s error handling: report a failed re-fetch and
@@ -491,11 +517,16 @@ async function runMarketplace(args: string[]): Promise<void> {
             targets,
           });
           printUpdateReport(result);
+          const counts = updateResultCounts(result);
+          succeeded += counts.succeeded;
+          failed += counts.failed;
         } catch (err) {
           console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+          failed += 1;
         }
       }
-      return;
+      if (failed === 0) return commandOutcome("success");
+      return commandOutcome(succeeded > 0 ? "partial" : "failure", "dependency");
     }
     case "remove":
     case "rm": {
@@ -512,7 +543,7 @@ async function runMarketplace(args: string[]): Promise<void> {
         deactivate: true,
       });
       console.log(`${ui.ok("removed")} ${res.removed.length} plugin(s) from ${ui.name(res.source)}: ${res.removed.join(", ")}`);
-      return;
+      return commandOutcome("success");
     }
     case "sync": {
       const { values, positionals } = parseVerb("marketplace", ["target", ...SCOPE], rest);
@@ -535,12 +566,10 @@ async function runMarketplace(args: string[]): Promise<void> {
           printCliUnavailableNote(target, `manifests were regenerated, but nothing was re-synced in ${target}.`);
         }
       }
-      return;
+      return commandOutcome("success");
     }
     default: {
-      console.error(`${ui.err("error:")} unknown marketplace subcommand: ${sub}\n`);
-      console.error(MARKETPLACE_USAGE);
-      process.exit(1);
+      fail(`unknown marketplace subcommand: ${sub}`);
     }
   }
 }

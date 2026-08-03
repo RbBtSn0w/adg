@@ -1,11 +1,76 @@
-import { cpSync, existsSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AdgManifest, PluginSelection } from "../types.ts";
 import { isExposed } from "../components.ts";
-import { mcpConfigPath } from "../mcp.ts";
+import { extractMcpServers, mcpConfigPath } from "../mcp.ts";
 import type { AdapterResult } from "./index.ts";
 
 export const ANTIGRAVITY_MCP_CONFIG = "mcp_config.json";
+
+const ANTIGRAVITY_MCP_SERVER_KEYS = new Set([
+  "command",
+  "serverUrl",
+  "args",
+  "env",
+  "cwd",
+  "headers",
+  "authProviderType",
+  "oauth",
+  "disabled",
+  "disabledTools",
+]);
+
+const ANTIGRAVITY_MCP_KEY_ALIASES: Record<string, string> = {
+  url: "serverUrl",
+  http_headers: "headers",
+  disabled_tools: "disabledTools",
+};
+
+function removeProjectionTarget(target: string): void {
+  try {
+    if (lstatSync(target).isSymbolicLink()) {
+      unlinkSync(target);
+      return;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  rmSync(target, { force: true });
+}
+
+function toAntigravityMcpServer(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+
+  const source = value as Record<string, unknown>;
+  const server: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(source)) {
+    if (ANTIGRAVITY_MCP_SERVER_KEYS.has(key)) server[key] = field;
+  }
+  for (const [sourceKey, targetKey] of Object.entries(ANTIGRAVITY_MCP_KEY_ALIASES)) {
+    if (server[targetKey] === undefined && source[sourceKey] !== undefined) {
+      server[targetKey] = source[sourceKey];
+    }
+  }
+
+  return server;
+}
+
+function toAntigravityMcpConfig(source: string): unknown {
+  const parsed: unknown = JSON.parse(readFileSync(source, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
+
+  const servers = extractMcpServers(parsed);
+  if (!servers) return parsed;
+
+  const projected: Record<string, unknown> & { mcpServers: Record<string, unknown> } = {
+    mcpServers: {},
+  };
+  for (const [name, value] of Object.entries(servers)) {
+    projected.mcpServers[name] = toAntigravityMcpServer(value);
+  }
+  return projected;
+}
 
 /**
  * Generate an Antigravity (`agy`) plugin.json from an ADG manifest.
@@ -36,8 +101,11 @@ export function writeAntigravityMcpConfig(
   // generated projection. Never remove or copy it onto itself.
   if (source === resolve(target)) return;
 
-  rmSync(target, { force: true });
   if (source && isExposed(selection, "mcp") && existsSync(source)) {
-    cpSync(source, target);
+    const projected = `${JSON.stringify(toAntigravityMcpConfig(source), null, 2)}\n`;
+    removeProjectionTarget(target);
+    writeFileSync(target, projected);
+    return;
   }
+  removeProjectionTarget(target);
 }

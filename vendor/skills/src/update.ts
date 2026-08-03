@@ -51,7 +51,6 @@ function recordSelfCliEntrypointMissing(): void {
     span.setAttribute("process.command_args", ["adg", "skills", "add"]);
     span.setAttribute("process.exit.code", -1);
     span.setAttribute("error.type", "CLI_ENTRYPOINT_NOT_FOUND");
-    span.recordException(new Error("CLI entrypoint not found"));
     span.setStatus({
       code: SpanStatusCode.ERROR,
       message: "CLI entrypoint not found",

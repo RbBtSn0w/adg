@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 import { selfUpdateCommand, parseSelfUpdateArgs, SELF_UPDATE_USAGE, selfUpdateSpawnOptions } from "../src/self-update.ts";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
-import { TOP_USAGE, fail } from "../src/cli/index.ts";
+import { TARGET_ALIASES, TOP_USAGE, fail } from "../src/cli/index.ts";
+import { ADAPTER_TARGETS } from "../src/adapters/index.ts";
 import { runPlugins } from "../src/cli/handlers.ts";
 import { getTracer, shutdownTelemetry, sanitizeArgs } from "../src/telemetry.ts";
 import { SpanKind, SpanStatusCode, propagation, context } from "@opentelemetry/api";
 import { runSubprocessSync } from "../src/subprocess.ts";
+import { commandOutcome, type CommandOutcome } from "../src/command-outcome.ts";
 
 // ---------------------------------------------------------------------------
 // `adg` entry point: thin wire-up only.
@@ -40,7 +42,15 @@ export function skillsChildArgv(
   return [...execArgv, entry, ...args];
 }
 
-function runSkills(verb: string | undefined, rest: string[]): number {
+export function telemetryCommandTarget(target: string | undefined): string {
+  if (target === "all") return target;
+  const canonical = target === undefined ? undefined : TARGET_ALIASES[target] ?? target;
+  return canonical !== undefined && (ADAPTER_TARGETS as readonly string[]).includes(canonical)
+    ? canonical
+    : "none";
+}
+
+function runSkills(verb: string | undefined, rest: string[]): CommandOutcome {
   const self = fileURLToPath(import.meta.url);
   const here = dirname(self);
   // Resolve the vendored CLI with the same extension we ourselves run as: `.ts`
@@ -64,22 +74,28 @@ function runSkills(verb: string | undefined, rest: string[]): number {
       ...envCarrier,
     },
   });
-  return r.status ?? 1;
+  const exitCode = r.status ?? 1;
+  return exitCode === 0
+    ? commandOutcome("success")
+    : { ...commandOutcome("failure", "dependency"), exitCode };
 }
 
-function runSelfUpdate(args: string[]): number {
+function runSelfUpdate(args: string[]): CommandOutcome {
   const options = parseSelfUpdateArgs(args);
   if (options.help) {
     console.log(SELF_UPDATE_USAGE);
-    return 0;
+    return commandOutcome("success");
   }
   const command = selfUpdateCommand(options.beta);
   const r = runSubprocessSync(command.command, command.args, selfUpdateSpawnOptions());
   if (r.error) {
     console.error(r.error.message);
-    return 1;
+    return commandOutcome("failure", "dependency");
   }
-  return r.status ?? 1;
+  const exitCode = r.status ?? 1;
+  return exitCode === 0
+    ? commandOutcome("success")
+    : { ...commandOutcome("failure", "dependency"), exitCode };
 }
 
 /**
@@ -117,11 +133,25 @@ async function main(argv: string[]): Promise<number | void> {
 
   const tracer = getTracer();
   return await tracer.startActiveSpan("adg", { kind: SpanKind.INTERNAL }, async (span) => {
-    let status = 0;
+    let outcome = commandOutcome("success");
     try {
       span.setAttribute("process.executable.name", "adg");
       span.setAttribute("process.pid", process.pid);
       span.setAttribute("process.command_args", sanitizeArgs(["adg", ...argv]));
+      const scope = rest.includes("--global") && rest.includes("--project")
+        ? "both"
+        : rest.includes("--global")
+          ? "global"
+          : rest.includes("--project")
+            ? "project"
+            : rest.some((arg) => arg === "--dir" || arg.startsWith("--dir="))
+              ? "adhoc"
+              : "none";
+      const targetIndex = rest.findIndex((arg) => arg === "--target");
+      const targetValue = targetIndex >= 0 ? rest[targetIndex + 1] : rest.find((arg) => arg.startsWith("--target="))?.slice(9);
+      const target = telemetryCommandTarget(targetValue);
+      span.setAttribute("adg.command.scope", scope);
+      span.setAttribute("adg.command.target", target);
 
       // Check for an available update (reads local cache; schedules a background
       // network refresh when the cache is stale — the refresh uses an unreffed
@@ -136,42 +166,50 @@ async function main(argv: string[]): Promise<number | void> {
       switch (domain) {
         case "plugins":
         case "plugin": // tolerated alias
-          span.setAttribute("domain", "plugins");
-          if (verb) span.setAttribute("verb", verb);
-          await runPlugins(verb, rest);
+          span.setAttribute("adg.command.domain", "plugins");
+          if (verb) span.setAttribute("adg.command.verb", verb);
+          outcome = await runPlugins(verb, rest);
           break;
         case "skills":
         case "skill":
-          span.setAttribute("domain", "skills");
-          if (verb) span.setAttribute("verb", verb);
-          status = runSkills(verb, rest);
+          span.setAttribute("adg.command.domain", "skills");
+          if (verb) span.setAttribute("adg.command.verb", verb);
+          outcome = runSkills(verb, rest);
           break;
         case "update":
-          span.setAttribute("domain", "update");
-          if (verb) span.setAttribute("verb", verb);
-          status = runSelfUpdate([verb, ...rest].filter((x): x is string => x !== undefined));
+          span.setAttribute("adg.command.domain", "update");
+          if (verb) span.setAttribute("adg.command.verb", verb);
+          outcome = runSelfUpdate([verb, ...rest].filter((x): x is string => x !== undefined));
           break;
         default:
           fail(`unknown domain: ${domain} (expected \`plugins\`, \`skills\`, or \`update\`)`);
       }
 
-      span.setAttribute("process.exit.code", status);
-      if (status !== 0) {
-        span.setAttribute("error.type", `EXIT_CODE_${status}`);
+      span.setAttribute("adg.command.outcome", outcome.kind);
+      span.setAttribute("process.exit.code", outcome.exitCode);
+      if (outcome.exitCode !== 0) {
+        span.setAttribute("error.type", `EXIT_CODE_${outcome.exitCode}`);
+        span.setAttribute("error.category", outcome.errorCategory ?? "internal");
+        span.setAttribute("error.expected", outcome.errorCategory === "user");
         span.setStatus({
           code: SpanStatusCode.ERROR,
-          message: `CLI exited with non-zero status ${status}`,
+          message: "CLI exited with a non-zero status",
         });
       }
-      return status;
+      return outcome.exitCode;
     } catch (error) {
-      status = 1;
-      span.setAttribute("process.exit.code", status);
-      span.setAttribute("error.type", error instanceof Error ? error.name : typeof error);
-      span.recordException(error as Error);
+      outcome = commandOutcome("failure", "internal");
+      span.setAttribute("adg.command.outcome", outcome.kind);
+      span.setAttribute("process.exit.code", outcome.exitCode);
+      span.setAttribute(
+        "error.type",
+        error instanceof Error ? error.name : "_OTHER",
+      );
+      span.setAttribute("error.category", outcome.errorCategory!);
+      span.setAttribute("error.expected", false);
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: error instanceof Error ? error.message : String(error),
+        message: "CLI command failed",
       });
       throw error;
     } finally {

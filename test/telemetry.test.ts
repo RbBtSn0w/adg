@@ -8,7 +8,14 @@ import type { Attributes, Span } from "@opentelemetry/api";
 
 import { readLock, writeLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
-import { normalizeTraceEndpoint, recordTelemetryEvent, sanitizePath, sanitizeArgs } from "../src/telemetry.ts";
+import {
+  defaultTelemetryConfig,
+  normalizeTraceEndpoint,
+  recordTelemetryEvent,
+  sanitizePath,
+  sanitizeArgs,
+  withoutAmbientOtlpHeaders,
+} from "../src/telemetry.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
@@ -23,6 +30,106 @@ test("normalizeTraceEndpoint appends the trace path exactly once", () => {
   assert.equal(normalizeTraceEndpoint("https://collector.example.com"), "https://collector.example.com/v1/traces");
   assert.equal(normalizeTraceEndpoint("https://collector.example.com/"), "https://collector.example.com/v1/traces");
   assert.equal(normalizeTraceEndpoint("https://collector.example.com/v1/traces"), "https://collector.example.com/v1/traces");
+  assert.equal(
+    normalizeTraceEndpoint("https://collector.example.com/root?tenant=one"),
+    "https://collector.example.com/root/v1/traces?tenant=one",
+  );
+});
+
+test("default telemetry config uses the anonymous gateway profile and bounded batching", () => {
+  assert.deepEqual(defaultTelemetryConfig({}), {
+    enabled: true,
+    traceEndpoint: "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces",
+    headers: { "otel-gateway-profile": "anonymous-client-v1" },
+    batch: {
+      maxQueueSize: 256,
+      maxExportBatchSize: 64,
+      scheduledDelayMillis: 100,
+      exportTimeoutMillis: 1000,
+    },
+    exporterTimeoutMillis: 1000,
+    shutdownTimeoutMillis: 1500,
+  });
+});
+
+test("custom telemetry endpoint does not inherit the public profile header", () => {
+  const config = defaultTelemetryConfig({
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com",
+  });
+  assert.equal(config.traceEndpoint, "https://collector.example.com/v1/traces");
+  assert.deepEqual(config.headers, {});
+});
+
+test("explicit approved gateway endpoint keeps the anonymous profile header", () => {
+  const config = defaultTelemetryConfig({
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry-gateway.hamiltonsnow.workers.dev",
+  });
+  assert.equal(config.traceEndpoint, "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces");
+  assert.deepEqual(config.headers, { "otel-gateway-profile": "anonymous-client-v1" });
+});
+
+test("development and staging gateway endpoints keep the anonymous profile header", () => {
+  for (const endpoint of [
+    "https://telemetry-gateway-development.hamiltonsnow.workers.dev",
+    "https://telemetry-gateway-staging.hamiltonsnow.workers.dev",
+  ]) {
+    const config = defaultTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint });
+    assert.deepEqual(config.headers, { "otel-gateway-profile": "anonymous-client-v1" }, endpoint);
+  }
+});
+
+test("gateway profile requires the exact HTTPS origin", () => {
+  for (const endpoint of [
+    "http://telemetry-gateway.hamiltonsnow.workers.dev",
+    "https://telemetry-gateway.hamiltonsnow.workers.dev:8443",
+    "http://telemetry-gateway-development.hamiltonsnow.workers.dev",
+    "https://collector.example.com",
+  ]) {
+    const config = defaultTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint });
+    assert.deepEqual(config.headers, {}, endpoint);
+  }
+
+  const explicitDefaultPort = defaultTelemetryConfig({
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry-gateway.hamiltonsnow.workers.dev:443",
+  });
+  assert.deepEqual(explicitDefaultPort.headers, {
+    "otel-gateway-profile": "anonymous-client-v1",
+  });
+});
+
+test("managed gateway exporter setup suppresses and restores ambient OTLP headers", () => {
+  const originalHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const originalTraceHeaders = process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS;
+  try {
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer secret";
+    process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = "x-honeycomb-team=secret";
+    const observed = withoutAmbientOtlpHeaders(() => ({
+      headers: process.env.OTEL_EXPORTER_OTLP_HEADERS,
+      traceHeaders: process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS,
+    }));
+
+    assert.deepEqual(observed, {
+      headers: undefined,
+      traceHeaders: undefined,
+    });
+    assert.equal(
+      process.env.OTEL_EXPORTER_OTLP_HEADERS,
+      "authorization=Bearer secret",
+    );
+    assert.equal(
+      process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS,
+      "x-honeycomb-team=secret",
+    );
+  } finally {
+    if (originalHeaders === undefined) delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    else process.env.OTEL_EXPORTER_OTLP_HEADERS = originalHeaders;
+    if (originalTraceHeaders === undefined) delete process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS;
+    else process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = originalTraceHeaders;
+  }
+});
+
+test("OTEL_SDK_DISABLED disables telemetry", () => {
+  assert.equal(defaultTelemetryConfig({ OTEL_SDK_DISABLED: "true" }).enabled, false);
 });
 
 function eventSpan(events: RecordedEvent[]): Pick<Span, "addEvent"> {
@@ -403,7 +510,7 @@ test("sanitizePath unconditionally redacts non-empty strings to [PATH]", () => {
   assert.equal(sanitizePath("plain-filename"), "[PATH]");
 });
 
-test("sanitizeArgs redacts all custom values except safe subcommand names and flags", () => {
+test("sanitizeArgs retains only bounded command skeletons and fixed placeholders", () => {
   const input = [
     "clone",
     "--depth",
@@ -423,20 +530,54 @@ test("sanitizeArgs redacts all custom values except safe subcommand names and fl
   ];
   const expected = [
     "clone",
-    "--depth",
-    "1",
+    "[FLAG]",
     "[VALUE]",
     "[VALUE]",
-    "--repo=[VALUE]",
-    "--token=[VALUE]",
     "[VALUE]",
-    "--repo-token-url=[VALUE]",
-    "-C[VALUE]",
-    "-I[VALUE]",
+    "[FLAG]=[VALUE]",
+    "[FLAG]=[VALUE]",
+    "[VALUE]",
+    "[FLAG]=[VALUE]",
+    "[FLAG]",
+    "[FLAG]",
     "[VALUE]",
     "[VALUE]",
     "[VALUE]",
     "[VALUE]",
   ];
   assert.deepEqual(sanitizeArgs(input), expected);
+});
+
+test("sanitizeArgs only retains executable-specific command skeletons", () => {
+  assert.deepEqual(
+    sanitizeArgs(["adg", "plugins", "add", "private-plugin", "--global"]),
+    ["adg", "plugins", "add", "[VALUE]", "[FLAG]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["git", "clone", "owner/private-repo", "/Users/snow/private"]),
+    ["git", "clone", "[VALUE]", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["unknown-cli", "secret", "query"]),
+    ["unknown-cli", "[VALUE]", "[VALUE]"],
+  );
+});
+
+test("sanitizeArgs preserves safe subcommands after option values", () => {
+  assert.deepEqual(
+    sanitizeArgs(["git", "-C", "/Users/snow/private", "rev-parse", "HEAD"]),
+    ["git", "[FLAG]", "[VALUE]", "rev-parse", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["git", "-C", "-worktree", "rev-parse", "HEAD"]),
+    ["git", "[FLAG]", "[VALUE]", "rev-parse", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["git", "-C", "/Users/snow/private", "sparse-checkout", "set", "src"]),
+    ["git", "[FLAG]", "[VALUE]", "sparse-checkout", "[VALUE]", "[VALUE]"],
+  );
+  assert.deepEqual(
+    sanitizeArgs(["npm", "--prefix", "/Users/snow/private", "install", "private-package"]),
+    ["npm", "[FLAG]", "[VALUE]", "install", "[VALUE]"],
+  );
 });

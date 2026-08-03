@@ -21,6 +21,7 @@ import {
   resolveTargets,
   scopeOf,
 } from "../src/cli/index.ts";
+import { updateResultCounts } from "../src/cli/handlers.ts";
 import { projectStoreIsGlobalTrap, promoteGlobalTrap, runPlugins } from "../src/cli/handlers.ts";
 
 // `fail()` (reached by every invalid-input path) calls `process.exit(1)`, which
@@ -201,7 +202,7 @@ test("plugins add describes --as as a structural source identity", () => {
 });
 
 // Capture console.log over an async call, restoring it even on throw.
-async function captureLog(fn: () => Promise<void>): Promise<string> {
+async function captureLog(fn: () => Promise<unknown>): Promise<string> {
   const orig = console.log;
   const lines: string[] = [];
   console.log = (...args: unknown[]) => void lines.push(args.join(" "));
@@ -315,7 +316,7 @@ test("runPlugins cache exposes delegated help and status", async () => {
 });
 
 // Capture console.error over an async call, restoring it even on throw.
-async function captureError(fn: () => Promise<void>): Promise<string> {
+async function captureError(fn: () => Promise<unknown>): Promise<string> {
   const orig = console.error;
   const lines: string[] = [];
   console.error = (...args: unknown[]) => void lines.push(args.join(" "));
@@ -333,9 +334,91 @@ async function captureError(fn: () => Promise<void>): Promise<string> {
 test("runPlugins marketplace upgrade reports a failed re-fetch without throwing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-cli-upgrade-"));
   try {
-    const err = await captureError(() => runPlugins("marketplace", ["upgrade", "nope/repo", "--dir", dir]));
+    let outcome: Awaited<ReturnType<typeof runPlugins>> | undefined;
+    const err = await captureError(async () => {
+      outcome = await runPlugins("marketplace", ["upgrade", "nope/repo", "--dir", dir]);
+    });
     assert.match(err, /no installed source/);
+    assert.deepEqual(outcome, {
+      kind: "failure",
+      exitCode: 1,
+      errorCategory: "dependency",
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("runPlugins update returns a non-zero dependency outcome when every scope fails", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-update-outcome-"));
+  try {
+    let outcome: Awaited<ReturnType<typeof runPlugins>> | undefined;
+    const err = await captureError(async () => {
+      outcome = await runPlugins("update", ["nope/repo", "--dir", dir]);
+    });
+    assert.match(err, /no installed source/);
+    assert.deepEqual(outcome, {
+      kind: "failure",
+      exitCode: 1,
+      errorCategory: "dependency",
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("update result counts per-source failures instead of treating the scope as successful", () => {
+  const base = {
+    updated: [],
+    unchanged: [],
+    deleted: [],
+    available: [],
+  };
+
+  assert.deepEqual(
+    updateResultCounts({
+      remote: [
+        { source: "acme/available", ...base },
+        { source: "acme/unavailable", ...base, failed: "network down" },
+      ],
+      local: { results: [], missing: [] },
+      agents: [],
+    }),
+    { succeeded: 1, failed: 1 },
+  );
+  assert.deepEqual(
+    updateResultCounts({
+      remote: [{ source: "acme/unavailable", ...base, failed: "network down" }],
+      local: { results: [], missing: [] },
+      agents: [],
+    }),
+    { succeeded: 0, failed: 1 },
+  );
+  assert.deepEqual(
+    updateResultCounts({
+      remote: [],
+      local: { results: [], missing: ["missing-local"] },
+      agents: [],
+    }),
+    { succeeded: 0, failed: 1 },
+  );
+  assert.deepEqual(
+    updateResultCounts({
+      remote: [],
+      local: {
+        results: [
+          {
+            name: "available-local",
+            changed: false,
+            version: "1.0.0",
+            sourceHash: "source",
+            installedHash: "installed",
+          },
+        ],
+        missing: ["missing-local"],
+      },
+      agents: [],
+    }),
+    { succeeded: 1, failed: 1 },
+  );
 });

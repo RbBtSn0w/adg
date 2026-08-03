@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { skillsChildArgv } from "../bin/adg.ts";
+import { skillsChildArgv, telemetryCommandTarget } from "../bin/adg.ts";
 import { selfCliArgv } from "../vendor/skills/src/self-cli.ts";
 import { resolveSelfCliEntry } from "../vendor/skills/src/update.ts";
 
@@ -26,6 +26,16 @@ test("skillsChildArgv: prepends execArgv before the entry and args", () => {
 
 test("skillsChildArgv: an empty execArgv leaves entry and args first", () => {
   assert.deepEqual(skillsChildArgv("/x/cli.ts", ["list"], []), ["/x/cli.ts", "list"]);
+});
+
+test("telemetryCommandTarget canonicalizes supported aliases", () => {
+  assert.equal(telemetryCommandTarget("anthropic"), "claude");
+  assert.equal(telemetryCommandTarget("openai"), "codex");
+  assert.equal(telemetryCommandTarget("agy"), "antigravity");
+  assert.equal(telemetryCommandTarget("gemini"), "antigravity");
+  assert.equal(telemetryCommandTarget("all"), "all");
+  assert.equal(telemetryCommandTarget("unknown"), "none");
+  assert.equal(telemetryCommandTarget(undefined), "none");
 });
 
 test("selfCliArgv: forwards execArgv for the global-update invocation", () => {
