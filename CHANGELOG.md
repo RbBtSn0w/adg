@@ -1,3 +1,11 @@
+## [0.7.1-beta.9](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.8...0.7.1-beta.9) (2026-08-03)
+
+### Fixed
+
+* **antigravity:** preserve unexpected projection directories ([147583b](https://github.com/RbBtSn0w/adg/commit/147583b51cc464184d3931ffe5fdb39d5061f8ce))
+* **antigravity:** replace stale MCP projection targets ([f14ec18](https://github.com/RbBtSn0w/adg/commit/f14ec18364027470034bf7d4002a0dbfe2a0fa6b))
+* **antigravity:** unlink stale MCP projection aliases ([1578f9a](https://github.com/RbBtSn0w/adg/commit/1578f9a74bae6c3099db7eba7aaab7e27fcd4457))
+
 ## [0.7.1-beta.8](https://github.com/RbBtSn0w/adg/compare/0.7.1-beta.7...0.7.1-beta.8) (2026-08-02)
 
 ### Fixed
