@@ -1,3 +1,9 @@
+## [0.7.2-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.1...0.7.2-beta.1) (2026-09-01)
+
+### Fixed
+
+* **update:** show progress instead of hanging silently ([#86](https://github.com/RbBtSn0w/adg/issues/86)) ([df4ffd4](https://github.com/RbBtSn0w/adg/commit/df4ffd46053ea585e92e13d62cc8dec4585f0456))
+
 ## [0.7.1](https://github.com/RbBtSn0w/adg/compare/0.7.0...0.7.1) (2026-08-03)
 
 ### Fixed
