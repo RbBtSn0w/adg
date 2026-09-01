@@ -17,6 +17,7 @@ import { selectTargetsInteractive } from "../commands/select-agents.ts";
 import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../commands/select-scope.ts";
 import { globalPluginsDir, projectPluginsDir, lockPath } from "../paths.ts";
 import { getAgent, type AgentScope } from "../agents/index.ts";
+import type { AdapterTarget } from "../adapters/index.ts";
 import { ui } from "../render/ui.ts";
 import { createProgress, formatUpdateSummary } from "../render/progress.ts";
 import {
@@ -336,12 +337,16 @@ async function handleSync(rest: string[], cmd: PluginCommand): Promise<void> {
   }
 }
 
-async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
-  const { values, positionals } = parseVerb("update", cmd.flags, rest);
-  const source = positionals[0];
-  // First paint, before the scope prompt and before any lock read, so the run
-  // never opens on a blank screen. stderr keeps stdout to the report alone.
-  process.stderr.write(`${ui.title("adg plugins update")}\n`);
+/**
+ * Re-fetch every scope in `resolveUpdateScopes(values)` and refresh its
+ * installed plugins, with per-scope progress reporting and error handling.
+ * Shared by `plugins update` and its deprecated `marketplace upgrade` alias
+ * so the two verbs can't drift from each other.
+ */
+async function runUpdateAcrossScopes(
+  values: ParsedValues,
+  opts: { source?: string; targets?: AdapterTarget[] },
+): Promise<CommandOutcome> {
   let succeeded = 0;
   let failed = 0;
   for (const sc of await resolveUpdateScopes(values)) {
@@ -350,11 +355,12 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<Command
     try {
       const result = await updatePlugins({
         pluginsDir: sc.dir,
-        source,
+        source: opts.source,
         all: values.all,
         activate: true,
         agentScope: sc.agentScope,
         scope: { label: sc.label, globalDir: globalPluginsDir() },
+        targets: opts.targets,
         onProgress: (phase) => progress.update(phase),
       });
       // Clear the animated line before the report goes to stdout, so the two
@@ -373,6 +379,14 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<Command
   }
   if (failed === 0) return commandOutcome("success");
   return commandOutcome(succeeded > 0 ? "partial" : "failure", "dependency");
+}
+
+async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
+  const { values, positionals } = parseVerb("update", cmd.flags, rest);
+  // First paint, before the scope prompt and before any lock read, so the run
+  // never opens on a blank screen. stderr keeps stdout to the report alone.
+  process.stderr.write(`${ui.title("adg plugins update")}\n`);
+  return runUpdateAcrossScopes(values, { source: positionals[0] });
 }
 
 async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<void> {
@@ -502,42 +516,14 @@ async function runMarketplace(args: string[]): Promise<CommandOutcome> {
       return commandOutcome("success");
     }
     case "upgrade": {
-      // Deprecated: a thin alias for `adg plugins update`. It runs the exact same
-      // update path (re-fetch + refresh, with the richer changed/unchanged/deleted
-      // report) so there is no second implementation to drift.
+      // Deprecated: a thin alias for `adg plugins update`. It calls the same
+      // `runUpdateAcrossScopes` helper (scope resolution, progress reporting,
+      // and error handling) so the alias can't drift from the verb it aliases.
+      // `--target` narrows the runtimes.
       console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
       const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
-      // Drive the exact same scope resolution + per-scope loop as `plugins update`
-      // (project/global/both, with the home==global trap guard) so the deprecated
-      // alias can't drift from the verb it aliases. `--target` narrows the runtimes.
       const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
-      let succeeded = 0;
-      let failed = 0;
-      for (const sc of await resolveUpdateScopes(values)) {
-        if (sc.heading) console.log(`${ui.name(sc.heading)}`);
-        // Mirror `plugins update`'s error handling: report a failed re-fetch and
-        // exit cleanly rather than throwing to the top-level catch.
-        try {
-          const result = await updatePlugins({
-            pluginsDir: sc.dir,
-            scope: { label: sc.label, globalDir: globalPluginsDir() },
-            activate: true,
-            agentScope: sc.agentScope,
-            source: positionals[0],
-            all: values.all,
-            targets,
-          });
-          printUpdateReport(result);
-          const counts = updateResultCounts(result);
-          succeeded += counts.succeeded;
-          failed += counts.failed;
-        } catch (err) {
-          console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
-          failed += 1;
-        }
-      }
-      if (failed === 0) return commandOutcome("success");
-      return commandOutcome(succeeded > 0 ? "partial" : "failure", "dependency");
+      return runUpdateAcrossScopes(values, { source: positionals[0], targets });
     }
     case "remove":
     case "rm": {
