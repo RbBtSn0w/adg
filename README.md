@@ -459,6 +459,27 @@ Debugging tips:
 - GitHub clone/sparse logic is injectable (`gitRunner`) and covered offline by
   the test suite; live network clones are exercised by `import owner/repo`.
 
+## Telemetry
+
+`adg` sends anonymous OpenTelemetry usage spans (command names, outcomes,
+timings) to a maintainer-run collector on Cloudflare Workers by default. No
+file paths, command arguments, or other identifying values are ever included:
+[`sanitizeArgs`](src/telemetry.ts) reduces every command line to its
+subcommand skeleton (e.g. `adg plugins add [VALUE] [FLAG]`) and
+[`sanitizePath`](src/telemetry.ts) unconditionally redacts any path to
+`[PATH]` before either can reach a span.
+
+Opt out with any of:
+
+```bash
+export DO_NOT_TRACK=1        # community-standard opt-out
+export DISABLE_TELEMETRY=1   # adg-specific opt-out
+export OTEL_SDK_DISABLED=true
+```
+
+See [src/telemetry.ts](src/telemetry.ts) for exactly what's collected and how
+it's sanitized.
+
 ## Contributing
 
 All feature/fix pull requests target the **`beta`** integration branch; `main`
