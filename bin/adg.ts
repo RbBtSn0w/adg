@@ -2,7 +2,15 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { selfUpdateCommand, parseSelfUpdateArgs, SELF_UPDATE_USAGE, selfUpdateSpawnOptions } from "../src/self-update.ts";
+import {
+  selfUpdateCommand,
+  parseSelfUpdateArgs,
+  SELF_UPDATE_USAGE,
+  selfUpdateSpawnOptions,
+  formatSelfUpdateStart,
+  formatSelfUpdateResult,
+  selfUpdateFailureHint,
+} from "../src/self-update.ts";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
 import { TARGET_ALIASES, TOP_USAGE, fail } from "../src/cli/index.ts";
@@ -67,6 +75,12 @@ function runSkills(verb: string | undefined, rest: string[]): CommandOutcome {
   propagation.inject(context.active(), envCarrier);
 
   const childArgs = skillsChildArgv(entry, args);
+  // The skills domain runs in a second Node process, so there is a cold-start
+  // gap (~2s) before the child prints anything. Claim the screen first; `--help`
+  // and the bare domain are excluded since they print immediately anyway.
+  if (verb && !args.some((a) => a === "--help" || a === "-h")) {
+    process.stderr.write(`${ui.title(`adg skills ${verb}`)}\n`);
+  }
   const r = runSubprocessSync(process.execPath, childArgs, {
     stdio: "inherit",
     env: {
@@ -87,15 +101,25 @@ function runSelfUpdate(args: string[]): CommandOutcome {
     return commandOutcome("success");
   }
   const command = selfUpdateCommand(options.beta);
+  // npm's own inherited output is the progress indicator once it starts; this
+  // frames the silent stretch before it and states what is about to happen.
+  process.stderr.write(`${ui.meta(formatSelfUpdateStart(getVersion(), options.beta))}\n`);
+  const started = Date.now();
   const r = runSubprocessSync(command.command, command.args, selfUpdateSpawnOptions());
   if (r.error) {
-    console.error(r.error.message);
+    console.error(`${ui.err("error:")} ${r.error.message}`);
+    console.error(ui.meta(selfUpdateFailureHint(options.beta)));
     return commandOutcome("failure", "dependency");
   }
   const exitCode = r.status ?? 1;
-  return exitCode === 0
-    ? commandOutcome("success")
-    : { ...commandOutcome("failure", "dependency"), exitCode };
+  const elapsed = Date.now() - started;
+  if (exitCode === 0) {
+    process.stderr.write(`${ui.ok(formatSelfUpdateResult(true, elapsed))}\n`);
+    return commandOutcome("success");
+  }
+  process.stderr.write(`${ui.err(formatSelfUpdateResult(false, elapsed))}\n`);
+  console.error(ui.meta(selfUpdateFailureHint(options.beta)));
+  return { ...commandOutcome("failure", "dependency"), exitCode };
 }
 
 /**
@@ -159,7 +183,7 @@ async function main(argv: string[]): Promise<number | void> {
       const currentVersion = getVersion();
       span.setAttribute("cli.version", currentVersion);
       const latestVersion = checkForUpdate(currentVersion);
-      if (latestVersion) {
+      if (latestVersion && domain !== "update") {
         process.stderr.write(formatUpdateNotice(currentVersion, latestVersion));
       }
 

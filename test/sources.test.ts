@@ -14,7 +14,7 @@ import {
   prereleaseChannel,
 } from "../src/semver.ts";
 import { resolveInstallOrder, DependencyError, type PluginCandidate } from "../src/deps.ts";
-import { parseRemoteRevision, parseSource, cloneGitHub, scanPlugins, scanNativePlugins, type GitRunner, type GitHubSource } from "../src/sources.ts";
+import { parseRemoteRevision, parseSource, cloneGitHub, gitEnv, scanPlugins, scanNativePlugins, GIT_CLONE_TIMEOUT_MS, GIT_REMOTE_PROBE_TIMEOUT_MS, type GitRunner, type GitHubSource } from "../src/sources.ts";
 import { addPlugins } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../src/types.ts";
 
@@ -440,4 +440,48 @@ test("scanNativePlugins prefers canonical .agents over a co-located native manif
   assert.equal(found.length, 1);
   assert.equal(found[0]!.kind, "adg", "canonical .agents/.plugin.json wins");
   rmSync(root, { recursive: true });
+});
+
+// (Regression: `adg plugins update` could hang forever with zero output. Every
+// git call here runs with stdio "ignore", so a credential prompt from a private
+// or moved repo was invisible and unanswerable — the CLI just sat there.)
+test("gitEnv disables git's interactive credential prompt", () => {
+  assert.equal(gitEnv().GIT_TERMINAL_PROMPT, "0");
+});
+
+test("gitEnv strips askpass helpers that could re-introduce an invisible wait", () => {
+  const saved = { git: process.env.GIT_ASKPASS, ssh: process.env.SSH_ASKPASS };
+  process.env.GIT_ASKPASS = "/usr/bin/some-gui-prompt";
+  process.env.SSH_ASKPASS = "/usr/bin/some-gui-prompt";
+  try {
+    const env = gitEnv();
+    assert.equal(env.GIT_ASKPASS, undefined);
+    assert.equal(env.SSH_ASKPASS, undefined);
+  } finally {
+    if (saved.git === undefined) delete process.env.GIT_ASKPASS; else process.env.GIT_ASKPASS = saved.git;
+    if (saved.ssh === undefined) delete process.env.SSH_ASKPASS; else process.env.SSH_ASKPASS = saved.ssh;
+  }
+});
+
+// (Regression: gitEnv used to default GIT_SSH_COMMAND to "ssh -o BatchMode=yes"
+// when it was unset. That variable outranks the `core.sshCommand` git config, so
+// a user authenticating an ssh `git` origin via `core.sshCommand = ssh -i
+// ~/.ssh/deploy_key` silently lost their key and the fetch failed.)
+test("gitEnv leaves GIT_SSH_COMMAND alone so core.sshCommand still applies", () => {
+  const saved = process.env.GIT_SSH_COMMAND;
+  try {
+    delete process.env.GIT_SSH_COMMAND;
+    assert.equal(gitEnv().GIT_SSH_COMMAND, undefined);
+    process.env.GIT_SSH_COMMAND = "ssh -i /custom/key";
+    assert.equal(gitEnv().GIT_SSH_COMMAND, "ssh -i /custom/key");
+  } finally {
+    if (saved === undefined) delete process.env.GIT_SSH_COMMAND; else process.env.GIT_SSH_COMMAND = saved;
+  }
+});
+
+test("git timeouts bound a probe tightly and a clone generously", () => {
+  // A metadata round trip should never take 20s; a large clone legitimately
+  // takes minutes, so one shared value would be wrong for both.
+  assert.ok(GIT_REMOTE_PROBE_TIMEOUT_MS > 0 && GIT_REMOTE_PROBE_TIMEOUT_MS <= 60_000);
+  assert.ok(GIT_CLONE_TIMEOUT_MS > GIT_REMOTE_PROBE_TIMEOUT_MS);
 });

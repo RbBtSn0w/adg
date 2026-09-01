@@ -7,7 +7,7 @@ import { withPluginSourceCache } from "./materialize.ts";
 import { PROJECTION_DIRS, packageFilter } from "./package.ts";
 import { legacyPluginSourceCacheDir, pluginSourceCacheDir } from "./paths.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
-import { runGit } from "./sources.ts";
+import { runGit, GIT_CLONE_TIMEOUT_MS } from "./sources.ts";
 import type { LockEntry } from "./types.ts";
 
 class SourceCacheIntegrityError extends Error {}
@@ -45,7 +45,9 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     // only the exact commit persisted by the v4 lock instead.
     runGit(["-C", temp, "init"]);
     runGit(["-C", temp, "remote", "add", "origin", url]);
-    runGit(["-C", temp, "fetch", "--depth", "1", "origin", entry.resolvedRevision]);
+    // Bounded like every other network git call: an unbounded fetch is an
+    // indefinite, output-free hang.
+    runGit(["-C", temp, "fetch", "--depth", "1", "origin", entry.resolvedRevision], false, GIT_CLONE_TIMEOUT_MS);
     runGit(["-C", temp, "checkout", "--detach", "FETCH_HEAD"]);
     const source = resolve(temp, entry.origin.path || ".");
     const rel = relative(temp, source);

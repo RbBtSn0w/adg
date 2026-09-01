@@ -9,6 +9,7 @@ import { addPlugins } from "../src/commands/install.ts";
 import type { GitRunner } from "../src/sources.ts";
 import type { Agent } from "../src/agents/index.ts";
 import { updatePlugins } from "../src/commands/marketplace.ts";
+import type { UpdatePhase } from "../src/render/progress.ts";
 import { readLock, writeLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
 
@@ -723,6 +724,114 @@ test("updatePlugins rescans local-source plugins in place", async () => {
       local.results.map((r) => ({ name: r.name, changed: r.changed })),
       [{ name: "alpha", changed: false }],
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The silent stretch between the scope prompt and the final report is what made
+// `plugins update` feel hung. These assert the events exist at the points that
+// actually block, not merely that a callback is reachable.
+test("updatePlugins reports a check phase before probing each remote", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    const phases: UpdatePhase[] = [];
+    await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      onProgress: (phase) => phases.push(phase),
+    });
+
+    const check = phases.find((p) => p.kind === "check");
+    assert.ok(check, "expected a check phase for the blocking remote probe");
+    assert.equal(check.kind === "check" && check.source, "acme/market");
+    assert.equal(check.kind === "check" && check.total, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins reports fetch and install phases when the revision moved", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    const phases: UpdatePhase[] = [];
+    await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      // A revision that differs from the lock forces the clone path rather than
+      // the unchanged fast path.
+      revisionResolver: () => "0".repeat(40),
+      onProgress: (phase) => phases.push(phase),
+    });
+
+    const kinds = phases.map((p) => p.kind);
+    assert.ok(kinds.includes("fetch"), `expected a fetch phase, saw ${kinds.join(", ")}`);
+    assert.ok(kinds.includes("install"), `expected an install phase, saw ${kinds.join(", ")}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins reports an activate phase for the agent re-sync", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    const calls: { id: string; plugins: string[] }[] = [];
+    const agents = [recordingAgent("codex", calls)];
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner, agents });
+
+    // Re-activation only runs for plugins that actually changed, so move the
+    // upstream version — otherwise there is legitimately nothing to re-sync.
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+
+    const phases: UpdatePhase[] = [];
+    await updatePlugins({
+      pluginsDir,
+      targets: ["codex"],
+      gitRunner,
+      activate: true,
+      agents,
+      revisionResolver: () => "0".repeat(40),
+      onProgress: (phase) => phases.push(phase),
+    });
+
+    // Agent re-activation spawns agent CLIs per plugin and dominates wall clock;
+    // it is the phase most worth showing.
+    const activate = phases.find((p) => p.kind === "activate");
+    assert.ok(activate, `expected an activate phase, saw ${phases.map((p) => p.kind).join(", ")}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins runs unchanged when no progress sink is supplied", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    assert.deepEqual(result.remote[0]!.unchanged, ["sales"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
