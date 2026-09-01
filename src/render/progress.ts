@@ -70,8 +70,16 @@ const CLEAR_LINE = "\r\x1b[K";
  * domain otherwise uses clack for prompts only.
  *
  * On a TTY it rewrites one line in place (no trailing newline). Off a TTY it
- * prints one plain line per phase and `stop()` is a no-op, so CI logs get a
- * readable trace with no escape sequences and no `\r`.
+ * prints one newline-terminated line per phase and `stop()` is a no-op, so a
+ * piped log gets a readable trace with no cursor movement and no `\r` — those
+ * are what corrupt a captured log.
+ *
+ * Color is deliberately NOT stripped off a TTY. Every renderer in `src/`
+ * delegates that decision to picocolors (see `ui.ts`), which disables color on
+ * a non-TTY or under NO_COLOR but deliberately keeps it when `CI=true`, since
+ * CI log viewers render SGR. Stripping here would make progress the only
+ * renderer in the repo that second-guesses that, and would leave this stderr
+ * trace colorless while the stdout report beside it stayed colored.
  *
  * The frame advances per event rather than on a timer, and deliberately so: the
  * work being reported (`execFileSync` git calls, `spawnSync` agent CLIs) blocks
@@ -114,10 +122,16 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
 /** Format a wall-clock duration for the summary line (e.g. "1.4s", "2m 05s"). */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(Math.round(seconds - minutes * 60)).padStart(2, "0")}s`;
+  // Round to the unit actually being printed *before* splitting into minutes
+  // and seconds. Deriving the parts from the unrounded value lets a duration
+  // that rounds up across a boundary render an impossible pair: 119_900ms was
+  // floor(1.998)=1 minute with round(59.9)=60 seconds, i.e. "1m 60s". Choosing
+  // the branch on rounded tenths likewise keeps 59_950ms out of "60.0s".
+  const tenths = Math.round(ms / 100);
+  if (tenths < 600) return `${(tenths / 10).toFixed(1)}s`;
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  return `${minutes}m ${String(totalSeconds - minutes * 60).padStart(2, "0")}s`;
 }
 
 /**

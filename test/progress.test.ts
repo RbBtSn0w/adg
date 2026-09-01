@@ -115,6 +115,26 @@ test("formatDuration scales from milliseconds to minutes", () => {
   assert.equal(formatDuration(125_000), "2m 05s");
 });
 
+// (Regression: parts were derived from the unrounded value, so a duration that
+// rounded up across a boundary printed an impossible pair — 119_900ms rendered
+// as "1m 60s" and 3_599_600ms as "59m 60s".)
+test("formatDuration never renders 60 seconds within a minute", () => {
+  assert.equal(formatDuration(119_900), "2m 00s");
+  assert.equal(formatDuration(3_599_600), "60m 00s");
+  // The same rounding applied to the sub-minute branch, which printed "60.0s".
+  assert.equal(formatDuration(59_950), "1m 00s");
+  assert.equal(formatDuration(59_949), "59.9s");
+
+  // Property check across the whole minute-boundary neighborhood.
+  for (let ms = 59_000; ms <= 121_000; ms += 10) {
+    const rendered = formatDuration(ms);
+    assert.ok(
+      !/\b60s$/.test(rendered),
+      `formatDuration(${ms}) produced an invalid seconds field: ${rendered}`,
+    );
+  }
+});
+
 test("formatUpdateSummary reports failures only when there are some", () => {
   assert.equal(stripAnsi(formatUpdateSummary({ succeeded: 3, failed: 0 }, 1_400)), "3 ok · 1.4s");
   assert.equal(stripAnsi(formatUpdateSummary({ succeeded: 3, failed: 1 }, 1_400)), "3 ok · 1 failed · 1.4s");
