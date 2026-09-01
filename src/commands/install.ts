@@ -529,6 +529,120 @@ function activateInstalled(
   });
 }
 
+interface PreparedSource {
+  workRoot: string;
+  /** `dir` is the candidate's directory; `dirOverride` re-points origin at a synthesized plugin's real source (see synthesizeDefaultDslPlugin). */
+  buildOrigin: (dir: string, dirOverride?: string) => PluginSource;
+  resolvedRevision: string | undefined;
+  cleanup: (() => void) | undefined;
+}
+
+/**
+ * Resolve `opts.spec` to a local working directory plus an origin builder and
+ * cleanup, covering the three source kinds: a prepared checkout (remote
+ * marketplace update, already on disk), a local directory (no clone, no
+ * cleanup), or a GitHub source (clone to a temp dir, cleaned up by the caller).
+ */
+function prepareSource(
+  opts: AddOptions,
+  parsed: ReturnType<typeof parseSource>,
+  sourceRef: string | undefined,
+): PreparedSource {
+  if (opts.preparedSourceDir) {
+    const workRoot = resolve(opts.preparedSourceDir);
+    return {
+      workRoot,
+      resolvedRevision: opts.preparedResolvedRevision,
+      buildOrigin: (dir, dirOverride) => ({
+        type: "github",
+        repo: parsed.kind === "github" ? parsed.source : opts.spec,
+        ...(sourceRef ? { ref: sourceRef } : {}),
+        path: toPosix(relative(workRoot, dirOverride ?? dir)) || ".",
+      }),
+      cleanup: undefined,
+    };
+  }
+  if (parsed.kind === "local") {
+    const workRoot = resolve(parsed.dir);
+    return {
+      workRoot,
+      resolvedRevision: undefined,
+      buildOrigin: (dir, dirOverride) => ({ type: "local", path: resolve(dirOverride ?? dir) }),
+      cleanup: undefined,
+    };
+  }
+  const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
+  cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
+  return {
+    workRoot: tmp,
+    resolvedRevision: gitRevision(tmp),
+    buildOrigin: (dir, dirOverride) => ({
+      type: "github",
+      repo: parsed.source,
+      ...(sourceRef ? { ref: sourceRef } : {}),
+      path: toPosix(relative(tmp, dirOverride ?? dir)) || ".",
+    }),
+    cleanup: () => rmSync(tmp, { recursive: true, force: true }),
+  };
+}
+
+interface DefaultDslPlugin {
+  candidates: Map<string, PluginCandidate>;
+  converted: string[];
+  structuralName: string;
+  /** The real source dir, so `buildOrigin` points at it instead of the staging copy. */
+  originDirOverride: string;
+  definition: DefaultDefinitionProfile;
+  cleanup: () => void;
+}
+
+/**
+ * Synthesize a single Default DSL plugin from a source that holds no explicit
+ * ADG/native manifest: generate a manifest for the whole tree, stage a copy
+ * with it written in, and scan that staging copy as the sole candidate.
+ */
+async function synthesizeDefaultDslPlugin(
+  opts: AddOptions,
+  parsed: ReturnType<typeof parseSource>,
+  workRoot: string,
+  resolvedRevision: string | undefined,
+): Promise<DefaultDslPlugin> {
+  const defaultDescription =
+    parsed.kind === "github" && !opts.preparedSourceDir && !opts.defaultDescription
+      ? await githubRepositoryDescription(parsed.source)
+      : undefined;
+  const structuralIdentity = opts.as ?? opts.structuralIdentity ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
+  const generated = resolveDefaultDsl(workRoot, {
+    name: structuralIdentity,
+    description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
+  }, {
+    ...(parsed.kind === "github" && resolvedRevision ? { resolvedRevision } : {}),
+  });
+  const authorized = opts.authorizedComponents;
+  const unauthorizedRisk = generated.components.some((c) => (c === "hooks" || c === "mcp") && !authorized?.includes(c));
+  if (opts.nonInteractive && unauthorizedRisk && opts.only === undefined) {
+    throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
+  }
+  const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
+  copyPluginDir(workRoot, staging);
+  writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
+  return {
+    candidates: scanPlugins(staging),
+    converted: [],
+    structuralName: generated.manifest.name,
+    originDirOverride: workRoot,
+    definition: {
+      kind: "default-dsl/v1",
+      root: ".",
+      ...(opts.as ? { as: generated.manifest.name } : {}),
+      description: generated.manifest.description,
+      fingerprint: generated.fingerprint,
+      authorizedComponents: authorized ?? (opts.only ?? generated.components),
+    },
+    cleanup: () => rmSync(staging, { recursive: true, force: true }),
+  };
+}
+
 /**
  * The unified install entrypoint. Treats any source as a marketplace: clone or
  * read it, discover every plugin (ADG plus reverse-adapted native), choose a
@@ -543,35 +657,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   if (parsed.kind === "github" && parsed.path) {
     throw new Error("GitHub subdirectory sources are not supported; define a marketplace and select with --plugin or --all");
   }
-  let workRoot: string;
-  let buildOrigin: (dir: string) => PluginSource;
-  let resolvedRevision: string | undefined;
-  let cleanup: (() => void) | undefined;
+  const prepared = prepareSource(opts, parsed, sourceRef);
+  const { workRoot, buildOrigin, resolvedRevision } = prepared;
+  let cleanup = prepared.cleanup;
   let originDirOverride: string | undefined;
   let definition: DefaultDefinitionProfile | undefined;
-  let defaultDescription: string | undefined;
   let structuralName: string | undefined;
-
-  if (opts.preparedSourceDir) {
-    workRoot = resolve(opts.preparedSourceDir);
-    resolvedRevision = opts.preparedResolvedRevision;
-    buildOrigin = (dir) => ({ type: "github", repo: parsed.kind === "github" ? parsed.source : opts.spec, ...(sourceRef ? { ref: sourceRef } : {}), path: toPosix(relative(workRoot, originDirOverride ?? dir)) || "." });
-  } else if (parsed.kind === "local") {
-    workRoot = resolve(parsed.dir);
-    buildOrigin = (dir) => ({ type: "local", path: resolve(originDirOverride ?? dir) });
-  } else {
-    const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
-    cleanup = () => rmSync(tmp, { recursive: true, force: true });
-    cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
-    workRoot = tmp;
-    resolvedRevision = gitRevision(tmp);
-    buildOrigin = (dir) => ({
-      type: "github",
-      repo: parsed.source,
-      ...(sourceRef ? { ref: sourceRef } : {}),
-      path: toPosix(relative(tmp, originDirOverride ?? dir)) || ".",
-    });
-  }
 
   try {
     let { candidates, converted } = discoverPlugins(workRoot);
@@ -587,31 +678,14 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       }
     }
     if (candidates.size === 0) {
-      if (parsed.kind === "github" && !opts.preparedSourceDir && !opts.defaultDescription) defaultDescription = await githubRepositoryDescription(parsed.source);
-      const structuralIdentity = opts.as ?? opts.structuralIdentity ?? (parsed.kind === "github" ? parsed.source : basename(workRoot));
-      const generated = resolveDefaultDsl(workRoot, {
-        name: structuralIdentity,
-        description: defaultDescription ?? opts.defaultDescription ?? structuralIdentity,
-      }, {
-        ...(parsed.kind === "github" && resolvedRevision ? { resolvedRevision } : {}),
-      });
-      const authorized = opts.authorizedComponents;
-      const unauthorizedRisk = generated.components.some((c) => (c === "hooks" || c === "mcp") && !authorized?.includes(c));
-      if (opts.nonInteractive && unauthorizedRisk && opts.only === undefined) {
-        throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
-      }
-      const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
-      copyPluginDir(workRoot, staging);
-      writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
-      candidates = scanPlugins(staging);
-      structuralName = generated.manifest.name;
-      converted = [];
-      originDirOverride = workRoot;
-      definition = { kind: "default-dsl/v1", root: ".", ...(opts.as ? { as: generated.manifest.name } : {}), description: generated.manifest.description, fingerprint: generated.fingerprint, authorizedComponents: authorized ?? (opts.only ?? generated.components) };
-      cleanup = (() => {
-        const prior = cleanup;
-        return () => { rmSync(staging, { recursive: true, force: true }); prior?.(); };
-      })();
+      const synthesized = await synthesizeDefaultDslPlugin(opts, parsed, workRoot, resolvedRevision);
+      candidates = synthesized.candidates;
+      converted = synthesized.converted;
+      structuralName = synthesized.structuralName;
+      originDirOverride = synthesized.originDirOverride;
+      definition = synthesized.definition;
+      const priorCleanup = cleanup;
+      cleanup = () => { synthesized.cleanup(); priorCleanup?.(); };
     }
 
     const selected = structuralName ? [structuralName] : await selectPluginNames(opts, candidates, converted);
@@ -675,7 +749,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         installPlugin({
           source: candidate.dir,
           pluginsDir: opts.pluginsDir,
-          origin: buildOrigin(candidate.dir),
+          origin: buildOrigin(candidate.dir, originDirOverride),
           resolvedRevision,
           marketplaceName: opts.marketplaceName,
           targets,
