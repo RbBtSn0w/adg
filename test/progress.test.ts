@@ -71,16 +71,22 @@ test("TTY stop() before any update writes nothing", () => {
   assert.equal(stream.text(), "");
 });
 
-test("non-TTY progress is one plain line per phase with no escape codes", () => {
+test("non-TTY progress is one plain line per phase with no cursor control", () => {
   const stream = fakeStream();
   const progress = createProgress({ stream, isTTY: false });
   for (const phase of phases) progress.update(phase);
   progress.stop();
 
   const text = stream.text();
-  // The CI-log regression guard: no cursor control, no carriage returns.
+  // The CI-log regression guard: cursor movement and carriage returns are what
+  // corrupt a piped log. Colors are picocolors' own call — it emits SGR codes
+  // when CI=true even off a TTY (see test/render.test.ts) — so strip those
+  // first and assert on what is left.
   assert.ok(!text.includes("\r"), "piped output must not contain carriage returns");
-  assert.ok(!text.includes("\x1b["), "piped output must not contain escape sequences");
+  assert.ok(
+    !stripAnsi(text).includes("\x1b["),
+    "piped output must not contain cursor-control sequences such as \\x1b[K",
+  );
   assert.equal(text.split("\n").filter(Boolean).length, phases.length);
 });
 
