@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isExposed } from "../components.ts";
 import { writeJson, writeText } from "../fsutil.ts";
 import type { AdgManifest, PluginSelection } from "../types.ts";
@@ -8,7 +9,24 @@ import type { AdgManifest, PluginSelection } from "../types.ts";
 const TARGET_FILE = "hooks.json";
 const PROJECTION_DIR = ".antigravity-plugin";
 const RUNNER_FILE = "hook-runner.mjs";
+const RUNNER_ASSET = "antigravity-hook-runner.mjs";
 const NATIVE_OVERRIDE = "hooks-antigravity.json";
+
+let cachedHookRunner: string | undefined;
+
+/**
+ * The runner materialized into each plugin's projection dir. A real,
+ * standalone, lintable/testable .mjs (see antigravity-hook-runner.mjs and
+ * test/antigravity-hook-runner.test.ts), copied into `dist/` alongside the
+ * compiled output by the `build` script since tsc only emits .ts. Read lazily
+ * and cached so an `adg` invocation with no antigravity hooks never touches it.
+ */
+function hookRunnerSource(): string {
+  if (cachedHookRunner === undefined) {
+    cachedHookRunner = readFileSync(join(dirname(fileURLToPath(import.meta.url)), RUNNER_ASSET), "utf8");
+  }
+  return cachedHookRunner;
+}
 
 const EVENT_MAP = {
   SessionStart: "PreInvocation",
@@ -17,7 +35,15 @@ const EVENT_MAP = {
   Stop: "Stop",
 } as const;
 
-const TOOL_ALIASES: Readonly<Record<string, string>> = {
+/**
+ * Claude tool name -> Antigravity tool name(s) ("|"-joined when a Claude tool
+ * has more than one Antigravity counterpart). The inverse direction lives in
+ * antigravity-hook-runner.mjs's `claudeToolName` — that file runs as a
+ * standalone child process with no import access to this module, so the two
+ * tables can't be unified into one; `test/antigravity-hook-runner.test.ts`
+ * asserts they stay exact inverses of each other instead.
+ */
+export const TOOL_ALIASES: Readonly<Record<string, string>> = {
   Bash: "run_command",
   Read: "view_file",
   Write: "write_to_file",
@@ -376,153 +402,10 @@ export function writeAntigravityHooks(
   if (Object.keys(definition).length) {
     const projected = { [manifest.name]: definition };
     validateNativeDocument(projected);
-    replaceText(join(pluginDir, PROJECTION_DIR, RUNNER_FILE), HOOK_RUNNER);
+    replaceText(join(pluginDir, PROJECTION_DIR, RUNNER_FILE), hookRunnerSource());
     replaceJson(target, projected);
   } else {
     cleanupGenerated(pluginDir);
   }
   return warnings;
 }
-
-const HOOK_RUNNER = String.raw`import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const [event, encodedCommand] = process.argv.slice(2);
-const rawInput = readFileSync(0, "utf8");
-let input;
-try {
-  input = rawInput.trim() ? JSON.parse(rawInput) : {};
-} catch (error) {
-  fail("invalid Antigravity hook input", error);
-}
-
-if (event === "SessionStart" && input.invocationNum !== 0) {
-  emit({});
-  process.exit(0);
-}
-
-const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const command = Buffer.from(encodedCommand, "base64url").toString("utf8")
-  .replaceAll("$" + "{CLAUDE_PLUGIN_ROOT}", pluginRoot)
-  .replaceAll("$" + "{PLUGIN_ROOT}", pluginRoot);
-const childInput = claudeInput(event, input);
-const child = spawnSync(command, {
-  cwd: pluginRoot,
-  env: { ...process.env, CLAUDE_PLUGIN_ROOT: pluginRoot, PLUGIN_ROOT: pluginRoot },
-  input: JSON.stringify(childInput),
-  encoding: "utf8",
-  shell: true,
-  maxBuffer: 10 * 1024 * 1024,
-});
-if (child.stderr) process.stderr.write(child.stderr);
-if (child.error) fail("failed to launch hook command", child.error);
-if (child.status !== 0) process.exit(child.status ?? 1);
-
-const output = parseOutput(event, child.stdout);
-emit(antigravityOutput(event, output));
-
-function claudeInput(hookEvent, source) {
-  const common = {
-    ...source,
-    session_id: source.conversationId,
-    transcript_path: source.transcriptPath,
-    cwd: source.workspacePaths?.[0] ?? pluginRoot,
-    hook_event_name: hookEvent,
-  };
-  if (hookEvent === "SessionStart") return { ...common, source: "startup" };
-  if (hookEvent === "PreToolUse" || hookEvent === "PostToolUse") {
-    return {
-      ...common,
-      tool_name: claudeToolName(source.toolCall?.name),
-      tool_input: source.toolCall?.args ?? {},
-      tool_response: source.toolCall?.result,
-    };
-  }
-  if (hookEvent === "Stop") return { ...common, stop_hook_active: false };
-  return common;
-}
-
-function claudeToolName(name) {
-  return ({
-    run_command: "Bash",
-    view_file: "Read",
-    write_to_file: "Write",
-    replace_file_content: "Edit",
-    multi_replace_file_content: "Edit",
-    find_by_name: "Glob",
-    grep_search: "Grep",
-    search_web: "WebSearch",
-    read_url_content: "WebFetch",
-    invoke_subagent: "Agent",
-    ask_question: "AskUserQuestion",
-  })[name] ?? name;
-}
-
-function parseOutput(hookEvent, stdout) {
-  const text = stdout.trim();
-  if (!text) return {};
-  try {
-    const parsed = JSON.parse(text);
-    return (typeof parsed === "object" && parsed !== null) ? parsed : {};
-  } catch (error) {
-    if (hookEvent === "SessionStart") return { additionalContext: text };
-    fail("hook command returned invalid JSON", error);
-  }
-}
-
-function antigravityOutput(hookEvent, output) {
-  if (output.continue === false) {
-    const reason = output.stopReason ?? output.reason ?? "Claude hook stopped processing";
-    if (hookEvent === "PreToolUse") return { decision: "deny", reason };
-    if (hookEvent === "Stop") return { decision: "stop" };
-    fail(hookEvent + " continue:false output has no safe Antigravity mapping", reason);
-  }
-  if (hookEvent === "SessionStart") {
-    if (Array.isArray(output.injectSteps)) return output;
-    const context = output.hookSpecificOutput?.additionalContext
-      ?? output.additionalContext
-      ?? output.additional_context;
-    return typeof context === "string" && context ? { injectSteps: [{ ephemeralMessage: context }] } : {};
-  }
-  if (hookEvent === "PreToolUse") {
-    const specific = output.hookSpecificOutput ?? {};
-    const decision = specific.permissionDecision ?? output.permissionDecision ?? output.decision;
-    const reason = specific.permissionDecisionReason ?? output.reason;
-    if (specific.updatedInput !== undefined) {
-      process.stderr.write("antigravity hook bridge: Claude updatedInput is unsupported; requesting confirmation\n");
-      return { decision: "ask", reason: reason ?? "Hook requested a tool-input change that Antigravity cannot apply" };
-    }
-    if (decision === "deny" || decision === "block") return { decision: "deny", ...(reason ? { reason } : {}) };
-    if (decision === "allow" || decision === "approve") return { decision: "allow", ...(reason ? { reason } : {}) };
-    if (decision === "ask") return { decision: "ask", ...(reason ? { reason } : {}) };
-    if (decision === "defer") {
-      process.stderr.write("antigravity hook bridge: Claude defer is unsupported; requesting confirmation\n");
-      return { decision: "ask", reason: reason ?? "Hook deferred to Antigravity's permission flow" };
-    }
-    return { decision: "allow", ...(reason ? { reason } : {}) };
-  }
-  if (hookEvent === "PostToolUse") {
-    if (output.decision === "block") {
-      fail("PostToolUse block output has no safe Antigravity mapping", output.reason ?? "block");
-    }
-    return {};
-  }
-  if (hookEvent === "Stop") {
-    return output.decision === "block"
-      ? { decision: "continue", ...(output.reason ? { reason: output.reason } : {}) }
-      : { decision: "stop" };
-  }
-  return {};
-}
-
-function emit(value) {
-  process.stdout.write(JSON.stringify(value) + "\n");
-}
-
-function fail(message, error) {
-  process.stderr.write("antigravity hook bridge: " + message + ": " + String(error) + "\n");
-  process.exit(1);
-}
-`;
