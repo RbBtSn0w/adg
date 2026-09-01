@@ -2,8 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  formatSelfUpdateResult,
+  formatSelfUpdateStart,
   parseSelfUpdateArgs,
   selfUpdateCommand,
+  selfUpdateFailureHint,
   selfUpdateHint,
   selfUpdateSpawnOptions,
   selfUpdateTarget,
@@ -58,4 +61,29 @@ test("selfUpdateHint maps stable and beta notices to adg update commands", () =>
 test("SELF_UPDATE_USAGE documents both stable and beta forms", () => {
   assert.match(SELF_UPDATE_USAGE, /adg update/);
   assert.match(SELF_UPDATE_USAGE, /--beta/);
+});
+
+// `adg update` used to print nothing of its own: npm install -g is silent for
+// several seconds, so the command named "update" looked hung at t=0.
+test("formatSelfUpdateStart states the version delta and the command being run", () => {
+  const line = formatSelfUpdateStart("0.7.1", false);
+  assert.match(line, /^adg 0\.7\.1 → installing latest /);
+  assert.match(line, /npm install -g @rbbtsn0w\/adg@latest/);
+});
+
+test("formatSelfUpdateStart reflects the beta channel", () => {
+  const line = formatSelfUpdateStart("0.7.1", true);
+  assert.match(line, /installing beta/);
+  assert.match(line, /@rbbtsn0w\/adg@beta/);
+});
+
+test("formatSelfUpdateResult reports outcome and elapsed time", () => {
+  assert.match(formatSelfUpdateResult(true, 4200), /^updated · 4\.2s/);
+  assert.equal(formatSelfUpdateResult(false, 1500), "update failed · 1.5s");
+});
+
+test("selfUpdateFailureHint gives a runnable next step", () => {
+  const hint = selfUpdateFailureHint(false);
+  assert.match(hint, /npm install -g @rbbtsn0w\/adg@latest/);
+  assert.match(hint, /EACCES/);
 });

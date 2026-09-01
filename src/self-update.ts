@@ -40,6 +40,30 @@ export function selfUpdateSpawnOptions(platform: NodeJS.Platform = process.platf
   return { stdio: "inherit", shell: platform === "win32" };
 }
 
+/**
+ * The line printed before npm is spawned. `npm install -g` is silent for several
+ * seconds, so without this the command that is *named* "update" shows nothing at
+ * all until npm's summary block appears.
+ */
+export function formatSelfUpdateStart(currentVersion: string, beta: boolean): string {
+  const { command, args } = selfUpdateCommand(beta);
+  return `adg ${currentVersion} → installing ${selfUpdateTarget(beta)} (${command} ${args.join(" ")})`;
+}
+
+/** Closing line for a self-update run. */
+export function formatSelfUpdateResult(ok: boolean, elapsedMs: number): string {
+  const seconds = `${(elapsedMs / 1000).toFixed(1)}s`;
+  return ok
+    ? `updated · ${seconds} — run \`adg --version\` to confirm`
+    : `update failed · ${seconds}`;
+}
+
+/** Actionable next step when npm could not be launched or exited non-zero. */
+export function selfUpdateFailureHint(beta: boolean): string {
+  const { command, args } = selfUpdateCommand(beta);
+  return `try running it directly: ${command} ${args.join(" ")}\nif that fails with EACCES, npm's global prefix needs write access (or install via a version manager).`;
+}
+
 export function selfUpdateHint(latestVersion: string): string {
   const channel = prereleaseChannel(latestVersion);
   if (channel === "beta") return "adg update --beta";

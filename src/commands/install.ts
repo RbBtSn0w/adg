@@ -10,6 +10,7 @@ import { copyPluginDir, toPosix, writeJson } from "../fsutil.ts";
 import { folderHash } from "../hash.ts";
 import { packageFilter, PROJECTION_DIRS } from "../package.ts";
 import { lockPath, marketplacePath, marketplaceSourcePath, pluginDir, pluginSourceCacheDir } from "../paths.ts";
+import type { UpdatePhase } from "../render/progress.ts";
 import { readLock, upsertEntry, writeLock } from "../lock.ts";
 import { ADG_MANIFEST_PATH, readManifest } from "../manifest.ts";
 import { recordTelemetryEvent } from "../telemetry.ts";
@@ -260,6 +261,13 @@ export interface AddOptions {
   sparse?: string[];
   /** Injectable git clone runner (for offline testing). */
   gitRunner?: GitRunner;
+  /**
+   * Progress sink for the slow parts of an install. Agent re-activation spawns
+   * one or two agent-CLI processes per plugin, which dominates wall-clock time
+   * on `plugins update`; without this the longest phase is invisible. The
+   * command layer only emits events — the CLI decides how (or whether) to draw.
+   */
+  onProgress?: (phase: UpdatePhase) => void;
 
   // ── selection (a source may hold one plugin or a whole marketplace) ──
   /** Install every plugin found in the source. */
@@ -502,6 +510,7 @@ function activateInstalled(
   const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
 
   return resolved.map((agent) => {
+    opts.onProgress?.({ kind: "activate", agent: agent.id, count: toActivate.length });
     const queryResult = agent.listInstalled?.(ctxFor([]));
     const agentInstalled = Array.isArray(queryResult) ? queryResult : undefined;
     const alreadyInstalled = (name: string) =>

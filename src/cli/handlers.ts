@@ -18,6 +18,7 @@ import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope 
 import { globalPluginsDir, projectPluginsDir, lockPath } from "../paths.ts";
 import { getAgent, type AgentScope } from "../agents/index.ts";
 import { ui } from "../render/ui.ts";
+import { createProgress, formatUpdateSummary } from "../render/progress.ts";
 import {
   renderAgentReport,
   renderMarketplaceList,
@@ -338,10 +339,14 @@ async function handleSync(rest: string[], cmd: PluginCommand): Promise<void> {
 async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
   const { values, positionals } = parseVerb("update", cmd.flags, rest);
   const source = positionals[0];
+  // First paint, before the scope prompt and before any lock read, so the run
+  // never opens on a blank screen. stderr keeps stdout to the report alone.
+  process.stderr.write(`${ui.title("adg plugins update")}\n`);
   let succeeded = 0;
   let failed = 0;
   for (const sc of await resolveUpdateScopes(values)) {
     if (sc.heading) console.log(`${ui.name(sc.heading)}`);
+    const progress = createProgress();
     try {
       const result = await updatePlugins({
         pluginsDir: sc.dir,
@@ -350,12 +355,18 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<Command
         activate: true,
         agentScope: sc.agentScope,
         scope: { label: sc.label, globalDir: globalPluginsDir() },
+        onProgress: (phase) => progress.update(phase),
       });
+      // Clear the animated line before the report goes to stdout, so the two
+      // streams don't interleave mid-line.
+      progress.stop();
       printUpdateReport(result);
       const counts = updateResultCounts(result);
+      console.log(formatUpdateSummary(counts, progress.elapsedMs()));
       succeeded += counts.succeeded;
       failed += counts.failed;
     } catch (err) {
+      progress.stop();
       console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
       failed += 1;
     }

@@ -8,6 +8,7 @@ import { installPlugin } from "./install.ts";
 import { resolveDefaultDsl } from "../default-dsl.ts";
 import { ADG_MANIFEST_PATH } from "../manifest.ts";
 import { copyPluginDir, writeJson } from "../fsutil.ts";
+import type { UpdatePhase } from "../render/progress.ts";
 
 export interface UpdateResult {
   name: string;
@@ -22,6 +23,8 @@ export interface UpdateOptions {
   scope?: AgentScope;
   only?: string[];
   agents?: Agent[];
+  /** Progress sink; see AddOptions.onProgress. Emitting only, never printing. */
+  onProgress?: (phase: UpdatePhase) => void;
 }
 
 export interface UpdateLockResult {
@@ -45,8 +48,12 @@ export function updateLock(
   const missing: string[] = [];
   const changedNames: string[] = [];
 
+  const scheduled = Object.keys(snapshot.plugins).filter((name) => !only || only.has(name));
+  let localIndex = 0;
+
   for (const [name, entry] of Object.entries(snapshot.plugins)) {
     if (only && !only.has(name)) continue;
+    opts.onProgress?.({ kind: "local", index: ++localIndex, total: scheduled.length, plugin: name });
     const installedDir = installedPluginDir(pluginsDir, name, entry.origin);
     const resolvedSource = entry.origin.type === "local" ? resolve(pluginsDir, entry.origin.path) : undefined;
     const localSource = resolvedSource && resolvedSource !== resolve(installedDir)
@@ -113,7 +120,10 @@ export function updateLock(
   const out: UpdateLockResult = { results, missing };
   if (opts.resync && changedNames.length > 0) {
     const ctx = { pluginsDir, plugins: changedNames, scope: opts.scope ?? "project" };
-    out.agents = (opts.agents ?? resolveAgents()).map((agent) => agent.refresh(ctx));
+    out.agents = (opts.agents ?? resolveAgents()).map((agent) => {
+      opts.onProgress?.({ kind: "activate", agent: agent.id, count: changedNames.length });
+      return agent.refresh(ctx);
+    });
   }
   return out;
 }

@@ -65,6 +65,25 @@ const BOLD = '\x1b[1m';
 const DIM = '\x1b[38;5;102m';
 const TEXT = '\x1b[38;5;145m';
 
+// ADG patch: the per-source status line is *transient* on a TTY — it carries no
+// trailing newline so the next source overwrites it in place. That means the
+// cursor stays parked on it, and anything else written while a source is being
+// checked (an error line, a deletion warning, a clack prompt) would be
+// concatenated onto it. Every such site clears the line first via
+// `clearSourceStatus()`. Off a TTY the line is an ordinary log line and both
+// helpers degrade to plain behavior.
+function writeSourceStatus(source: string): void {
+  if (process.stdout.isTTY) {
+    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K`);
+  } else {
+    process.stdout.write(`Checking skills from source: ${source}\n`);
+  }
+}
+
+function clearSourceStatus(): void {
+  if (process.stdout.isTTY) process.stdout.write('\r\x1b[K');
+}
+
 // ============================================
 // Scope Detection and Prompt
 // ============================================
@@ -290,6 +309,9 @@ export async function checkAndPromptForDeletions(
   });
 
   if (deletedSkills.length > 0) {
+    // ADG patch: this warning and the confirm prompt below land while the
+    // transient per-source status line still owns the cursor.
+    clearSourceStatus();
     console.log();
     console.log(
       `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
@@ -376,7 +398,10 @@ export async function updateGlobalSkills(
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
-    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
+    // ADG patch: was terminated with \n despite the leading \r + clear-to-EOL,
+    // so every source left a permanent line behind and the cleanup below
+    // cleared an already blank line. See writeSourceStatus().
+    writeSourceStatus(source);
 
     try {
       const isGitHubSource = firstEntry.sourceType === 'github';
@@ -388,6 +413,7 @@ export async function updateGlobalSkills(
           // ADG patch: a private repo returns 404 to anon and fetchRepoTree now
           // retries with a token; reaching here means even that failed (no token
           // or no access). Record it so the summary is honest.
+          clearSourceStatus();
           console.log(
             `  ${DIM}✗ Could not check ${source} — private repo or no GitHub access.${RESET}`
           );
@@ -474,6 +500,7 @@ export async function updateGlobalSkills(
         }
       }
     } catch (error) {
+      clearSourceStatus();
       console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
       failedSources.push(source); // ADG patch: surface in the summary
     } finally {
@@ -481,9 +508,9 @@ export async function updateGlobalSkills(
     }
   }
 
-  if (checkable.length > 0) {
-    process.stdout.write('\r\x1b[K');
-  }
+  // ADG patch: only meaningful now that the status line above no longer ends in
+  // a newline — the cursor is actually parked on it. No-op off a TTY.
+  if (checkable.length > 0) clearSourceStatus();
 
   // ADG patch: persist any self-healed (normalized) hashes once.
   if (healed) {
