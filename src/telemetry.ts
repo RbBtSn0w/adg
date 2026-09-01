@@ -187,11 +187,46 @@ export function sanitizePath(path: string | undefined): string {
   return "[PATH]";
 }
 
+/**
+ * `adg <domain> <verb>` positionals safe to record verbatim: the two domains
+ * (`plugin(s)`/`skill(s)`/`update`) plus every `plugins` verb and alias
+ * (`test/telemetry.test.ts` asserts this stays a superset of `PLUGIN_COMMANDS`
+ * and `PLUGIN_ALIASES` in `src/cli/index.ts`, so a new verb can't silently
+ * fall through to `[VALUE]`).
+ */
+export const ADG_SAFE_POSITIONALS: ReadonlySet<string> = new Set([
+  "plugin",
+  "plugins",
+  "skill",
+  "skills",
+  "update",
+  "add",
+  "list",
+  "status",
+  "remove",
+  "disable",
+  "enable",
+  "init",
+  "adapt",
+  "validate",
+  "inspect",
+  "link",
+  "unlink",
+  "sync",
+  "migrate",
+  "marketplace",
+  "cache",
+  "import-skills",
+  // PLUGIN_ALIASES
+  "rm",
+  "mp",
+]);
+
 export function sanitizeArgs(args: string[]): string[] {
   const [executableName, ...rest] = args;
   const safePositionals: ReadonlySet<string> =
     executableName === "adg"
-      ? new Set(["plugin", "plugins", "skill", "skills", "update", "add", "remove", "sync", "list", "status", "inspect", "validate", "migrate", "cache", "marketplace", "link", "unlink", "enable", "disable", "import-skills"])
+      ? ADG_SAFE_POSITIONALS
       : executableName === "git"
         ? new Set(["clone", "fetch", "pull", "rev-parse", "ls-remote", "show", "init", "add", "commit", "sparse-checkout"])
         : executableName === "npm"
