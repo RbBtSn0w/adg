@@ -63,10 +63,20 @@ export type SlotAction =
    * the desired state is already actually true on disk. */
   | { kind: "skip-foreign"; reason: string };
 
-const FOREIGN_REASON = "a real, non-ADG-owned directory or file already exists at this path";
+/** Exported so tests assert against this exact string instead of duplicating it. */
+export const FOREIGN_REASON = "a real, non-ADG-owned directory or file already exists at this path";
 
+/**
+ * Only the variant's `kind` is included in the thrown message, never the
+ * full object: a `SlotObservation`/`SlotDesire`/`SlotAction` can carry a
+ * `target` (a filesystem path), and this path is meant to be unreachable —
+ * if it's ever hit anyway (a bug, or a caller bypassing the type checker),
+ * the error shouldn't be the thing that leaks a path into a log or an
+ * uncaught-exception report.
+ */
 function assertNever(x: never): never {
-  throw new Error(`unreachable projection state: ${JSON.stringify(x)}`);
+  const kind = typeof x === "object" && x !== null && "kind" in x ? String((x as { kind: unknown }).kind) : "unknown";
+  throw new Error(`unreachable projection state: ${kind}`);
 }
 
 export function reconcileSlot(desired: SlotDesire, observed: SlotObservation): SlotAction {

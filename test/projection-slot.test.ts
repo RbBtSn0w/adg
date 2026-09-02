@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { reconcileSlot, type SlotDesire, type SlotObservation, type SlotAction } from "../src/projection-slot.ts";
+import { reconcileSlot, FOREIGN_REASON, type SlotDesire, type SlotObservation, type SlotAction } from "../src/projection-slot.ts";
 
 const absentObs: SlotObservation = { kind: "absent" };
 const foreign: SlotObservation = { kind: "foreign" };
@@ -16,7 +16,7 @@ const noop: SlotAction = { kind: "noop" };
 const removeLink: SlotAction = { kind: "remove-link" };
 const createLink = (target: string): SlotAction => ({ kind: "create-link", target });
 const relink = (target: string): SlotAction => ({ kind: "relink", target });
-const skipForeign: SlotAction = { kind: "skip-foreign", reason: "a real, non-ADG-owned directory or file already exists at this path" };
+const skipForeign: SlotAction = { kind: "skip-foreign", reason: FOREIGN_REASON };
 
 // Full desired x observed matrix — see issue #85 finding #1: this is the
 // {scope, alias | in-place | copy-fallback, stale, foreign} coverage the
