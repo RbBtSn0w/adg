@@ -8,6 +8,7 @@ import {
   reconcileSlot,
   observeSlot,
   applySlotAction,
+  markOwned,
   OWNERSHIP_MARKER,
   FOREIGN_REASON,
   type SlotDesire,
@@ -497,6 +498,42 @@ test("observeSlot does not classify a spoofed symlink marker as owned-dir", () =
     symlinkSync(magicElsewhere, join(spoofed, OWNERSHIP_MARKER));
 
     assert.deepEqual(observeSlot(spoofed), { kind: "foreign" }, "a symlinked marker must not count as ownership, even with the correct content at the far end");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("markOwned marks a directory that observeSlot then classifies as owned-dir", () => {
+  const root = scratch();
+  try {
+    const dir = join(root, "legacy-adopt");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "payload.txt"), "kept");
+
+    markOwned(dir);
+
+    assert.deepEqual(observeSlot(dir), { kind: "owned-dir" });
+    assert.equal(readFileSync(join(dir, "payload.txt"), "utf8"), "kept");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("markOwned refuses to write through a pre-existing symlink at the marker path", () => {
+  // If .adg-owned already exists as a symlink (planted, or left over from
+  // something else), writeFileSync would follow it and overwrite whatever it
+  // points to. markOwned must refuse instead, mirroring the same anti-spoof
+  // check hasOwnershipMarker applies on read.
+  const root = scratch();
+  try {
+    const dir = join(root, "legacy-adopt-spoofed");
+    mkdirSync(dir);
+    const victim = join(root, "victim.txt");
+    writeFileSync(victim, "do not overwrite");
+    symlinkSync(victim, join(dir, OWNERSHIP_MARKER));
+
+    assert.throws(() => markOwned(dir));
+    assert.equal(readFileSync(victim, "utf8"), "do not overwrite");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

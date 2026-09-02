@@ -155,14 +155,31 @@ const OWNERSHIP_MARKER_MAGIC = "adg-projection-slot/v1\n";
  * `observeSlot` classifies it `owned-dir` exactly like a copy this module
  * created itself, and normal reconciliation can refresh or remove it.
  *
- * This function does not check anything on its own — the caller must already
- * have independently established that `path` is really ADG's before calling
- * it, the same way the old heuristic did. Calling it against content that
- * isn't ADG's plants a false ownership claim a later `remove-link`/`relink`
- * will then act on.
+ * This function does not check whether `path` itself is really ADG's — the
+ * caller must already have independently established that, the same way the
+ * old heuristic did; calling it against content that isn't ADG's plants a
+ * false ownership claim a later `remove-link`/`relink` will act on. It does
+ * guard the one thing it writes: if `.adg-owned` already exists and isn't a
+ * regular file (e.g. a symlink someone planted there), `writeFileSync` would
+ * follow it and overwrite whatever it points to, so this refuses instead —
+ * the same anti-spoofing check `hasOwnershipMarker` applies on read.
  */
 export function markOwned(path: string): void {
-  writeFileSync(join(path, OWNERSHIP_MARKER), OWNERSHIP_MARKER_MAGIC);
+  const markerPath = join(path, OWNERSHIP_MARKER);
+  let st;
+  try {
+    st = lstatSync(markerPath);
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    st = undefined; // absent — safe to create
+  }
+  if (st && !st.isFile()) {
+    throw new Error(
+      `refusing to mark ${path} as owned: ${markerPath} already exists and is not a regular file ` +
+        "— writing through it (e.g. a symlink) could overwrite unrelated content",
+    );
+  }
+  writeFileSync(markerPath, OWNERSHIP_MARKER_MAGIC);
 }
 
 function hasOwnershipMarker(path: string): boolean {
