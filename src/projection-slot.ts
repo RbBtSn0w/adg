@@ -136,11 +136,17 @@ export function reconcileSlot(desired: SlotDesire, observed: SlotObservation): S
 export const OWNERSHIP_MARKER = ".adg-owned";
 
 function hasOwnershipMarker(path: string): boolean {
-  try {
-    return existsSync(join(path, OWNERSHIP_MARKER));
-  } catch {
-    return false; // e.g. path is a file, not a directory — can't carry a marker
-  }
+  // existsSync never throws — it already reports any stat failure as false —
+  // so there's nothing here for a try/catch to add.
+  return existsSync(join(path, OWNERSHIP_MARKER));
+}
+
+/** Rethrow anything but "the path doesn't exist" — an EACCES/EPERM/ENOTDIR
+ * on lstat means something real is there and unreadable, not absent; letting
+ * a caller treat that as absent risks a write/removal against a path it
+ * couldn't actually stat. */
+function isEnoent(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 /** Classify what's actually at `path` on disk. Makes exactly one lstat, plus
@@ -149,7 +155,8 @@ export function observeSlot(path: string): SlotObservation {
   let st;
   try {
     st = lstatSync(path);
-  } catch {
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
     return { kind: "absent" };
   }
   if (st.isSymbolicLink()) {
@@ -186,7 +193,8 @@ function removeOwned(path: string): void {
   let st;
   try {
     st = lstatSync(path);
-  } catch {
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
     return; // already absent
   }
   if (st.isSymbolicLink()) {
@@ -201,6 +209,14 @@ function createLink(path: string, target: string, symlink: typeof symlinkSync): 
   try {
     symlink(relative(dirname(path), target), path, "dir");
   } catch {
+    // Matches `linkOrCopy` in agents/antigravity.ts, which this replaces in
+    // Phase 3. Note `dereference: true` would NOT make this more robust
+    // against a symlink *inside* `target`: as of Node 25 it has no effect on
+    // symlinks nested in a recursive directory copy (verified — they are
+    // recreated as symlinks with or without it), so it would only add a
+    // claim the flag doesn't deliver. Hardening the fallback against nested
+    // symlinks is a behavior change, not a port, and belongs with the real
+    // call sites in Phase 3.
     cpSync(target, path, { recursive: true });
     writeFileSync(join(path, OWNERSHIP_MARKER), "");
   }

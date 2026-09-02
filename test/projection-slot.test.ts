@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, chmodSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -277,6 +277,52 @@ test("observe -> reconcile -> apply cleans up a copy-fallback alias once it's no
 
     assert.deepEqual(action, { kind: "remove-link" });
     assert.deepEqual(observeSlot(slot), { kind: "absent" }, "stale copy-fallback content must not survive");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observeSlot rethrows a non-ENOENT lstat failure instead of reporting absent", () => {
+  const root = scratch();
+  try {
+    const blockedDir = join(root, "blocked");
+    mkdirSync(blockedDir);
+    const inaccessible = join(blockedDir, "child");
+    writeFileSync(inaccessible, "content");
+    // Strip execute permission on the parent so lstat on the child fails with
+    // EACCES rather than ENOENT — a real "something's there but I can't see
+    // it" failure, not "nothing's there".
+    chmodSync(blockedDir, 0o000);
+    try {
+      assert.throws(() => observeSlot(inaccessible), /EACCES|EPERM/);
+    } finally {
+      chmodSync(blockedDir, 0o755); // restore before cleanup can recurse into it
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Documents actual Node behavior the copy-fallback inherits: a symlink
+// nested inside the copied target is recreated as a symlink, and
+// `dereference: true` does not change that (verified on Node 25 with and
+// without the flag). Pinned here so a future change to the fallback's copy
+// semantics is a deliberate decision rather than an accident.
+test("applySlotAction copy-fallback recreates a symlink nested inside the target", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    symlinkSync(join(target, "hello", "SKILL.md"), join(target, "hello", "linked.md"));
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+
+    applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink });
+
+    const copiedLink = join(slot, "hello", "linked.md");
+    assert.equal(lstatSync(copiedLink).isSymbolicLink(), true);
+    assert.equal(readFileSync(copiedLink, "utf8"), "content", "and it still resolves to the right content");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
