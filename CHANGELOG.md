@@ -1,3 +1,21 @@
+## [0.8.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.1...0.8.0-beta.2) (2026-09-02)
+
+### Added
+
+* **projection:** add observeSlot/applySlotAction IO layer (Phase 2 of [#85](https://github.com/RbBtSn0w/adg/issues/85) finding [#1](https://github.com/RbBtSn0w/adg/issues/1)) ([6b4625b](https://github.com/RbBtSn0w/adg/commit/6b4625ba020fa02e939bd39cc66151b0b3481549))
+
+### Fixed
+
+* **projection:** give removeOwned a clear refusal for a plain file, not a raw ENOTDIR ([98878a9](https://github.com/RbBtSn0w/adg/commit/98878a905d310e475c73be3f2ab0d626fe185c81))
+* **projection:** guard the copy-fallback against pre-existing content and write the ownership marker before copying ([0ec3c85](https://github.com/RbBtSn0w/adg/commit/0ec3c8585003349c737eba10aa350f8e382851f5))
+* **projection:** rethrow non-ENOENT stat failures in the slot IO layer ([26e9785](https://github.com/RbBtSn0w/adg/commit/26e9785c772605f1d4552530ba53ed463fcf9633))
+* **projection:** stop existsSync-swallowed errors from misreporting broken links, harden the ownership marker, and re-check before deleting ([fb21d1b](https://github.com/RbBtSn0w/adg/commit/fb21d1b44d5d162a882c640fc99d0a712c07da0d))
+* **projection:** stop the marker from being clobbered or spoofed ([1734fc0](https://github.com/RbBtSn0w/adg/commit/1734fc0f68b454887d95f53c49addb2a93ddf464))
+
+### Changed
+
+* **projection:** correct observeSlot's doc comment to mention the marker read ([3fda86f](https://github.com/RbBtSn0w/adg/commit/3fda86ff8d89cab21df9aa88c2c1d86f84890718))
+
 ## [0.8.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.2-beta.2...0.8.0-beta.1) (2026-09-02)
 
 ### Added
