@@ -1,3 +1,14 @@
+## [0.8.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.2-beta.2...0.8.0-beta.1) (2026-09-02)
+
+### Added
+
+* **projection:** add pure projection-slot decision model (Phase 1 of [#85](https://github.com/RbBtSn0w/adg/issues/85) finding [#1](https://github.com/RbBtSn0w/adg/issues/1)) ([195b49f](https://github.com/RbBtSn0w/adg/commit/195b49fa0290bb99ea949a53ed96f5cff87d365c))
+
+### Fixed
+
+* **projection:** distinguish confirmed-absent from foreign-blocked-removal ([08092dd](https://github.com/RbBtSn0w/adg/commit/08092dd6005c80c07afcea9fbda72e8d9a8f236d))
+* **projection:** stop assertNever from leaking a full state object ([32ce252](https://github.com/RbBtSn0w/adg/commit/32ce252015f1e6b36879b44d01f8b84e1772f351))
+
 ## [0.7.2-beta.2](https://github.com/RbBtSn0w/adg/compare/0.7.2-beta.1...0.7.2-beta.2) (2026-09-02)
 
 ### Fixed
