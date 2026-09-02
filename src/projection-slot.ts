@@ -192,8 +192,12 @@ export interface ObserveSlotOptions {
   stat?: typeof statSync;
 }
 
-/** Classify what's actually at `path` on disk. Makes exactly one lstat, plus
- * (for a symlink) a follow-up stat of the target to determine `broken`. */
+/**
+ * Classify what's actually at `path` on disk: one lstat, plus a follow-up
+ * stat of the target to determine `broken` for a symlink, or a read of the
+ * ownership marker file to distinguish `owned-dir` from `foreign` for a real
+ * directory.
+ */
 export function observeSlot(path: string, opts: ObserveSlotOptions = {}): SlotObservation {
   const lstat = opts.lstat ?? lstatSync;
   const stat = opts.stat ?? statSync;
