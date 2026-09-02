@@ -22,7 +22,11 @@
  * nothing in the codebase calls `reconcileSlot` yet.
  */
 
-/** What's actually at a slot's path, as classified by a single lstat. */
+/**
+ * What's actually at a slot's path. `absent`/`owned-dir`/`foreign` are
+ * classified from a single lstat; `symlink.broken` additionally requires
+ * resolving the link's target (an lstat alone can't tell whether it dangles).
+ */
 export type SlotObservation =
   | { kind: "absent" }
   | { kind: "symlink"; target: string; broken: boolean }
@@ -50,9 +54,13 @@ export type SlotAction =
    * stale — remove whatever's there and create fresh. */
   | { kind: "relink"; target: string }
   | { kind: "remove-link" }
-  /** Desired something, but foreign content blocks it. Never destructive;
-   * `reason` is a stable, generic message — callers add path/name context
-   * when surfacing it (see the existing warning in `exposeAt`). */
+  /** Foreign content occupies the slot, so nothing was (or could be) done —
+   * whether the desire was to create/refresh a link there, or for the slot
+   * to end up absent (foreign content isn't ours to remove, so "absent"
+   * can't be confirmed either). Never destructive; `reason` is a stable,
+   * generic message — callers add path/name context when surfacing it (see
+   * the existing warning in `exposeAt`). Distinct from `noop`, which means
+   * the desired state is already actually true on disk. */
   | { kind: "skip-foreign"; reason: string };
 
 const FOREIGN_REASON = "a real, non-ADG-owned directory or file already exists at this path";
@@ -69,7 +77,7 @@ export function reconcileSlot(desired: SlotDesire, observed: SlotObservation): S
       case "absent": return { kind: "noop" };
       case "symlink": return { kind: "remove-link" };
       case "owned-dir": return { kind: "remove-link" };
-      case "foreign": return { kind: "noop" }; // not ours; nothing to do
+      case "foreign": return { kind: "skip-foreign", reason: FOREIGN_REASON }; // not ours; can't confirm "absent"
       default: return assertNever(observed);
     }
   }

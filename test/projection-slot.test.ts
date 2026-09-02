@@ -28,7 +28,7 @@ const CASES: Array<{ name: string; desired: SlotDesire; observed: SlotObservatio
   { name: "wanted gone, our symlink is there", desired: absent, observed: symlink("/real/a"), expect: removeLink },
   { name: "wanted gone, our broken symlink is there", desired: absent, observed: symlink("/real/a", true), expect: removeLink },
   { name: "wanted gone, an owned copy-fallback dir is there", desired: absent, observed: ownedDir, expect: removeLink },
-  { name: "wanted gone, foreign content is there — never touched", desired: absent, observed: foreign, expect: noop },
+  { name: "wanted gone, foreign content is there — never touched, can't confirm absent", desired: absent, observed: foreign, expect: skipForeign },
 
   // desired: linked(target)
   { name: "wanted, nothing there yet", desired: linked("/real/a"), observed: absentObs, expect: createLink("/real/a") },
