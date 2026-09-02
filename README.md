@@ -462,11 +462,13 @@ Debugging tips:
 ## Telemetry
 
 `adg` sends anonymous OpenTelemetry usage spans (command names, outcomes,
-timings) to a maintainer-run gateway on Cloudflare Workers by default. No
-file paths, command arguments, or other identifying values are ever included:
+timings) to `https://telemetry-gateway.hamiltonsnow.workers.dev`, a
+maintainer-run gateway on Cloudflare Workers, by default. A sanitized command
+*shape* is included in each span (e.g. `adg plugins add [VALUE] [FLAG]`) —
 [`sanitizeArgs`](src/telemetry.ts) reduces every command line to its
-subcommand skeleton, redacting every positional value — including paths — to
-`[VALUE]` (e.g. `adg plugins add [VALUE] [FLAG]`) before it can reach a span.
+subcommand skeleton, redacting every positional value, including file paths,
+to `[VALUE]` before it can reach a span. The literal argument values
+themselves — plugin names, sources, paths — are never included.
 
 Opt out with any of:
 
