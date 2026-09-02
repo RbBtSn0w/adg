@@ -148,8 +148,14 @@ export const OWNERSHIP_MARKER = ".adg-owned";
 const OWNERSHIP_MARKER_MAGIC = "adg-projection-slot/v1\n";
 
 function hasOwnershipMarker(path: string): boolean {
+  const markerPath = join(path, OWNERSHIP_MARKER);
   try {
-    return readFileSync(join(path, OWNERSHIP_MARKER), "utf8") === OWNERSHIP_MARKER_MAGIC;
+    // lstat first, not just readFileSync (which follows symlinks): a
+    // foreign directory could plant `.adg-owned` as a symlink to some other
+    // file that happens to contain the magic string, spoofing ownership.
+    // Require the marker to be a real, non-symlink regular file.
+    if (!lstatSync(markerPath).isFile()) return false;
+    return readFileSync(markerPath, "utf8") === OWNERSHIP_MARKER_MAGIC;
   } catch (error) {
     if (!isEnoent(error)) throw error;
     return false;
@@ -307,17 +313,26 @@ function createLink(path: string, target: string, symlink: typeof symlinkSync, c
   // symlinks is a behavior change, not a port, and belongs with the real
   // call sites in Phase 3.
   //
-  // Marker written BEFORE the (potentially large, potentially failing)
-  // recursive copy, not after: if cpSync throws partway through — or the
-  // process is killed outright, which no catch/finally can run for — the
-  // marker has already landed, so the next observeSlot classifies the
-  // partial directory as owned-dir (reclaimable via relink) rather than
-  // foreign (unrecoverable by ADG; cpSync's own merge-into-existing-dir
-  // behavior, verified separately, is what makes writing the marker first
-  // safe here).
+  // Marker written both before AND after the (potentially large, potentially
+  // failing) recursive copy — each half guards a different failure:
+  //  - Before: if cp throws partway through, or the process is killed
+  //    outright (no catch/finally runs for that case either way), the
+  //    marker has already landed, so the next observeSlot classifies the
+  //    partial directory as owned-dir (reclaimable via relink) rather than
+  //    foreign (unrecoverable by ADG). Relies on cp merging into an
+  //    already-existing destination directory rather than erroring —
+  //    verified separately.
+  //  - After: if `target` itself contains a root-level file also named
+  //    OWNERSHIP_MARKER, cp overwrites our just-written marker with that
+  //    file's content when it copies target's own tree — verified directly
+  //    (cpSync does overwrite a same-named destination file with the
+  //    source's version). Rewriting after a successful copy guarantees the
+  //    final on-disk marker is ours regardless of what target contained.
+  const markerPath = join(path, OWNERSHIP_MARKER);
   mkdirSync(path);
-  writeFileSync(join(path, OWNERSHIP_MARKER), OWNERSHIP_MARKER_MAGIC);
+  writeFileSync(markerPath, OWNERSHIP_MARKER_MAGIC);
   cp(target, path, { recursive: true });
+  writeFileSync(markerPath, OWNERSHIP_MARKER_MAGIC);
 }
 
 /** Perform the action `reconcileSlot` decided on at `path`. The only function

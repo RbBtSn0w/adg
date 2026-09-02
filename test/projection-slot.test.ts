@@ -435,3 +435,52 @@ test("applySlotAction copy-fallback marks the directory before copying, so a mid
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("applySlotAction copy-fallback marker survives a target that happens to contain its own same-named file", () => {
+  // cpSync overwrites a same-named destination file with the source's
+  // version (verified directly) — so if `target`'s own tree has a root-level
+  // file also named OWNERSHIP_MARKER, copying it would clobber our
+  // just-written marker unless it's rewritten after the copy too.
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    writeFileSync(join(target, OWNERSHIP_MARKER), "not our marker, just a coincidence");
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+
+    applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink });
+
+    assert.deepEqual(observeSlot(slot), { kind: "owned-dir" }, "our marker must survive being overwritten by the source's own same-named file");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observeSlot does not classify a spoofed symlink marker as owned-dir", () => {
+  // hasOwnershipMarker must require the marker to be a real (non-symlink)
+  // file with the exact magic content — otherwise a foreign directory could
+  // plant .adg-owned as a symlink to any file containing that content and
+  // get treated as ADG-owned (and later deleted by remove-link/relink).
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const genuine = join(root, "genuine");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(genuine, { kind: "create-link", target }, { symlink: throwingSymlink });
+    const magicContent = readFileSync(join(genuine, OWNERSHIP_MARKER), "utf8");
+    const magicElsewhere = join(root, "magic-elsewhere.txt");
+    writeFileSync(magicElsewhere, magicContent);
+
+    const spoofed = join(root, "spoofed");
+    mkdirSync(spoofed);
+    symlinkSync(magicElsewhere, join(spoofed, OWNERSHIP_MARKER));
+
+    assert.deepEqual(observeSlot(spoofed), { kind: "foreign" }, "a symlinked marker must not count as ownership, even with the correct content at the far end");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
