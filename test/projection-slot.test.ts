@@ -282,7 +282,14 @@ test("observe -> reconcile -> apply cleans up a copy-fallback alias once it's no
   }
 });
 
-test("observeSlot rethrows a non-ENOENT lstat failure instead of reporting absent", () => {
+// POSIX-only: Windows `chmod` maps to the read-only attribute and doesn't
+// strip directory traverse permission, so lstat there simply succeeds and
+// there is no non-ENOENT failure to provoke this way. The rethrow logic
+// itself is platform-independent; this proves it where the OS can express
+// the condition.
+test("observeSlot rethrows a non-ENOENT lstat failure instead of reporting absent", {
+  skip: process.platform === "win32" ? "POSIX permission semantics" : false,
+}, () => {
   const root = scratch();
   try {
     const blockedDir = join(root, "blocked");
