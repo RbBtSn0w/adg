@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, statSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -252,18 +252,25 @@ test("applySlotAction remove-link refuses to delete a real directory that isn't 
   }
 });
 
+function syntheticError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`simulated ${code}`), { code });
+}
+
 test("observeSlot rethrows a non-ENOENT stat failure on a symlink's target, not just the initial lstat", () => {
-  // Cross-platform non-ENOENT provocation: a path *under a plain file* is
-  // untraversable on every OS (ENOTDIR), unlike chmod-based permission
-  // failures, which Windows doesn't express the same way (see the sibling
-  // test below).
+  // Two OS-dependent provocations were tried and both proved unreliable on
+  // Windows CI (a chmod-based EACCES, and an ENOTDIR from nesting a path
+  // under a plain file — Windows reported neither the way POSIX does).
+  // Inject a synthetic error instead: it exercises the exact same rethrow
+  // branch without depending on any platform's errno behavior.
   const root = scratch();
   try {
-    const blocker = join(root, "blocker-file");
-    writeFileSync(blocker, "not a directory");
+    const target = makeRealTarget(root);
     const link = join(root, "link");
-    symlinkSync(join(blocker, "unreachable-child"), link);
-    assert.throws(() => observeSlot(link), /ENOTDIR/);
+    symlinkSync(target, link, "dir");
+    const throwingStat: typeof statSync = () => {
+      throw syntheticError("EACCES");
+    };
+    assert.throws(() => observeSlot(link, { stat: throwingStat }), /EACCES/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -331,17 +338,16 @@ test("observe -> reconcile -> apply cleans up a copy-fallback alias once it's no
 });
 
 test("observeSlot rethrows a non-ENOENT lstat failure instead of reporting absent", () => {
-  // A path under a plain file is untraversable on every OS (ENOTDIR) — a
-  // deterministic, cross-platform way to provoke a real "something's there
-  // but I can't stat through it" failure, distinct from "nothing's there".
-  // (A chmod-based EACCES provocation was tried first and dropped: Windows
-  // CI failed it outright, since chmod there doesn't strip directory
-  // traverse permission the way POSIX permission bits do.)
+  // See the injected-error comment on ObserveSlotOptions: two OS-dependent
+  // provocations (chmod-based EACCES, an ENOTDIR from a path under a plain
+  // file) were both tried and both failed on Windows CI, so this injects a
+  // synthetic error instead of depending on platform errno behavior.
   const root = scratch();
   try {
-    const blocker = join(root, "blocker-file");
-    writeFileSync(blocker, "not a directory");
-    assert.throws(() => observeSlot(join(blocker, "unreachable-child")), /ENOTDIR/);
+    const throwingLstat: typeof lstatSync = () => {
+      throw syntheticError("EACCES");
+    };
+    assert.throws(() => observeSlot(join(root, "somewhere"), { lstat: throwingLstat }), /EACCES/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

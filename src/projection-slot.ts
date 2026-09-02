@@ -164,9 +164,9 @@ function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-function isBrokenLink(path: string): boolean {
+function isBrokenLink(path: string, stat: typeof statSync): boolean {
   try {
-    statSync(path); // follows the link
+    stat(path); // follows the link
     return false;
   } catch (error) {
     if (!isEnoent(error)) throw error;
@@ -174,12 +174,32 @@ function isBrokenLink(path: string): boolean {
   }
 }
 
+export interface ObserveSlotOptions {
+  /**
+   * Injectable so the rethrow-non-ENOENT paths can be tested deterministically,
+   * without depending on an OS to actually produce a non-ENOENT stat failure.
+   * Two attempts at that were tried and both failed on Windows CI: chmod-based
+   * EACCES (Windows doesn't strip directory traverse permission the way POSIX
+   * permission bits do) and a path nested under a plain file, expecting
+   * ENOTDIR (Windows apparently reports a different errno for that shape —
+   * the assertion saw no exception at all, meaning it resolved as ENOENT
+   * there). Rather than keep guessing at Windows errno behavior this session
+   * can't verify directly, the rethrow logic is exercised by injecting a stub
+   * that throws a synthetic non-ENOENT error, on every platform alike.
+   * Default to the real `lstatSync`/`statSync`.
+   */
+  lstat?: typeof lstatSync;
+  stat?: typeof statSync;
+}
+
 /** Classify what's actually at `path` on disk. Makes exactly one lstat, plus
  * (for a symlink) a follow-up stat of the target to determine `broken`. */
-export function observeSlot(path: string): SlotObservation {
+export function observeSlot(path: string, opts: ObserveSlotOptions = {}): SlotObservation {
+  const lstat = opts.lstat ?? lstatSync;
+  const stat = opts.stat ?? statSync;
   let st;
   try {
-    st = lstatSync(path);
+    st = lstat(path);
   } catch (error) {
     if (!isEnoent(error)) throw error;
     return { kind: "absent" };
@@ -188,11 +208,11 @@ export function observeSlot(path: string): SlotObservation {
     return {
       kind: "symlink",
       target: resolve(dirname(path), readlinkSync(path)),
-      // statSync (follows the link), not existsSync: existsSync reports any
+      // stat (follows the link), not existsSync: existsSync reports any
       // failure as false, so an EACCES/EPERM on the target would be read as
       // "broken" and drive a destructive relink. Only ENOENT means broken;
       // anything else rethrows, same as the lstat above.
-      broken: isBrokenLink(path),
+      broken: isBrokenLink(path, stat),
     };
   }
   if (st.isDirectory() && hasOwnershipMarker(path)) {
