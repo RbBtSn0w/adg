@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, existsSync, lstatSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { ADAPTERS, ADAPTER_TARGETS, ADAPTER_COMPONENTS, toAntigravityManifest } from "../src/adapters/index.ts";
 import { antigravityAgent, antigravityGlobalPluginsDir, ensureAntigravityRoot } from "../src/agents/antigravity.ts";
+import { applySlotAction } from "../src/projection-slot.ts";
 import { writeLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
@@ -450,6 +451,38 @@ test("ensureAntigravityRoot aliases a non-convention component dir to its conven
   }
 });
 
+test("ensureAntigravityRoot refuses to overwrite real, non-ADG content at a convention alias slot", () => {
+  // Reproduces issue #85 finding #1: the pre-projection-slot `linkOrCopy`
+  // unconditionally `rmSync`'d whatever sat at the alias path before creating
+  // the alias, with no check for foreign content. A manifest declaring a
+  // non-convention source dir (here `agents: "./bots/"`) combined with real,
+  // unrelated content already sitting at the convention slot (`<dir>/agents`)
+  // would silently destroy that content. The projection-slot pipeline must
+  // recognize it as foreign and leave it untouched instead.
+  const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
+  try {
+    writePlugin(dir, {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "clobber-guard",
+      version: "0.1.0",
+      description: "non-convention agents dir with a foreign collision",
+      agents: "./bots/",
+    });
+    mkdirSync(join(dir, "bots"), { recursive: true });
+    writeFileSync(join(dir, "bots", "a.md"), "# a");
+    // Foreign, unmanaged content already occupies the convention alias slot.
+    mkdirSync(join(dir, "agents"), { recursive: true });
+    writeFileSync(join(dir, "agents", "user-data.txt"), "do not delete");
+
+    ensureAntigravityRoot(dir);
+
+    assert.equal(readFileSync(join(dir, "agents", "user-data.txt"), "utf8"), "do not delete");
+    assert.ok(!existsSync(join(dir, "agents", "a.md")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ensureAntigravityRoot removes the generated MCP config when mcp is not exposed", () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-agy-"));
   try {
@@ -613,6 +646,118 @@ test("activate refuses to overwrite a non-ADG real directory in the global scan 
     });
   } finally {
     rmSync(globalStore, { recursive: true, force: true });
+  }
+});
+
+test("activate adopts a pre-projection-slot copy-fallback exposure instead of leaving it foreign forever", () => {
+  const globalStore = mkdtempSync(join(tmpdir(), "adg-agy-legacy-"));
+  try {
+    const gdir = seedStore(globalStore, "asc", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "asc",
+      version: "1.0.0",
+      description: "ASC",
+      skills: "./skills/",
+    });
+    mkdirSync(join(gdir, "skills", "s"), { recursive: true });
+    writeFileSync(join(gdir, "skills", "s", "SKILL.md"), "# s (real)");
+
+    withGemini((gemini) => {
+      // Simulate a copy-fallback exposure created by the pre-Phase-3 code: a
+      // full cpSync of the real store dir, so it carries both the agy
+      // manifest AND ADG's own source manifest (the evidence a full copy of
+      // realDir would genuinely have) — but no `.adg-owned` marker (that
+      // heuristic didn't exist yet).
+      const exposed = join(gemini, "config", "plugins", "asc");
+      mkdirSync(exposed, { recursive: true });
+      writeFileSync(join(exposed, "plugin.json"), JSON.stringify({ name: "asc" }));
+      writePlugin(exposed, { schemaVersion: ADG_SCHEMA_VERSION, name: "asc", version: "1.0.0", description: "ASC" });
+      writeFileSync(join(exposed, "stale.txt"), "stale copy content");
+
+      const res = antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
+
+      // Adopted and refreshed, not left as a permanent foreign skip.
+      assert.deepEqual(res.affected, ["asc"]);
+      assert.ok(!existsSync(join(exposed, "stale.txt")));
+      assert.equal(readFileSync(join(exposed, "skills", "s", "SKILL.md"), "utf8"), "# s (real)");
+    });
+  } finally {
+    rmSync(globalStore, { recursive: true, force: true });
+  }
+});
+
+test("activate does not adopt an unrelated, same-named directory that only looks like Antigravity's own format", () => {
+  // Guards the exact collision Copilot flagged: a root plugin.json alone is
+  // just Antigravity's own plugin format, not evidence of ADG ownership — a
+  // user-managed Antigravity plugin coincidentally sharing a name with an
+  // ADG-managed one, sitting at the same scan slot, must never be adopted
+  // (and thus never relinked/deleted) on that signal alone.
+  const globalStore = mkdtempSync(join(tmpdir(), "adg-agy-legacy-collision-"));
+  try {
+    seedStore(globalStore, "asc", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "asc",
+      version: "1.0.0",
+      description: "ASC",
+      skills: "./skills/",
+    });
+
+    withGemini((gemini) => {
+      const exposed = join(gemini, "config", "plugins", "asc");
+      mkdirSync(exposed, { recursive: true });
+      // A real, user-managed Antigravity plugin: root plugin.json, but no
+      // ADG source manifest anywhere inside — nothing an ADG copy would lack.
+      writeFileSync(join(exposed, "plugin.json"), JSON.stringify({ name: "asc" }));
+      writeFileSync(join(exposed, "user-owned.txt"), "do not touch");
+
+      const res = antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
+
+      assert.deepEqual(res.affected, []); // left alone, not adopted
+      assert.equal(readFileSync(join(exposed, "user-owned.txt"), "utf8"), "do not touch");
+    });
+  } finally {
+    rmSync(globalStore, { recursive: true, force: true });
+  }
+});
+
+test("deactivate removes a nested owned-dir alias copy without touching the real source it aliases", () => {
+  // Guards the realDir-branch loop in removeProjection: a convention-field
+  // slot inside the store dir can itself be an owned-dir copy-fallback (when
+  // the manifest declares a non-convention source and symlinks are
+  // unavailable). Tearing that copy down must never reach the real source
+  // dir it was aliasing — they are different paths on disk.
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-nested-owned-"));
+  try {
+    const dir = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "demo",
+      version: "1.0.0",
+      description: "Demo",
+      agents: "./bots/",
+    });
+    mkdirSync(join(dir, "bots"), { recursive: true });
+    writeFileSync(join(dir, "bots", "a.md"), "# a (real source)");
+
+    // Force the copy-fallback path (as if symlink privilege were unavailable)
+    // to create a genuine, correctly-marked owned-dir alias at <dir>/agents.
+    const noSymlinkPrivilege = () => {
+      throw new Error("no symlink privilege");
+    };
+    applySlotAction(
+      join(dir, "agents"),
+      { kind: "create-link", target: resolve(join(dir, "bots")) },
+      { symlink: noSymlinkPrivilege },
+    );
+    assert.equal(readFileSync(join(dir, "agents", "a.md"), "utf8"), "# a (real source)"); // the copy landed
+
+    withGemini(() => {
+      antigravityAgent.deactivate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+    });
+
+    assert.ok(!existsSync(join(dir, "agents"))); // the regenerable alias copy is gone
+    assert.equal(readFileSync(join(dir, "bots", "a.md"), "utf8"), "# a (real source)"); // the real source survives
+  } finally {
+    rmSync(store, { recursive: true, force: true });
   }
 });
 

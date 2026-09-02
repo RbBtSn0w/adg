@@ -147,6 +147,54 @@ export const OWNERSHIP_MARKER = ".adg-owned";
  */
 const OWNERSHIP_MARKER_MAGIC = "adg-projection-slot/v1\n";
 
+/**
+ * Mark `path` as ADG-owned without going through `applySlotAction` — for
+ * adopting a directory that predates this module and was recognized as ADG's
+ * by some other, now-retired signal (e.g. Antigravity's pre-Phase-3 heuristic:
+ * a root `plugin.json` inside a copy-fallback exposure). Once marked, a later
+ * `observeSlot` classifies it `owned-dir` exactly like a copy this module
+ * created itself, and normal reconciliation can refresh or remove it.
+ *
+ * This function does not check whether `path` itself is really ADG's — the
+ * caller must already have independently established that, the same way the
+ * old heuristic did; calling it against content that isn't ADG's plants a
+ * false ownership claim a later `remove-link`/`relink` will act on. It does
+ * guard the one thing it writes, the marker file itself, against two ways of
+ * losing existing content there: if `.adg-owned` already exists and isn't a
+ * regular file (e.g. a symlink someone planted there), `writeFileSync` would
+ * follow it and overwrite whatever it points to — the same anti-spoofing
+ * check `hasOwnershipMarker` applies on read — so this refuses. And if it IS
+ * a regular file, its content decides: already the exact marker content is a
+ * no-op (idempotent — adopting an already-owned directory twice is normal),
+ * anything else is refused rather than silently clobbered (a real directory
+ * being adopted could coincidentally already contain an unrelated file with
+ * this exact name).
+ */
+export function markOwned(path: string): void {
+  const markerPath = join(path, OWNERSHIP_MARKER);
+  let st: ReturnType<typeof lstatSync> | undefined;
+  try {
+    st = lstatSync(markerPath);
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    st = undefined; // absent — safe to create
+  }
+  if (st) {
+    if (!st.isFile()) {
+      throw new Error(
+        `refusing to mark ${path} as owned: ${markerPath} already exists and is not a regular file ` +
+          "— writing through it (e.g. a symlink) could overwrite unrelated content",
+      );
+    }
+    if (readFileSync(markerPath, "utf8") === OWNERSHIP_MARKER_MAGIC) return; // already marked — idempotent
+    throw new Error(
+      `refusing to mark ${path} as owned: ${markerPath} already exists with unexpected content — ` +
+        "refusing to overwrite what may be unrelated data",
+    );
+  }
+  writeFileSync(markerPath, OWNERSHIP_MARKER_MAGIC);
+}
+
 function hasOwnershipMarker(path: string): boolean {
   const markerPath = join(path, OWNERSHIP_MARKER);
   try {
