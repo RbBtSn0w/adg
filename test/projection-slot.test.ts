@@ -519,6 +519,47 @@ test("markOwned marks a directory that observeSlot then classifies as owned-dir"
   }
 });
 
+test("markOwned is idempotent when the marker already has the correct content", () => {
+  const root = scratch();
+  try {
+    // Get genuine marker content the same way applySlotAction produces it,
+    // rather than duplicating the private magic string in this test.
+    const genuineTarget = makeRealTarget(root);
+    const genuine = join(root, "genuine");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(genuine, { kind: "create-link", target: genuineTarget }, { symlink: throwingSymlink });
+    const magicContent = readFileSync(join(genuine, OWNERSHIP_MARKER), "utf8");
+
+    const dir = join(root, "already-owned");
+    mkdirSync(dir);
+    writeFileSync(join(dir, OWNERSHIP_MARKER), magicContent);
+
+    assert.doesNotThrow(() => markOwned(dir));
+    assert.equal(readFileSync(join(dir, OWNERSHIP_MARKER), "utf8"), magicContent);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("markOwned refuses to overwrite a regular marker file with unexpected content", () => {
+  // Adopting a real directory that coincidentally already contains an
+  // unrelated file named .adg-owned must not silently clobber it — only the
+  // exact magic content (already-owned) or absence is safe to proceed past.
+  const root = scratch();
+  try {
+    const dir = join(root, "legacy-adopt-collision");
+    mkdirSync(dir);
+    writeFileSync(join(dir, OWNERSHIP_MARKER), "unrelated pre-existing content");
+
+    assert.throws(() => markOwned(dir));
+    assert.equal(readFileSync(join(dir, OWNERSHIP_MARKER), "utf8"), "unrelated pre-existing content");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("markOwned refuses to write through a pre-existing symlink at the marker path", () => {
   // If .adg-owned already exists as a symlink (planted, or left over from
   // something else), writeFileSync would follow it and overwrite whatever it
