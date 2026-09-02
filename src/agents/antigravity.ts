@@ -1,6 +1,6 @@
-import { cpSync, existsSync, lstatSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { ensureDir, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { isExposed } from "../components.ts";
@@ -8,6 +8,7 @@ import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { toAntigravityManifest, writeAntigravityMcpConfig } from "../adapters/antigravity.ts";
 import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
+import { applySlotAction, markOwned, observeSlot, reconcileSlot, type SlotDesire } from "../projection-slot.ts";
 import { skippedResult } from "./base.ts";
 import { resolveSelectionDependencies, type AdgManifest, type ComponentType, type PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
@@ -43,6 +44,12 @@ import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
  * `["./skills/one","./extra/two"]` — only the `skills/` root is exposed; `extra/`
  * is not). These would require a separate self-contained projection dir, which the
  * in-place model deliberately avoids; the full canonical dirs are read in place.
+ *
+ * Every alias/exposure path here is a "projection slot": deciding whether it's
+ * safe to (re)create, relink, or remove one, and actually doing so, is delegated
+ * to `../projection-slot.ts` (`reconcileSlot`/`observeSlot`/`applySlotAction`)
+ * rather than re-derived ad hoc — see that module's doc and
+ * https://github.com/RbBtSn0w/adg/issues/85 finding #1 for why.
  */
 
 const ID = "antigravity";
@@ -88,36 +95,21 @@ function antigravityScanDir(ctx: AgentContext, env: NodeJS.ProcessEnv = process.
 }
 
 /**
- * Symlink `linkPath` at `absTarget` (target stored relative so the link survives
- * a move), copying instead where symlinks are unavailable (e.g. Windows without
- * privilege). Idempotent.
+ * Reconcile `path` to `desired` via the shared projection-slot pipeline
+ * (`src/projection-slot.ts`): observe what's actually there, decide the
+ * action, apply it. `warn`, when given, is called (with no arguments — the
+ * caller already has `path` in scope for its message) when the desired state
+ * can't be reached because real, non-ADG-owned content already occupies
+ * `path` — never destructive.
  */
-function linkOrCopy(linkPath: string, absTarget: string): void {
-  rmSync(linkPath, { recursive: true, force: true });
-  ensureDir(dirname(linkPath));
-  try {
-    symlinkSync(relative(dirname(linkPath), absTarget), linkPath, "dir");
-  } catch {
-    cpSync(absTarget, linkPath, { recursive: true });
+function reconcile(path: string, desired: SlotDesire, warn?: () => void): boolean {
+  const action = reconcileSlot(desired, observeSlot(path));
+  if (action.kind === "skip-foreign") {
+    warn?.();
+    return false;
   }
-}
-
-/**
- * Remove `path` when it is a symlink — including a *broken* one. `lstatSync` (in a
- * `try`) is used rather than `existsSync`, which follows the link and reports false
- * for a dangling alias, leaving it on disk. Removal uses `unlinkSync`, not
- * `rmSync(..., { force: true })`: on Node < 24 the latter follows the link, hits
- * `ENOENT`, and the `force` flag then swallows it without unlinking the symlink.
- * A real file/dir is left untouched.
- */
-function rmIfSymlink(path: string): void {
-  let st: ReturnType<typeof lstatSync> | undefined;
-  try {
-    st = lstatSync(path);
-  } catch {
-    return; // absent
-  }
-  if (st.isSymbolicLink()) unlinkSync(path);
+  applySlotAction(path, action);
+  return true;
 }
 
 /** First on-disk top segment of a declared component path (e.g. "./agents/" -> "agents"). */
@@ -143,57 +135,76 @@ export function ensureAntigravityRoot(dir: string, selection?: PluginSelection):
 
   for (const field of CONVENTION_FIELDS) {
     const link = join(dir, field);
-    rmIfSymlink(link); // clear a stale alias (incl. a broken one); a real source dir is left untouched
-    if (!isExposed(selection, field)) continue;
-    const seg = componentSegment(manifest[field]);
-    if (!seg || seg === field) continue; // absent, or already convention-named in place
-    const src = join(dir, seg);
-    if (existsSync(src)) linkOrCopy(link, src);
+    const seg = isExposed(selection, field) ? componentSegment(manifest[field]) : undefined;
+    const src = seg && seg !== field ? join(dir, seg) : undefined; // absent, or already convention-named in place
+    const desired: SlotDesire = src && existsSync(src) ? { kind: "linked", target: resolve(src) } : { kind: "absent" };
+    // Only warn when we actually wanted an alias here: `desired: absent` with real
+    // content in place is the common, expected case (the component's own dir,
+    // already convention-named) — not a collision, so stays silent like the code
+    // this replaces.
+    const warn =
+      desired.kind === "linked"
+        ? () =>
+            console.error(
+              `antigravity: skipping "${field}" alias for "${dir}" — ${link} already exists and is not ADG-managed. ` +
+                `Remove it to let ADG manage this component.`,
+            )
+        : undefined;
+    reconcile(link, desired, warn);
   }
 }
 
 /**
  * Expose `realDir` to Antigravity at `<scanDir>/<name>`. No-op when the real dir
  * already *is* that path (project, flat). Returns false without touching disk when
- * the target is a real directory ADG didn't create (no agy manifest) — we never
- * clobber a plugin slot we don't own. Replacing our own alias or a prior
- * projection (which carries the manifest) is fine.
+ * the target is real content `src/projection-slot.ts`'s `observeSlot` can't prove
+ * ADG owns (no `.adg-owned` marker) — we never clobber a plugin slot we don't own.
+ * Replacing our own alias or a prior copy-fallback projection (which carries the
+ * marker) is fine.
+ *
+ * Migration note: a copy-fallback exposure created before this module existed
+ * carries no marker — ownership was inferred from a root `plugin.json` instead
+ * — so `adoptLegacyExposure` below plants the marker on sight of that same
+ * evidence, one time, rather than leaving every such install unmanageable.
  */
 function exposeAt(scanDir: string, name: string, realDir: string): boolean {
   const target = join(scanDir, name);
   if (resolve(target) === resolve(realDir)) return true; // project, flat: already in the scan dir
-  let existing: ReturnType<typeof lstatSync> | undefined;
-  try {
-    existing = lstatSync(target);
-  } catch {
-    existing = undefined; // absent — safe to create
-  }
-  if (existing?.isDirectory() && !existing.isSymbolicLink() && !existsSync(join(target, ANTIGRAVITY_MANIFEST))) {
+  adoptLegacyExposure(target);
+  return reconcile(target, { kind: "linked", target: resolve(realDir) }, () =>
     console.error(
       `antigravity: skipping "${name}" — ${target} already exists and is not ADG-managed. ` +
         `Remove it to let ADG manage this plugin.`,
-    );
-    return false;
+    ),
+  );
+}
+
+/**
+ * Adopt a copy-fallback exposure created before the projection-slot module
+ * existed: it proved ownership via a root `plugin.json` rather than the
+ * `.adg-owned` marker `observeSlot` now requires. Recognizing the same
+ * evidence the old code trusted and writing the marker lets `reconcile` above
+ * treat it as `owned-dir` (refreshable) instead of `foreign` (untouchable) —
+ * a one-time migration, not a new trust boundary: nothing new is being
+ * classified as ADG's that the pre-Phase-3 code didn't already treat as ADG's.
+ */
+function adoptLegacyExposure(target: string): void {
+  if (observeSlot(target).kind === "foreign" && existsSync(join(target, ANTIGRAVITY_MANIFEST))) {
+    markOwned(target);
   }
-  linkOrCopy(target, realDir);
-  return true;
 }
 
 /**
  * Tear down a plugin's projection. When the real store dir is known, drop its agy
  * manifest and any convention alias links (in-place cleanup). Remove the external
  * exposure entry only when it is our own alias (a symlink) or a copy-fallback dir
- * that carries the manifest — never recursively delete an unattributable dir, and
- * never the in-place store folder itself.
+ * the ownership marker proves is ours — never recursively delete an unattributable
+ * dir, and never the in-place store folder itself. The marker (rather than a
+ * `realDir` comparison) is also what lets this reclaim an orphaned copy-fallback
+ * exposure even when `realDir` is unknown, below.
  */
 function removeProjection(scanDir: string, name: string, realDir?: string): void {
   const target = join(scanDir, name);
-  let st: ReturnType<typeof lstatSync> | undefined;
-  try {
-    st = lstatSync(target);
-  } catch {
-    st = undefined;
-  }
 
   if (realDir) {
     if (existsSync(realDir)) {
@@ -201,18 +212,21 @@ function removeProjection(scanDir: string, name: string, realDir?: string): void
       rmSync(join(realDir, ANTIGRAVITY_MANIFEST), { force: true });
       writeAntigravityMcpConfig(realDir, readManifest(realDir), { components: [] });
       writeAntigravityHooks(realDir, readManifest(realDir), { components: [] });
-      for (const field of CONVENTION_FIELDS) rmIfSymlink(join(realDir, field));
+      for (const field of CONVENTION_FIELDS) reconcile(join(realDir, field), { kind: "absent" });
     }
     if (resolve(target) === resolve(realDir)) return; // in-place: target IS the store folder — never delete it
-    // Aliased exposure we created (symlink, or a copy-fallback dir): safe to drop wholesale.
-    if (st) rmSync(target, { recursive: true, force: true });
+    // Aliased exposure we created (a symlink, or a copy-fallback dir the ownership
+    // marker proves is ours): safe to drop wholesale. `skip-foreign` leaves an
+    // unattributable real directory untouched.
+    reconcile(target, { kind: "absent" });
     return;
   }
 
-  // Real dir unknown (e.g. the store entry is already gone): we cannot prove a real
-  // directory at `target` is our exposure vs. a store/foreign folder, so only ever
-  // remove a symlink alias — never recursively delete an unattributable directory.
-  if (st?.isSymbolicLink()) rmSync(target, { force: true });
+  // Real dir unknown (e.g. the store entry is already gone): the ownership marker
+  // (not a `realDir` comparison) is what proves a real directory at `target` is
+  // our own copy-fallback exposure rather than a foreign folder, so this reclaims
+  // an orphaned copy-fallback exposure the pre-projection-slot code could not.
+  reconcile(target, { kind: "absent" });
 }
 
 /** Resolve a plugin's on-disk dir and selection from the lock, or undefined when not installed. */

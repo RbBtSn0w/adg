@@ -147,6 +147,24 @@ export const OWNERSHIP_MARKER = ".adg-owned";
  */
 const OWNERSHIP_MARKER_MAGIC = "adg-projection-slot/v1\n";
 
+/**
+ * Mark `path` as ADG-owned without going through `applySlotAction` — for
+ * adopting a directory that predates this module and was recognized as ADG's
+ * by some other, now-retired signal (e.g. Antigravity's pre-Phase-3 heuristic:
+ * a root `plugin.json` inside a copy-fallback exposure). Once marked, a later
+ * `observeSlot` classifies it `owned-dir` exactly like a copy this module
+ * created itself, and normal reconciliation can refresh or remove it.
+ *
+ * This function does not check anything on its own — the caller must already
+ * have independently established that `path` is really ADG's before calling
+ * it, the same way the old heuristic did. Calling it against content that
+ * isn't ADG's plants a false ownership claim a later `remove-link`/`relink`
+ * will then act on.
+ */
+export function markOwned(path: string): void {
+  writeFileSync(join(path, OWNERSHIP_MARKER), OWNERSHIP_MARKER_MAGIC);
+}
+
 function hasOwnershipMarker(path: string): boolean {
   const markerPath = join(path, OWNERSHIP_MARKER);
   try {
