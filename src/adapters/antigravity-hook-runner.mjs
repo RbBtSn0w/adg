@@ -155,6 +155,18 @@ function fail(message, error) {
 // first: import.meta.url is symlink-resolved by Node (e.g. macOS /tmp is a
 // symlink to /private/tmp) but the literal argv[1] is not, so a plain string
 // comparison between the two silently never matches on such systems.
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+function isDirectlyExecuted() {
+  if (!process.argv[1]) return false;
+  try {
+    // realpathSync throws when argv[1] isn't a real filesystem path — e.g.
+    // `node -e "..."` sets it to the literal string "-e". A throw here means
+    // this can't be the running entry file, not that the check failed.
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectlyExecuted()) {
   main();
 }
