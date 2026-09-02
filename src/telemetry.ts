@@ -188,11 +188,11 @@ export function sanitizePath(path: string | undefined): string {
 }
 
 /**
- * `adg <domain> <verb>` positionals safe to record verbatim: the two domains
- * (`plugin(s)`/`skill(s)`/`update`) plus every `plugins` verb and alias
- * (`test/telemetry.test.ts` asserts this stays a superset of `PLUGIN_COMMANDS`
- * and `PLUGIN_ALIASES` in `src/cli/index.ts`, so a new verb can't silently
- * fall through to `[VALUE]`).
+ * `adg <domain> <verb>` positionals safe to record verbatim: the top-level
+ * domains (`plugin`/`plugins`/`skill`/`skills`/`update`) plus every `plugins`
+ * verb and alias (`test/telemetry.test.ts` asserts this stays a superset of
+ * `PLUGIN_COMMANDS` and `PLUGIN_ALIASES` in `src/cli/index.ts`, so a new verb
+ * can't silently fall through to `[VALUE]`).
  */
 export const ADG_SAFE_POSITIONALS: ReadonlySet<string> = new Set([
   "plugin",
