@@ -16,9 +16,9 @@ test("claudeToolName is the exact inverse of TOOL_ALIASES", () => {
   for (const [agyName, claudeName] of expectedPairs) {
     assert.equal(claudeToolName(agyName), claudeName, `claudeToolName(${agyName}) should map back to ${claudeName}`);
   }
-  // No stray entries: every Antigravity name claudeToolName recognizes must
-  // come from TOOL_ALIASES (guards against `claudeToolName` mapping a name
-  // that no longer has a corresponding forward alias).
+  // No duplicate Antigravity names: TOOL_ALIASES must not map two different
+  // Claude tools to the same "|"-joined Antigravity name, or the inverse
+  // mapping in claudeToolName would be ambiguous.
   const known = new Set(expectedPairs.map(([agyName]) => agyName));
   assert.equal(known.size, expectedPairs.length, "TOOL_ALIASES must not map two Claude tools to the same Antigravity name");
 });
