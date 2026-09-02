@@ -271,11 +271,20 @@ function removeOwned(path: string): void {
     unlinkSync(path);
     return;
   }
-  // Re-check the marker right before the recursive delete rather than fully
-  // trusting the caller's action: reconcileSlot only ever returns
-  // remove-link/relink for a symlink or owned-dir observation, but a caller
-  // bug, a stale action computed against an earlier observation, or a race
-  // could still reach here with something else. Refuse rather than delete.
+  // Re-check right before the recursive delete rather than fully trusting
+  // the caller's action: reconcileSlot only ever returns remove-link/relink
+  // for a symlink or owned-dir observation, but a caller bug, a stale action
+  // computed against an earlier observation, or a race could still reach
+  // here with something else — including a plain file, not just a foreign
+  // directory. Check that explicitly before hasOwnershipMarker: joining the
+  // marker name onto a file path and lstat'ing it throws ENOTDIR, which
+  // would otherwise surface in place of this function's own clear refusal.
+  if (!st.isDirectory()) {
+    throw new Error(
+      `refusing to remove ${path}: it is a real file, not a directory or symlink — ` +
+        "removeOwned must only ever be called for a symlink or an owned-dir observation",
+    );
+  }
   if (!hasOwnershipMarker(path)) {
     throw new Error(
       `refusing to remove ${path}: it is a real directory without the ADG ownership marker (${OWNERSHIP_MARKER}) — ` +

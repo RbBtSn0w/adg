@@ -252,6 +252,23 @@ test("applySlotAction remove-link refuses to delete a real directory that isn't 
   }
 });
 
+test("applySlotAction remove-link gives a clear refusal for a plain file, not a raw ENOTDIR", () => {
+  // Same caller-bug scenario as the directory case above, but with a plain
+  // file at path: hasOwnershipMarker would join the marker name onto it and
+  // lstat that, which throws ENOTDIR — removeOwned must check isDirectory()
+  // first so its own clear refusal error surfaces instead of that raw ENOTDIR.
+  const root = scratch();
+  try {
+    const foreignFile = join(root, "foreign-file.txt");
+    writeFileSync(foreignFile, "user content");
+
+    assert.throws(() => applySlotAction(foreignFile, { kind: "remove-link" }), /refusing to remove/);
+    assert.equal(readFileSync(foreignFile, "utf8"), "user content", "foreign file must survive the refused delete");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function syntheticError(code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`simulated ${code}`), { code });
 }
