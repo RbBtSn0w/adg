@@ -1,12 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { TOOL_ALIASES } from "../src/adapters/antigravity-hooks.ts";
 import { claudeToolName } from "../src/adapters/antigravity-hook-runner.mjs";
 
-const RUNNER_PATH = new URL("../src/adapters/antigravity-hook-runner.mjs", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`: a file:// URL's pathname is percent-encoded
+// and, on Windows, carries a leading slash before the drive letter (e.g.
+// "/C:/Users/...") — not a valid filesystem path, which breaks the
+// pathToFileURL() round-trip below on Windows CI.
+const RUNNER_PATH = fileURLToPath(new URL("../src/adapters/antigravity-hook-runner.mjs", import.meta.url));
 
 // Regression guard for the drift the issue describes: `claudeToolName` in
 // antigravity-hook-runner.mjs is a hand-inverted copy of TOOL_ALIASES (it has
