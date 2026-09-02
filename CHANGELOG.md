@@ -1,3 +1,23 @@
+## [0.7.2-beta.2](https://github.com/RbBtSn0w/adg/compare/0.7.2-beta.1...0.7.2-beta.2) (2026-09-02)
+
+### Fixed
+
+* **antigravity:** guard the runner's entry-point check against a non-path argv[1] ([faf6f44](https://github.com/RbBtSn0w/adg/commit/faf6f440b2c8de8c8f398dfc5837707996f3096e))
+* **install:** stop leaking temp dirs when prepareSource/synthesize throws ([a38fc36](https://github.com/RbBtSn0w/adg/commit/a38fc36dba41a7a195d7d435de281da5f9ddba88))
+* **telemetry:** close the sanitizeArgs allowlist gap for init/adapt/aliases ([b55024f](https://github.com/RbBtSn0w/adg/commit/b55024fd37c239bbb79a2b191d0bc07b582abed9)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **test:** use fileURLToPath instead of URL.pathname for the runner test path ([37a956b](https://github.com/RbBtSn0w/adg/commit/37a956b1853efd8b1d91917b74876247eb1db206))
+
+### Changed
+
+* **antigravity:** extract the embedded hook-runner into a real .mjs file ([8ec2334](https://github.com/RbBtSn0w/adg/commit/8ec23347091f26214224564b6453a6f61d377cfc)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **cli:** share update-scope loop between `plugins update` and `marketplace upgrade` ([16d25b4](https://github.com/RbBtSn0w/adg/commit/16d25b4d338b54f61e2401a5a641c47cb22dde7a)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **install:** extract prepareSource() and synthesizeDefaultDslPlugin() from addPlugins ([61cdff0](https://github.com/RbBtSn0w/adg/commit/61cdff086945d5d568de059fdf52cf6072d65bc5)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **readme:** correct telemetry wording and disclose the endpoint URL ([cffb267](https://github.com/RbBtSn0w/adg/commit/cffb267a7fb1e7fe41375618663eb613f58c5afc))
+* **readme:** disclose default-on telemetry and its opt-out ([4d7a82b](https://github.com/RbBtSn0w/adg/commit/4d7a82b67f8c13bb94e738c33e625fd297b82808)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **readme:** fix telemetry endpoint path and sanitizeArgs depth claim ([259648a](https://github.com/RbBtSn0w/adg/commit/259648aa0451af54b8eaf06b3b715ff8119858f1))
+* **readme:** fix telemetry wording to match the implementation ([0143cee](https://github.com/RbBtSn0w/adg/commit/0143cee33845abb6e0efbb6626001753c96cf8d3))
+* **telemetry:** fix "two domains" doc comment listing three items ([b5f923e](https://github.com/RbBtSn0w/adg/commit/b5f923e63cd265d18004f32905cfbe77d5c4c01f))
+
 ## [0.7.2-beta.1](https://github.com/RbBtSn0w/adg/compare/0.7.1...0.7.2-beta.1) (2026-09-01)
 
 ### Fixed
