@@ -462,13 +462,15 @@ Debugging tips:
 ## Telemetry
 
 `adg` sends anonymous OpenTelemetry usage spans (command names, outcomes,
-timings) to `https://telemetry-gateway.hamiltonsnow.workers.dev`, a
+timings) to `https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces`, a
 maintainer-run gateway on Cloudflare Workers, by default. A sanitized command
-*shape* is included in each span (e.g. `adg plugins add [VALUE] [FLAG]`) —
-[`sanitizeArgs`](src/telemetry.ts) reduces every command line to its
-subcommand skeleton, redacting every positional value, including file paths,
-to `[VALUE]` before it can reach a span. The literal argument values
-themselves — plugin names, sources, paths — are never included.
+*shape* is included in each span: [`sanitizeArgs`](src/telemetry.ts) keeps
+only the top two positions after `adg` — the domain and its verb (e.g. `adg
+plugins add [VALUE] [FLAG]`) — redacting everything past that depth (`adg
+plugins marketplace list` → `adg plugins marketplace [VALUE]`) as well as
+every positional value, including file paths, to `[VALUE]`. The literal
+argument values themselves — plugin names, sources, paths — are never
+included.
 
 Opt out with any of:
 
