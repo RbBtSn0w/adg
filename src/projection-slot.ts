@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync, cpSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, cpSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { ensureDir } from "./fsutil.ts";
 
@@ -58,7 +58,10 @@ export type SlotDesire =
    * as a no-op regardless of `observed` rather than assuming it's
    * unreachable. */
   | { kind: "in-place" }
-  /** `target` must be an absolute path — see `SlotObservation.symlink`. */
+  /** `target` must be an absolute, normalized path (no `.`/`..` segments):
+   * `reconcileSlot` compares it to `SlotObservation.symlink.target` by strict
+   * string equality, and that side is normalized by `resolve`, so an
+   * unnormalized desire spuriously reads as stale and relinks every call. */
   | { kind: "linked"; target: string };
 
 export type SlotAction =
@@ -135,10 +138,22 @@ export function reconcileSlot(desired: SlotDesire, observed: SlotObservation): S
  */
 export const OWNERSHIP_MARKER = ".adg-owned";
 
+/**
+ * A directory merely named `.adg-owned` proves nothing — a foreign directory
+ * could coincidentally contain that name, or someone could create it
+ * deliberately, and either way `observeSlot` would misclassify real content
+ * as ours to `remove-link`/`relink`. Require exact content, not just
+ * presence, so the marker can't be spoofed by an empty or arbitrary file.
+ */
+const OWNERSHIP_MARKER_MAGIC = "adg-projection-slot/v1\n";
+
 function hasOwnershipMarker(path: string): boolean {
-  // existsSync never throws — it already reports any stat failure as false —
-  // so there's nothing here for a try/catch to add.
-  return existsSync(join(path, OWNERSHIP_MARKER));
+  try {
+    return readFileSync(join(path, OWNERSHIP_MARKER), "utf8") === OWNERSHIP_MARKER_MAGIC;
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    return false;
+  }
 }
 
 /** Rethrow anything but "the path doesn't exist" — an EACCES/EPERM/ENOTDIR
@@ -149,8 +164,18 @@ function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
+function isBrokenLink(path: string): boolean {
+  try {
+    statSync(path); // follows the link
+    return false;
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    return true;
+  }
+}
+
 /** Classify what's actually at `path` on disk. Makes exactly one lstat, plus
- * (for a symlink) a follow-up resolution to determine `broken`. */
+ * (for a symlink) a follow-up stat of the target to determine `broken`. */
 export function observeSlot(path: string): SlotObservation {
   let st;
   try {
@@ -160,7 +185,15 @@ export function observeSlot(path: string): SlotObservation {
     return { kind: "absent" };
   }
   if (st.isSymbolicLink()) {
-    return { kind: "symlink", target: resolve(dirname(path), readlinkSync(path)), broken: !existsSync(path) };
+    return {
+      kind: "symlink",
+      target: resolve(dirname(path), readlinkSync(path)),
+      // statSync (follows the link), not existsSync: existsSync reports any
+      // failure as false, so an EACCES/EPERM on the target would be read as
+      // "broken" and drive a destructive relink. Only ENOENT means broken;
+      // anything else rethrows, same as the lstat above.
+      broken: isBrokenLink(path),
+    };
   }
   if (st.isDirectory() && hasOwnershipMarker(path)) {
     return { kind: "owned-dir" };
@@ -180,8 +213,11 @@ export interface ApplySlotOptions {
 /**
  * Remove whatever `reconcileSlot` has already established is ours at `path`
  * (a symlink or an owned-dir — never foreign; `remove-link`/`relink` are
- * only ever returned for those two observations, so this trusts its caller
- * rather than re-observing).
+ * only ever returned for those two observations). A symlink is trusted and
+ * removed outright; a real directory is re-checked for the ownership marker
+ * immediately before the recursive delete, rather than fully trusting the
+ * caller's already-computed action — the cheap belt-and-suspenders check
+ * that actually bounds the blast radius of a caller bug or a stale action.
  *
  * Symlink removal uses `unlinkSync`, not `rmSync(..., { force: true })`: on
  * Node < 24 the latter follows the link, hits `ENOENT` at the (possibly
@@ -201,6 +237,17 @@ function removeOwned(path: string): void {
     unlinkSync(path);
     return;
   }
+  // Re-check the marker right before the recursive delete rather than fully
+  // trusting the caller's action: reconcileSlot only ever returns
+  // remove-link/relink for a symlink or owned-dir observation, but a caller
+  // bug, a stale action computed against an earlier observation, or a race
+  // could still reach here with something else. Refuse rather than delete.
+  if (!hasOwnershipMarker(path)) {
+    throw new Error(
+      `refusing to remove ${path}: it is a real directory without the ADG ownership marker (${OWNERSHIP_MARKER}) — ` +
+        "removeOwned must only ever be called for a symlink or an owned-dir observation",
+    );
+  }
   rmSync(path, { recursive: true, force: true });
 }
 
@@ -218,7 +265,7 @@ function createLink(path: string, target: string, symlink: typeof symlinkSync): 
     // symlinks is a behavior change, not a port, and belongs with the real
     // call sites in Phase 3.
     cpSync(target, path, { recursive: true });
-    writeFileSync(join(path, OWNERSHIP_MARKER), "");
+    writeFileSync(join(path, OWNERSHIP_MARKER), OWNERSHIP_MARKER_MAGIC);
   }
 }
 

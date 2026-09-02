@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, chmodSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -102,14 +102,27 @@ test("observeSlot classifies absent, symlink (working and broken), owned-dir, an
     symlinkSync(join(root, "does-not-exist"), brokenLink, "dir");
     assert.deepEqual(observeSlot(brokenLink), { kind: "symlink", target: join(root, "does-not-exist"), broken: true });
 
+    // Built through the real copy-fallback path (not a hand-rolled marker
+    // file) so this exercises the actual on-disk format applySlotAction
+    // produces, not an assumption about it.
     const owned = join(root, "owned");
-    mkdirSync(owned);
-    writeFileSync(join(owned, OWNERSHIP_MARKER), "");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(owned, { kind: "create-link", target }, { symlink: throwingSymlink });
     assert.deepEqual(observeSlot(owned), { kind: "owned-dir" });
 
     const foreignDir = join(root, "foreign-dir");
     mkdirSync(foreignDir); // no marker
     assert.deepEqual(observeSlot(foreignDir), { kind: "foreign" });
+
+    // A directory that merely has a file with the marker's *name* but not
+    // its content must not be mistaken for ownership (the spoofing case the
+    // marker's magic-content check exists to close).
+    const spoofed = join(root, "spoofed");
+    mkdirSync(spoofed);
+    writeFileSync(join(spoofed, OWNERSHIP_MARKER), "not the real marker content");
+    assert.deepEqual(observeSlot(spoofed), { kind: "foreign" });
 
     const foreignFile = join(root, "foreign-file");
     writeFileSync(foreignFile, "not ours");
@@ -221,6 +234,41 @@ test("applySlotAction remove-link removes an owned copy-fallback dir recursively
   }
 });
 
+test("applySlotAction remove-link refuses to delete a real directory that isn't marked as owned", () => {
+  // Simulates a caller bug: remove-link reaching a path reconcileSlot never
+  // actually sanctioned it for (only a symlink or owned-dir observation
+  // should ever produce remove-link/relink). removeOwned re-checks the
+  // marker immediately before deleting rather than trusting the action.
+  const root = scratch();
+  try {
+    const foreignDir = join(root, "foreign");
+    mkdirSync(foreignDir);
+    writeFileSync(join(foreignDir, "mine.txt"), "user content");
+
+    assert.throws(() => applySlotAction(foreignDir, { kind: "remove-link" }), /ownership marker/);
+    assert.deepEqual(readdirSync(foreignDir), ["mine.txt"], "foreign content must survive the refused delete");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observeSlot rethrows a non-ENOENT stat failure on a symlink's target, not just the initial lstat", () => {
+  // Cross-platform non-ENOENT provocation: a path *under a plain file* is
+  // untraversable on every OS (ENOTDIR), unlike chmod-based permission
+  // failures, which Windows doesn't express the same way (see the sibling
+  // test below).
+  const root = scratch();
+  try {
+    const blocker = join(root, "blocker-file");
+    writeFileSync(blocker, "not a directory");
+    const link = join(root, "link");
+    symlinkSync(join(blocker, "unreachable-child"), link);
+    assert.throws(() => observeSlot(link), /ENOTDIR/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("applySlotAction noop and skip-foreign never touch disk", () => {
   const root = scratch();
   try {
@@ -282,29 +330,18 @@ test("observe -> reconcile -> apply cleans up a copy-fallback alias once it's no
   }
 });
 
-// POSIX-only: Windows `chmod` maps to the read-only attribute and doesn't
-// strip directory traverse permission, so lstat there simply succeeds and
-// there is no non-ENOENT failure to provoke this way. The rethrow logic
-// itself is platform-independent; this proves it where the OS can express
-// the condition.
-test("observeSlot rethrows a non-ENOENT lstat failure instead of reporting absent", {
-  skip: process.platform === "win32" ? "POSIX permission semantics" : false,
-}, () => {
+test("observeSlot rethrows a non-ENOENT lstat failure instead of reporting absent", () => {
+  // A path under a plain file is untraversable on every OS (ENOTDIR) — a
+  // deterministic, cross-platform way to provoke a real "something's there
+  // but I can't stat through it" failure, distinct from "nothing's there".
+  // (A chmod-based EACCES provocation was tried first and dropped: Windows
+  // CI failed it outright, since chmod there doesn't strip directory
+  // traverse permission the way POSIX permission bits do.)
   const root = scratch();
   try {
-    const blockedDir = join(root, "blocked");
-    mkdirSync(blockedDir);
-    const inaccessible = join(blockedDir, "child");
-    writeFileSync(inaccessible, "content");
-    // Strip execute permission on the parent so lstat on the child fails with
-    // EACCES rather than ENOENT — a real "something's there but I can't see
-    // it" failure, not "nothing's there".
-    chmodSync(blockedDir, 0o000);
-    try {
-      assert.throws(() => observeSlot(inaccessible), /EACCES|EPERM/);
-    } finally {
-      chmodSync(blockedDir, 0o755); // restore before cleanup can recurse into it
-    }
+    const blocker = join(root, "blocker-file");
+    writeFileSync(blocker, "not a directory");
+    assert.throws(() => observeSlot(join(blocker, "unreachable-child")), /ENOTDIR/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
