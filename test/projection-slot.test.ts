@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, statSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, statSync, symlinkSync, cpSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -373,6 +373,64 @@ test("applySlotAction copy-fallback recreates a symlink nested inside the target
     const copiedLink = join(slot, "hello", "linked.md");
     assert.equal(lstatSync(copiedLink).isSymbolicLink(), true);
     assert.equal(readFileSync(copiedLink, "utf8"), "content", "and it still resolves to the right content");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction create-link refuses the copy-fallback when unexpected content already exists at the path", () => {
+  // create-link should only ever be applied to a path just confirmed
+  // absent; this simulates a caller reaching it anyway with real content
+  // already there (a race or a caller bug), and asserts it's refused rather
+  // than silently copied into.
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    mkdirSync(slot);
+    writeFileSync(join(slot, "unexpected.txt"), "already here");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+
+    assert.throws(
+      () => applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink }),
+      /already there|refusing/,
+    );
+    assert.deepEqual(readdirSync(slot), ["unexpected.txt"], "the unexpected content must be untouched");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction copy-fallback marks the directory before copying, so a mid-copy failure leaves it reclaimable", () => {
+  // If the marker were written after cpSync instead of before, a copy that
+  // throws partway through (or a process kill, which no catch/finally would
+  // even run for) would leave an unmarked partial directory that a later
+  // observeSlot classifies as foreign — stuck forever, since removeOwned
+  // refuses to delete anything without the marker. Injecting a cp that
+  // throws proves the actual ordering, not just what the comment claims.
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    const throwingCp: typeof cpSync = () => {
+      throw new Error("simulated: copy failed partway through");
+    };
+
+    assert.throws(
+      () => applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink, cp: throwingCp }),
+      /copy failed partway through/,
+    );
+
+    assert.deepEqual(observeSlot(slot), { kind: "owned-dir" }, "the marker must have landed before the failing copy ran");
+    // And because it's reclaimable, a later relink (real cp this time) can
+    // still recover it instead of being permanently stuck.
+    applySlotAction(slot, { kind: "relink", target });
+    assert.deepEqual(readdirSync(join(slot, "hello")), ["SKILL.md"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

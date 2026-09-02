@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, cpSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, cpSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { ensureDir } from "./fsutil.ts";
 
@@ -228,6 +228,10 @@ export interface ApplySlotOptions {
    * monkey-patched through an ESM namespace object). Defaults to the real
    * `symlinkSync`. */
   symlink?: typeof symlinkSync;
+  /** Injectable so a test can prove the marker-before-copy ordering actually
+   * protects against a copy that fails partway through, instead of just
+   * asserting it in a comment. Defaults to the real `cpSync`. */
+  cp?: typeof cpSync;
 }
 
 /**
@@ -271,28 +275,52 @@ function removeOwned(path: string): void {
   rmSync(path, { recursive: true, force: true });
 }
 
-function createLink(path: string, target: string, symlink: typeof symlinkSync): void {
+function createLink(path: string, target: string, symlink: typeof symlinkSync, cp: typeof cpSync): void {
   ensureDir(dirname(path));
   try {
     symlink(relative(dirname(path), target), path, "dir");
+    return;
   } catch {
-    // Matches `linkOrCopy` in agents/antigravity.ts, which this replaces in
-    // Phase 3. Note `dereference: true` would NOT make this more robust
-    // against a symlink *inside* `target`: as of Node 25 it has no effect on
-    // symlinks nested in a recursive directory copy (verified — they are
-    // recreated as symlinks with or without it), so it would only add a
-    // claim the flag doesn't deliver. Hardening the fallback against nested
-    // symlinks is a behavior change, not a port, and belongs with the real
-    // call sites in Phase 3.
-    cpSync(target, path, { recursive: true });
-    writeFileSync(join(path, OWNERSHIP_MARKER), OWNERSHIP_MARKER_MAGIC);
+    // fall through to the copy fallback below
   }
+
+  // create-link/relink should only ever reach here right after path was
+  // confirmed absent (relink's caller already ran removeOwned; create-link's
+  // caller only fires on an absent observation) — but don't fully trust
+  // that: a race against another process, or a caller bug, could still land
+  // real content here between the observation and this call. Refuse to copy
+  // into/over it rather than silently merging or overwriting.
+  if (observeSlot(path).kind !== "absent") {
+    throw new Error(`refusing copy-fallback at ${path}: expected it to be absent, but something is already there`);
+  }
+
+  // Matches `linkOrCopy` in agents/antigravity.ts, which this replaces in
+  // Phase 3. Note `dereference: true` would NOT make this more robust
+  // against a symlink *inside* `target`: as of Node 25 it has no effect on
+  // symlinks nested in a recursive directory copy (verified — they are
+  // recreated as symlinks with or without it), so it would only add a
+  // claim the flag doesn't deliver. Hardening the fallback against nested
+  // symlinks is a behavior change, not a port, and belongs with the real
+  // call sites in Phase 3.
+  //
+  // Marker written BEFORE the (potentially large, potentially failing)
+  // recursive copy, not after: if cpSync throws partway through — or the
+  // process is killed outright, which no catch/finally can run for — the
+  // marker has already landed, so the next observeSlot classifies the
+  // partial directory as owned-dir (reclaimable via relink) rather than
+  // foreign (unrecoverable by ADG; cpSync's own merge-into-existing-dir
+  // behavior, verified separately, is what makes writing the marker first
+  // safe here).
+  mkdirSync(path);
+  writeFileSync(join(path, OWNERSHIP_MARKER), OWNERSHIP_MARKER_MAGIC);
+  cp(target, path, { recursive: true });
 }
 
 /** Perform the action `reconcileSlot` decided on at `path`. The only function
  * in this module that writes to disk. */
 export function applySlotAction(path: string, action: SlotAction, opts: ApplySlotOptions = {}): void {
   const symlink = opts.symlink ?? symlinkSync;
+  const cp = opts.cp ?? cpSync;
   switch (action.kind) {
     case "noop":
     case "skip-foreign":
@@ -301,11 +329,11 @@ export function applySlotAction(path: string, action: SlotAction, opts: ApplySlo
       removeOwned(path);
       return;
     case "create-link":
-      createLink(path, action.target, symlink);
+      createLink(path, action.target, symlink, cp);
       return;
     case "relink":
       removeOwned(path);
-      createLink(path, action.target, symlink);
+      createLink(path, action.target, symlink, cp);
       return;
     default:
       assertNever(action);
