@@ -1,3 +1,9 @@
+## [0.8.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.2...0.8.0-beta.3) (2026-09-02)
+
+### Added
+
+* **projection:** rewire agents/antigravity.ts onto the projection-slot pipeline (Phase 3 of [#85](https://github.com/RbBtSn0w/adg/issues/85) finding [#1](https://github.com/RbBtSn0w/adg/issues/1)) ([#95](https://github.com/RbBtSn0w/adg/issues/95)) ([c5d7597](https://github.com/RbBtSn0w/adg/commit/c5d7597d88864295941024f99f372423cc928a34))
+
 ## [0.8.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.1...0.8.0-beta.2) (2026-09-02)
 
 ### Added
