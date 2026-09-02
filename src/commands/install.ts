@@ -572,18 +572,24 @@ function prepareSource(
     };
   }
   const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
-  cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
-  return {
-    workRoot: tmp,
-    resolvedRevision: gitRevision(tmp),
-    buildOrigin: (dir, dirOverride) => ({
-      type: "github",
-      repo: parsed.source,
-      ...(sourceRef ? { ref: sourceRef } : {}),
-      path: toPosix(relative(tmp, dirOverride ?? dir)) || ".",
-    }),
-    cleanup: () => rmSync(tmp, { recursive: true, force: true }),
-  };
+  try {
+    cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
+    const resolvedRevision = gitRevision(tmp);
+    return {
+      workRoot: tmp,
+      resolvedRevision,
+      buildOrigin: (dir, dirOverride) => ({
+        type: "github",
+        repo: parsed.source,
+        ...(sourceRef ? { ref: sourceRef } : {}),
+        path: toPosix(relative(tmp, dirOverride ?? dir)) || ".",
+      }),
+      cleanup: () => rmSync(tmp, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    rmSync(tmp, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 interface DefaultDslPlugin {
@@ -624,10 +630,17 @@ async function synthesizeDefaultDslPlugin(
     throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
   }
   const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));
-  copyPluginDir(workRoot, staging);
-  writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
+  let candidates: Map<string, PluginCandidate>;
+  try {
+    copyPluginDir(workRoot, staging);
+    writeJson(join(staging, ADG_MANIFEST_PATH), generated.manifest);
+    candidates = scanPlugins(staging);
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
   return {
-    candidates: scanPlugins(staging),
+    candidates,
     converted: [],
     structuralName: generated.manifest.name,
     originDirOverride: workRoot,

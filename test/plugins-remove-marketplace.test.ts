@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, existsSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -135,6 +135,27 @@ test("add (remote, injected clone) installs a native market with --all", async (
     const pluginsDir = join(root, "pdir");
     await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
     assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("add removes its git clone tmp dir when the clone runner throws", async () => {
+  const root = scratch();
+  try {
+    const pluginsDir = join(root, "pdir");
+    const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("adg-clone-")));
+    const throwingRunner: GitRunner = () => {
+      throw new Error("simulated clone failure");
+    };
+    await assert.rejects(
+      () => addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner: throwingRunner }),
+      /simulated clone failure/,
+    );
+    const leaked = readdirSync(tmpdir())
+      .filter((name) => name.startsWith("adg-clone-"))
+      .filter((name) => !before.has(name));
+    assert.deepEqual(leaked, [], "the clone tmp dir must not survive a failed clone");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
