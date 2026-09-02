@@ -172,7 +172,7 @@ const OWNERSHIP_MARKER_MAGIC = "adg-projection-slot/v1\n";
  */
 export function markOwned(path: string): void {
   const markerPath = join(path, OWNERSHIP_MARKER);
-  let st;
+  let st: ReturnType<typeof lstatSync> | undefined;
   try {
     st = lstatSync(markerPath);
   } catch (error) {

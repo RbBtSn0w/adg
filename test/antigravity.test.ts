@@ -664,11 +664,14 @@ test("activate adopts a pre-projection-slot copy-fallback exposure instead of le
 
     withGemini((gemini) => {
       // Simulate a copy-fallback exposure created by the pre-Phase-3 code: a
-      // real directory carrying the agy manifest, but no `.adg-owned` marker
-      // (that heuristic didn't exist yet).
+      // full cpSync of the real store dir, so it carries both the agy
+      // manifest AND ADG's own source manifest (the evidence a full copy of
+      // realDir would genuinely have) — but no `.adg-owned` marker (that
+      // heuristic didn't exist yet).
       const exposed = join(gemini, "config", "plugins", "asc");
       mkdirSync(exposed, { recursive: true });
       writeFileSync(join(exposed, "plugin.json"), JSON.stringify({ name: "asc" }));
+      writePlugin(exposed, { schemaVersion: ADG_SCHEMA_VERSION, name: "asc", version: "1.0.0", description: "ASC" });
       writeFileSync(join(exposed, "stale.txt"), "stale copy content");
 
       const res = antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
@@ -677,6 +680,40 @@ test("activate adopts a pre-projection-slot copy-fallback exposure instead of le
       assert.deepEqual(res.affected, ["asc"]);
       assert.ok(!existsSync(join(exposed, "stale.txt")));
       assert.equal(readFileSync(join(exposed, "skills", "s", "SKILL.md"), "utf8"), "# s (real)");
+    });
+  } finally {
+    rmSync(globalStore, { recursive: true, force: true });
+  }
+});
+
+test("activate does not adopt an unrelated, same-named directory that only looks like Antigravity's own format", () => {
+  // Guards the exact collision Copilot flagged: a root plugin.json alone is
+  // just Antigravity's own plugin format, not evidence of ADG ownership — a
+  // user-managed Antigravity plugin coincidentally sharing a name with an
+  // ADG-managed one, sitting at the same scan slot, must never be adopted
+  // (and thus never relinked/deleted) on that signal alone.
+  const globalStore = mkdtempSync(join(tmpdir(), "adg-agy-legacy-collision-"));
+  try {
+    seedStore(globalStore, "asc", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "asc",
+      version: "1.0.0",
+      description: "ASC",
+      skills: "./skills/",
+    });
+
+    withGemini((gemini) => {
+      const exposed = join(gemini, "config", "plugins", "asc");
+      mkdirSync(exposed, { recursive: true });
+      // A real, user-managed Antigravity plugin: root plugin.json, but no
+      // ADG source manifest anywhere inside — nothing an ADG copy would lack.
+      writeFileSync(join(exposed, "plugin.json"), JSON.stringify({ name: "asc" }));
+      writeFileSync(join(exposed, "user-owned.txt"), "do not touch");
+
+      const res = antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
+
+      assert.deepEqual(res.affected, []); // left alone, not adopted
+      assert.equal(readFileSync(join(exposed, "user-owned.txt"), "utf8"), "do not touch");
     });
   } finally {
     rmSync(globalStore, { recursive: true, force: true });

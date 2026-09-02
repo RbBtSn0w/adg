@@ -2,7 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { ensureDir, writeJson } from "../fsutil.ts";
-import { readManifest } from "../manifest.ts";
+import { findManifestFile, readManifest } from "../manifest.ts";
 import { isExposed } from "../components.ts";
 import { installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
@@ -163,14 +163,16 @@ export function ensureAntigravityRoot(dir: string, selection?: PluginSelection):
  * marker) is fine.
  *
  * Migration note: a copy-fallback exposure created before this module existed
- * carries no marker — ownership was inferred from a root `plugin.json` instead
- * — so `adoptLegacyExposure` below plants the marker on sight of that same
- * evidence, one time, rather than leaving every such install unmanageable.
+ * carries no marker — ownership was inferred from a root `plugin.json` instead,
+ * which is also just Antigravity's own plugin format and proves nothing on its
+ * own — so `adoptLegacyExposure` below requires ADG-specific evidence too
+ * before it plants the marker; see that function's doc for why a bare
+ * `plugin.json` isn't enough by itself.
  */
 function exposeAt(scanDir: string, name: string, realDir: string): boolean {
   const target = join(scanDir, name);
   if (resolve(target) === resolve(realDir)) return true; // project, flat: already in the scan dir
-  adoptLegacyExposure(target);
+  adoptLegacyExposure(target, name);
   return reconcile(target, { kind: "linked", target: resolve(realDir) }, () =>
     console.error(
       `antigravity: skipping "${name}" — ${target} already exists and is not ADG-managed. ` +
@@ -181,17 +183,31 @@ function exposeAt(scanDir: string, name: string, realDir: string): boolean {
 
 /**
  * Adopt a copy-fallback exposure created before the projection-slot module
- * existed: it proved ownership via a root `plugin.json` rather than the
- * `.adg-owned` marker `observeSlot` now requires. Recognizing the same
- * evidence the old code trusted and writing the marker lets `reconcile` above
- * treat it as `owned-dir` (refreshable) instead of `foreign` (untouchable) —
- * a one-time migration, not a new trust boundary: nothing new is being
- * classified as ADG's that the pre-Phase-3 code didn't already treat as ADG's.
+ * existed. A root `plugin.json` alone is *not* sufficient evidence: it's
+ * Antigravity's own plugin format, so a directory a user manages directly
+ * through Antigravity (unrelated to ADG) could coincidentally sit at the same
+ * scan-dir slot under the same plugin `name` and would also have one —
+ * adopting on that signal alone would let `reconcile` relink/delete a real,
+ * user-owned directory. A genuine legacy copy-fallback is instead a full
+ * `cpSync` of ADG's own store folder (`realDir`), so it also carries ADG's own
+ * source manifest (`findManifestFile` — `.agents/.plugin.json` or the legacy
+ * `.adg-plugin/plugin.json`) declaring this exact plugin `name` — evidence
+ * nothing in Antigravity's own format produces. Only that combination plants
+ * the marker; anything else is left `foreign`, same as any other unrecognized
+ * directory.
  */
-function adoptLegacyExposure(target: string): void {
-  if (observeSlot(target).kind === "foreign" && existsSync(join(target, ANTIGRAVITY_MANIFEST))) {
-    markOwned(target);
+function adoptLegacyExposure(target: string, name: string): void {
+  if (observeSlot(target).kind !== "foreign") return;
+  if (!existsSync(join(target, ANTIGRAVITY_MANIFEST))) return;
+  if (!findManifestFile(target)) return; // no ADG source manifest inside — not provably ours
+  let adgName: string | undefined;
+  try {
+    adgName = readManifest(target).name;
+  } catch {
+    return; // can't confirm identity — leave it foreign rather than guess
   }
+  if (adgName !== name) return;
+  markOwned(target);
 }
 
 /**
