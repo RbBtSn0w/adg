@@ -1,7 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, symlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { reconcileSlot, FOREIGN_REASON, type SlotDesire, type SlotObservation, type SlotAction } from "../src/projection-slot.ts";
+import {
+  reconcileSlot,
+  observeSlot,
+  applySlotAction,
+  OWNERSHIP_MARKER,
+  FOREIGN_REASON,
+  type SlotDesire,
+  type SlotObservation,
+  type SlotAction,
+} from "../src/projection-slot.ts";
 
 const absentObs: SlotObservation = { kind: "absent" };
 const foreign: SlotObservation = { kind: "foreign" };
@@ -59,5 +71,213 @@ test("reconcileSlot is pure: same inputs always produce a deepEqual action", () 
     const first = reconcileSlot(c.desired, c.observed);
     const second = reconcileSlot(c.desired, c.observed);
     assert.deepEqual(first, second, c.name);
+  }
+});
+
+// ── IO layer: observeSlot / applySlotAction ─────────────────────────────
+
+function scratch(): string {
+  return mkdtempSync(join(tmpdir(), "adg-projection-slot-"));
+}
+
+function makeRealTarget(root: string): string {
+  const target = join(root, "real-target");
+  mkdirSync(join(target, "hello"), { recursive: true });
+  writeFileSync(join(target, "hello", "SKILL.md"), "content");
+  return target;
+}
+
+test("observeSlot classifies absent, symlink (working and broken), owned-dir, and foreign", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+
+    assert.deepEqual(observeSlot(join(root, "nope")), { kind: "absent" });
+
+    const workingLink = join(root, "working-link");
+    symlinkSync(target, workingLink, "dir");
+    assert.deepEqual(observeSlot(workingLink), { kind: "symlink", target, broken: false });
+
+    const brokenLink = join(root, "broken-link");
+    symlinkSync(join(root, "does-not-exist"), brokenLink, "dir");
+    assert.deepEqual(observeSlot(brokenLink), { kind: "symlink", target: join(root, "does-not-exist"), broken: true });
+
+    const owned = join(root, "owned");
+    mkdirSync(owned);
+    writeFileSync(join(owned, OWNERSHIP_MARKER), "");
+    assert.deepEqual(observeSlot(owned), { kind: "owned-dir" });
+
+    const foreignDir = join(root, "foreign-dir");
+    mkdirSync(foreignDir); // no marker
+    assert.deepEqual(observeSlot(foreignDir), { kind: "foreign" });
+
+    const foreignFile = join(root, "foreign-file");
+    writeFileSync(foreignFile, "not ours");
+    assert.deepEqual(observeSlot(foreignFile), { kind: "foreign" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction create-link makes a real symlink when possible", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    applySlotAction(slot, { kind: "create-link", target });
+    assert.deepEqual(observeSlot(slot), { kind: "symlink", target, broken: false });
+    assert.deepEqual(readdirSync(slot).sort(), ["hello"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction create-link falls back to a marked owned-dir copy when symlinking fails", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink });
+    assert.deepEqual(observeSlot(slot), { kind: "owned-dir" });
+    assert.deepEqual(readdirSync(slot).sort(), [OWNERSHIP_MARKER, "hello"]);
+    assert.ok(existsSync(join(slot, OWNERSHIP_MARKER)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction relink replaces a stale copy-fallback dir with fresh content", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink });
+    writeFileSync(join(slot, "hello", "SKILL.md"), "STALE CONTENT — should be replaced");
+
+    applySlotAction(slot, { kind: "relink", target }, { symlink: throwingSymlink });
+
+    assert.deepEqual(observeSlot(slot), { kind: "owned-dir" });
+    assert.equal(readFileSync(join(slot, "hello", "SKILL.md"), "utf8"), "content", "stale content must be replaced, not merged");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction remove-link removes a symlink without touching its target", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    symlinkSync(target, slot, "dir");
+
+    applySlotAction(slot, { kind: "remove-link" });
+
+    assert.deepEqual(observeSlot(slot), { kind: "absent" });
+    assert.ok(existsSync(target), "the real target must survive removing the alias");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction remove-link removes a broken symlink (target already gone)", () => {
+  // Exercises the Node < 24 rmSync-follows-symlink quirk removeOwned works
+  // around: a plain rmSync(path, {force:true}) on a broken symlink can hit
+  // ENOENT at the (absent) target and have `force` swallow it without
+  // unlinking the symlink itself, leaving it behind.
+  const root = scratch();
+  try {
+    const slot = join(root, "slot");
+    symlinkSync(join(root, "gone"), slot, "dir");
+
+    applySlotAction(slot, { kind: "remove-link" });
+
+    assert.deepEqual(observeSlot(slot), { kind: "absent" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction remove-link removes an owned copy-fallback dir recursively", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(slot, { kind: "create-link", target }, { symlink: throwingSymlink });
+
+    applySlotAction(slot, { kind: "remove-link" });
+
+    assert.deepEqual(observeSlot(slot), { kind: "absent" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applySlotAction noop and skip-foreign never touch disk", () => {
+  const root = scratch();
+  try {
+    const foreignDir = join(root, "foreign");
+    mkdirSync(foreignDir);
+    writeFileSync(join(foreignDir, "mine.txt"), "user content");
+    const before = readdirSync(foreignDir);
+
+    applySlotAction(foreignDir, { kind: "noop" });
+    applySlotAction(foreignDir, { kind: "skip-foreign", reason: "x" });
+
+    assert.deepEqual(readdirSync(foreignDir), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observe -> reconcile -> apply converges: a second pass over the same desire is a noop", () => {
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    const desired: SlotDesire = { kind: "linked", target };
+
+    const firstAction = reconcileSlot(desired, observeSlot(slot));
+    applySlotAction(slot, firstAction);
+    assert.deepEqual(firstAction, { kind: "create-link", target });
+
+    const secondAction = reconcileSlot(desired, observeSlot(slot));
+    applySlotAction(slot, secondAction);
+    assert.deepEqual(secondAction, { kind: "noop" }, "re-running with the same desire must not touch a correct link");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observe -> reconcile -> apply cleans up a copy-fallback alias once it's no longer desired (issue #85 finding #1)", () => {
+  // The bug reproduced against agents/antigravity.ts while verifying finding
+  // #1: a copy-fallback alias, once created, could never be reclaimed by
+  // rmIfSymlink (symlink-only) once the field stopped being desired. This is
+  // the same scenario through the new pipeline.
+  const root = scratch();
+  try {
+    const target = makeRealTarget(root);
+    const slot = join(root, "slot");
+    const throwingSymlink: typeof symlinkSync = () => {
+      throw new Error("simulated: no symlink privilege");
+    };
+    applySlotAction(slot, reconcileSlot({ kind: "linked", target }, observeSlot(slot)), { symlink: throwingSymlink });
+    assert.deepEqual(observeSlot(slot), { kind: "owned-dir" });
+
+    const action = reconcileSlot({ kind: "absent" }, observeSlot(slot));
+    applySlotAction(slot, action);
+
+    assert.deepEqual(action, { kind: "remove-link" });
+    assert.deepEqual(observeSlot(slot), { kind: "absent" }, "stale copy-fallback content must not survive");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -1,3 +1,7 @@
+import { existsSync, lstatSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync, cpSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { ensureDir } from "./fsutil.ts";
+
 /**
  * Pure decision model for "projection slots" — filesystem paths ADG owns a
  * generated alias/exposure at (Antigravity's convention-field aliases and its
@@ -17,9 +21,13 @@
  *
  * `reconcileSlot` is the single place that decision lives now: a table over
  * two small closed unions, exhaustively tested in
- * test/projection-slot.test.ts. observeSlot/applySlotAction (the IO layer
- * that calls this) land in a later phase; this phase is additive only —
- * nothing in the codebase calls `reconcileSlot` yet.
+ * test/projection-slot.test.ts. `observeSlot`/`applySlotAction` are this
+ * module's IO layer — the only functions here that touch a filesystem, and
+ * the only ones that need `reconcileSlot`'s output rather than deciding for
+ * themselves. Phase 3 rewires `agents/antigravity.ts` and
+ * `adapters/antigravity.ts` to delegate to this pipeline; this phase is
+ * still additive only — nothing outside this module and its tests calls
+ * any of these three functions yet.
  */
 
 /**
@@ -29,9 +37,14 @@
  */
 export type SlotObservation =
   | { kind: "absent" }
+  /** `target` is resolved to an absolute path (a symlink is stored relative
+   * to its own directory, so it survives a move, but is resolved here to be
+   * directly comparable to `SlotDesire.linked.target`, which is always
+   * absolute — see `reconcileSlot`'s stale-target check). */
   | { kind: "symlink"; target: string; broken: boolean }
   /** A real (non-symlink) directory ADG created as a copy-fallback (e.g. no
-   * symlink privilege on Windows) and can prove ownership of. */
+   * symlink privilege on Windows) and can prove ownership of — see
+   * `OWNERSHIP_MARKER` below. */
   | { kind: "owned-dir" }
   /** Real content at the path that isn't provably ADG's — never touched. */
   | { kind: "foreign" };
@@ -45,6 +58,7 @@ export type SlotDesire =
    * as a no-op regardless of `observed` rather than assuming it's
    * unreachable. */
   | { kind: "in-place" }
+  /** `target` must be an absolute path — see `SlotObservation.symlink`. */
   | { kind: "linked"; target: string };
 
 export type SlotAction =
@@ -107,4 +121,110 @@ export function reconcileSlot(desired: SlotDesire, observed: SlotObservation): S
   }
 
   return assertNever(desired);
+}
+
+// ── IO layer ─────────────────────────────────────────────────────────────
+
+/**
+ * Marker file written at the root of every copy-fallback directory this
+ * module creates (`<dir>/.adg-owned`), so a later `observeSlot` can tell it
+ * apart from a same-shaped foreign directory — a real (non-symlink) dir
+ * otherwise carries no signal of who created it. Exported so a caller that
+ * needs to construct the marker path itself (e.g. to exclude it from a
+ * content listing) doesn't have to duplicate the filename.
+ */
+export const OWNERSHIP_MARKER = ".adg-owned";
+
+function hasOwnershipMarker(path: string): boolean {
+  try {
+    return existsSync(join(path, OWNERSHIP_MARKER));
+  } catch {
+    return false; // e.g. path is a file, not a directory — can't carry a marker
+  }
+}
+
+/** Classify what's actually at `path` on disk. Makes exactly one lstat, plus
+ * (for a symlink) a follow-up resolution to determine `broken`. */
+export function observeSlot(path: string): SlotObservation {
+  let st;
+  try {
+    st = lstatSync(path);
+  } catch {
+    return { kind: "absent" };
+  }
+  if (st.isSymbolicLink()) {
+    return { kind: "symlink", target: resolve(dirname(path), readlinkSync(path)), broken: !existsSync(path) };
+  }
+  if (st.isDirectory() && hasOwnershipMarker(path)) {
+    return { kind: "owned-dir" };
+  }
+  return { kind: "foreign" };
+}
+
+export interface ApplySlotOptions {
+  /** Injectable so tests can force the copy-fallback path deterministically,
+   * without relying on a real symlink-privilege failure (Windows-specific,
+   * and named `node:fs` imports elsewhere in the codebase can't be
+   * monkey-patched through an ESM namespace object). Defaults to the real
+   * `symlinkSync`. */
+  symlink?: typeof symlinkSync;
+}
+
+/**
+ * Remove whatever `reconcileSlot` has already established is ours at `path`
+ * (a symlink or an owned-dir — never foreign; `remove-link`/`relink` are
+ * only ever returned for those two observations, so this trusts its caller
+ * rather than re-observing).
+ *
+ * Symlink removal uses `unlinkSync`, not `rmSync(..., { force: true })`: on
+ * Node < 24 the latter follows the link, hits `ENOENT` at the (possibly
+ * absent) target, and `force` then swallows that error without unlinking
+ * the symlink itself — the same quirk `rmIfSymlink` in agents/antigravity.ts
+ * works around today.
+ */
+function removeOwned(path: string): void {
+  let st;
+  try {
+    st = lstatSync(path);
+  } catch {
+    return; // already absent
+  }
+  if (st.isSymbolicLink()) {
+    unlinkSync(path);
+    return;
+  }
+  rmSync(path, { recursive: true, force: true });
+}
+
+function createLink(path: string, target: string, symlink: typeof symlinkSync): void {
+  ensureDir(dirname(path));
+  try {
+    symlink(relative(dirname(path), target), path, "dir");
+  } catch {
+    cpSync(target, path, { recursive: true });
+    writeFileSync(join(path, OWNERSHIP_MARKER), "");
+  }
+}
+
+/** Perform the action `reconcileSlot` decided on at `path`. The only function
+ * in this module that writes to disk. */
+export function applySlotAction(path: string, action: SlotAction, opts: ApplySlotOptions = {}): void {
+  const symlink = opts.symlink ?? symlinkSync;
+  switch (action.kind) {
+    case "noop":
+    case "skip-foreign":
+      return;
+    case "remove-link":
+      removeOwned(path);
+      return;
+    case "create-link":
+      createLink(path, action.target, symlink);
+      return;
+    case "relink":
+      removeOwned(path);
+      createLink(path, action.target, symlink);
+      return;
+    default:
+      assertNever(action);
+  }
 }
