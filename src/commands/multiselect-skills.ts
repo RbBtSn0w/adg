@@ -107,18 +107,19 @@ export function multiselectSkills(opts: MultiselectSkillsOptions): Promise<strin
       }
       return undefined;
     },
-    render(this: { state: string; value: string[]; cursor: number; options: SkillOption[] }) {
+    render(this: { state: string; value?: string[]; cursor: number; options: SkillOption[] }) {
+      const selected = this.value ?? [];
       const head = `${pc.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
       if (this.state === "submit" || this.state === "cancel") {
         const chosen = this.options
-          .filter((o) => this.value.includes(o.value))
+          .filter((o) => selected.includes(o.value))
           .map((o) => pc.dim(o.label))
           .join(pc.dim(", "));
         return `${head}${pc.gray(S_BAR)}  ${chosen || pc.dim("none")}`;
       }
       const rows = buildSkillRows(this.options, {
         cursor: this.cursor,
-        selected: this.value,
+        selected,
         showDesc,
         loadDescription: opts.loadDescription,
       }).join(`\n${pc.cyan(S_BAR)}  `);

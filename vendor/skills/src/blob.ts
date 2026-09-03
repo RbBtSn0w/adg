@@ -11,9 +11,12 @@
  */
 
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
+import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
+import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 // ─── Types ───
 
@@ -54,6 +57,7 @@ export const BLOB_ALLOWED_REPOS: Record<string, { downloadUrl: (slug: string) =>
 
 /** Timeout for individual HTTP fetches (ms) */
 const FETCH_TIMEOUT = 10_000;
+const GH_API_MAX_BUFFER = 16 * 1024 * 1024;
 
 // ─── Slug computation ───
 
@@ -114,7 +118,10 @@ async function fetchTreeBranch(
   token: string | null
 ): Promise<BranchFetchResult> {
   try {
-    const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+    const githubHost = getGitHubHost();
+    const apiBase =
+      githubHost === 'github.com' ? 'https://api.github.com' : `https://${githubHost}/api/v3`;
+    const url = `${apiBase}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'skills-cli',
@@ -155,6 +162,63 @@ async function fetchTreeBranch(
   }
 }
 
+async function fetchTreeWithToken(
+  ownerRepo: string,
+  branches: string[],
+  getToken: () => string | null
+): Promise<RepoTree | null> {
+  const token = getToken();
+  if (!token) return null;
+  for (const branch of branches) {
+    const result = await fetchTreeBranch(ownerRepo, branch, token);
+    if (result.tree) return result.tree;
+  }
+  return null;
+}
+
+async function fetchTreeWithGitHubCli(
+  ownerRepo: string,
+  branches: string[]
+): Promise<RepoTree | null> {
+  for (const branch of branches) {
+    try {
+      const endpoint = `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+      const stdout = await new Promise<string>((resolve, reject) => {
+        execFile(
+          'gh',
+          ['api', endpoint, '--method', 'GET', '--hostname', getGitHubHost()],
+          {
+            encoding: 'utf8',
+            timeout: FETCH_TIMEOUT,
+            maxBuffer: GH_API_MAX_BUFFER,
+            windowsHide: true,
+            env: { ...process.env, GH_PROMPT_DISABLED: '1' },
+          },
+          (error, output) => (error ? reject(error) : resolve(output))
+        );
+      });
+      const data = JSON.parse(stdout) as { sha?: unknown; tree?: unknown };
+      if (typeof data.sha !== 'string' || !Array.isArray(data.tree)) continue;
+      return { sha: data.sha, branch, tree: data.tree as TreeEntry[] };
+    } catch {
+      // Try the next branch, then let the caller fall back to git clone.
+    }
+  }
+  return null;
+}
+
+async function fetchTreeWithAvailableAuth(
+  ownerRepo: string,
+  branches: string[],
+  getToken?: () => string | null
+): Promise<RepoTree | null> {
+  if (getToken) {
+    const tree = await fetchTreeWithToken(ownerRepo, branches, getToken);
+    if (tree) return tree;
+  }
+  return fetchTreeWithGitHubCli(ownerRepo, branches);
+}
+
 /**
  * Fetch the full recursive tree for a GitHub repo.
  * Returns the tree data including all entries, or null on failure.
@@ -176,14 +240,8 @@ export async function fetchRepoTree(
 
   // Fast path: once we've seen a rate limit in this process, don't bother
   // retrying unauth on subsequent calls. Go straight to auth.
-  if (_rateLimitedThisSession && getToken) {
-    const token = getToken();
-    if (!token) return null;
-    for (const branch of branches) {
-      const result = await fetchTreeBranch(ownerRepo, branch, token);
-      if (result.tree) return result.tree;
-    }
-    return null;
+  if (_rateLimitedThisSession) {
+    return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
   }
 
   // First pass: unauthenticated.
@@ -200,24 +258,22 @@ export async function fetchRepoTree(
     }
     // ADG patch: remember a possible-private signal, but keep trying the other
     // candidate branches unauthenticated first (the repo may just lack `main`).
-    if (result.authMayHelp) authMayHelp = true;
+    if (result.authMayHelp) {
+      authMayHelp = true;
+      break;
+    }
   }
 
   // ADG patch: fall back to an authenticated retry on EITHER a rate limit or a
   // private/forbidden response. Upstream only retried on rate limit, so private
   // repos never used the token and always failed.
-  if ((!rateLimited && !authMayHelp) || !getToken) return null;
+  if ((!rateLimited && !authMayHelp) || (!getToken && getGitHubHost() === 'github.com')) {
+    return null;
+  }
 
   // Only a rate limit is a process-wide condition worth short-circuiting later.
   if (rateLimited) _rateLimitedThisSession = true;
-  const token = getToken();
-  if (!token) return null;
-
-  for (const branch of branches) {
-    const result = await fetchTreeBranch(ownerRepo, branch, token);
-    if (result.tree) return result.tree;
-  }
-  return null;
+  return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
 }
 
 /**
