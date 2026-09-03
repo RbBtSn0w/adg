@@ -1,3 +1,9 @@
+## [0.8.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.6...0.8.0-beta.7) (2026-09-03)
+
+### Added
+
+* **ci:** add automated PR dev preview release and CLI update support ([#99](https://github.com/RbBtSn0w/adg/issues/99)) ([bd42af2](https://github.com/RbBtSn0w/adg/commit/bd42af24a6c330d73c1fce12d86206b99d980865))
+
 ## [0.8.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.5...0.8.0-beta.6) (2026-09-03)
 
 ### Added
