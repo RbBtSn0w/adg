@@ -71,8 +71,17 @@
     "semantic-release": "^25.0.5",
     "typescript": "^5.6.0"
   },
-  "comment:overrides": "Security floor: npm 11 before 11.18.0 bundles vulnerable undici 6.26.0; keep npm on patched 11.x until @semantic-release/npm supports a newer major.",
+  "comment:overrides": "Security floors for transitive development tooling: keep npm on a patched 11.x release, and pin vulnerable transitive undici/js-yaml branches to their patched versions.",
   "overrides": {
-    "npm": "^11.18.0"
+    "npm": "^11.19.1",
+    "@actions/http-client": {
+      "undici": "^6.28.0"
+    },
+    "@semantic-release/github": {
+      "undici": "^7.29.0"
+    },
+    "cosmiconfig": {
+      "js-yaml": "^4.3.1"
+    }
   }
 }
