@@ -262,16 +262,26 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DEV_VERSION="${{ steps.versioning.outputs.dev_version }}"
-          echo "@rbbtsn0w:registry=https://npm.pkg.github.com" > .npmrc
-          echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}' >> .npmrc
-          if npm publish --registry https://npm.pkg.github.com --tag next; then
+          publish_log="$(mktemp)"
+          cleanup() { rm -f .npmrc "$publish_log"; }
+          trap cleanup EXIT
+          {
+            echo "@rbbtsn0w:registry=https://npm.pkg.github.com"
+            echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}'
+          } > .npmrc
+          if npm publish --registry https://npm.pkg.github.com --tag next 2> "$publish_log"; then
+            cat "$publish_log" >&2
             echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
-          elif grep -Eqi 'EPUBLISHCONFLICT|cannot publish over|version .+ already exists' ~/.npm/_logs/* 2>/dev/null; then
-            echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
-            echo "GitHub Packages: version ${DEV_VERSION} already exists."
+            echo "Successfully mirrored ${DEV_VERSION} to GitHub Packages"
           else
-            echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
-            echo "GitHub Packages: publish finished or version exists."
+            cat "$publish_log" >&2
+            if grep -Eqi 'EPUBLISHCONFLICT|cannot publish over|version .+ already exists' "$publish_log"; then
+              echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
+              echo "GitHub Packages: version ${DEV_VERSION} already exists."
+            else
+              echo "gh_packages_published=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::GitHub Packages publish failed for ${DEV_VERSION}."
+            fi
           fi
 
       - name: Post or Update PR Comment
@@ -293,35 +303,37 @@ jobs:
               registries.push('| **GitHub Packages** | `@rbbtsn0w/adg@' + devVersion + '` | `next` |');
             }
 
-            const body = `${commentHeader}
-
-            A temporary development build has been published for testing and acceptance verification:
-
-            | Registry | Package / Version | Dist-tag |
-            | :--- | :--- | :--- |
-            ${registries.join('\n')}
-
-            #### 🛠️ Quick Verification Options
-
-            **1. Run directly with npx (no local install required)**:
-            \`\`\`bash
-            npx @rbbtsn0w/adg@${devVersion} --version
-            \`\`\`
-
-            **2. Self-update via ADG CLI**:
-            \`\`\`bash
-            # Pin to this exact PR build
-            adg update --tag ${devVersion}
-
-            # Or follow the latest PR dev channel
-            adg update --dev
-            \`\`\`
-
-            **3. Global install with npm**:
-            \`\`\`bash
-            npm install -g @rbbtsn0w/adg@${devVersion}
-            \`\`\`
-            `;
+            const bodyLines = [
+              commentHeader,
+              '',
+              'A temporary development build has been published for testing and acceptance verification:',
+              '',
+              '| Registry | Package / Version | Dist-tag |',
+              '| :--- | :--- | :--- |',
+              ...registries,
+              '',
+              '#### 🛠️ Quick Verification Options',
+              '',
+              '**1. Run directly with npx (no local install required)**:',
+              '```bash',
+              `npx @rbbtsn0w/adg@${devVersion} --version`,
+              '```',
+              '',
+              '**2. Self-update via ADG CLI**:',
+              '```bash',
+              '# Pin to this exact PR build',
+              `adg update --tag ${devVersion}`,
+              '',
+              '# Or follow the latest PR dev channel',
+              'adg update --dev',
+              '```',
+              '',
+              '**3. Global install with npm**:',
+              '```bash',
+              `npm install -g @rbbtsn0w/adg@${devVersion}`,
+              '```',
+            ];
+            const body = bodyLines.join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
