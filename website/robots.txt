@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://adg.rbbtsn0w.me/sitemap.xml
