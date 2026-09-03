@@ -1,3 +1,9 @@
+## [0.8.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.3...0.8.0-beta.4) (2026-09-03)
+
+### Fixed
+
+* **deps:** remediate Dependabot security alerts ([#96](https://github.com/RbBtSn0w/adg/issues/96)) ([55620cc](https://github.com/RbBtSn0w/adg/commit/55620cc95f4e8e1c5aec193ccec686b906440afb))
+
 ## [0.8.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.2...0.8.0-beta.3) (2026-09-02)
 
 ### Added
