@@ -1,3 +1,9 @@
+## [0.8.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.4...0.8.0-beta.5) (2026-09-03)
+
+### Added
+
+* **skills:** sync vendor with upstream v1.5.23 ([#97](https://github.com/RbBtSn0w/adg/issues/97)) ([61d1ec4](https://github.com/RbBtSn0w/adg/commit/61d1ec4cee3a4630781d77143a7d1dee12d490eb))
+
 ## [0.8.0-beta.4](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.3...0.8.0-beta.4) (2026-09-03)
 
 ### Fixed
