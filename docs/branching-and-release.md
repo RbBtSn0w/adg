@@ -15,6 +15,14 @@ Merges to `beta` are published by semantic-release under the `beta` npm
 dist-tag. Maintainers promote a tested release set with a `beta -> main` pull
 request; merging that pull request publishes the stable `latest` dist-tag.
 
+## PR Dev Preview Releases
+
+Each pull request targeting `beta` triggers automated dev preview packaging:
+
+- Published under the `next` dist-tag on npm and GitHub Packages.
+- Formatted as `<BASE>-dev.pr<PR_NUM>.<SHORT_SHA>`.
+- The CI bot posts verification instructions directly on the PR with `npx`, `adg update --tag <version>`, or `adg update --dev`.
+
 ## Back-merge after a stable release
 
 The release commit created on `main` must be merged back into `beta` so both
