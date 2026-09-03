@@ -1,3 +1,9 @@
+## [0.8.0-beta.6](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.5...0.8.0-beta.6) (2026-09-03)
+
+### Added
+
+* **marketing:** add ADG Cloudflare Pages homepage ([#98](https://github.com/RbBtSn0w/adg/issues/98)) ([f061d0c](https://github.com/RbBtSn0w/adg/commit/f061d0cf6fd20961bf6af295d44e2f7f9d7816b3))
+
 ## [0.8.0-beta.5](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.4...0.8.0-beta.5) (2026-09-03)
 
 ### Added
