@@ -1,10 +1,11 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
-import { sanitizeMetadata } from './sanitize.ts';
+import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -18,24 +19,33 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.continue/skills',
   '.github/skills',
   '.goose/skills',
+  '.grok/skills',
   '.iflow/skills',
   '.junie/skills',
   '.kilocode/skills',
+  '.kimchi/skills',
   '.kiro/skills',
   '.mux/skills',
+  '.minimax/skills',
   '.neovate/skills',
   '.opencode/skills',
   '.openhands/skills',
   '.pi/skills',
+  '.posit/assistant/skills',
   '.qoder/skills',
   '.roo/skills',
   '.trae/skills',
   '.windsurf/skills',
+  '.zcode/skills',
   '.zencoder/skills',
 ];
 
 function normalizeSkillName(name: string): string {
   return name.toLowerCase().replace(/[\s_]+/g, '-');
+}
+
+function warnSkippedSkill(skillMdPath: string, reason: string): void {
+  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
 }
 
 function normalizeRelativePath(path: string): string {
@@ -70,11 +80,13 @@ export async function parseSkillMd(
     const { data } = parseFrontmatter(content);
 
     if (!data.name || !data.description) {
+      warnSkippedSkill(skillMdPath, 'missing name or description');
       return null;
     }
 
     // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
     if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+      warnSkippedSkill(skillMdPath, 'name and description must be strings');
       return null;
     }
 
@@ -101,7 +113,8 @@ export async function parseSkillMd(
       rawContent: content,
       metadata,
     };
-  } catch {
+  } catch (error) {
+    warnSkippedSkill(skillMdPath, `failed to parse skill: ${(error as Error).message}`);
     return null;
   }
 }
@@ -223,8 +236,8 @@ export async function discoverSkills(
     ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
   ];
 
-  // Known skill container dirs are walked one extra level deep so layouts
-  // like `skills/<category>/<skill>/SKILL.md` are discovered without
+  // Known skill container dirs are walked up to the configured depth so layouts
+  // like `skills/<category>/<category>/<skill>/SKILL.md` are discovered without
   // requiring `--full-depth`. The repo root (first entry) keeps its
   // existing depth-1 behavior to avoid surfacing unrelated `SKILL.md`
   // files (e.g. `examples/foo/SKILL.md`), and plugin-manifest-declared
@@ -245,7 +258,7 @@ export async function discoverSkills(
     return true;
   };
 
-  for (const dir of prioritySearchDirs) {
+  const walkSkillDirs = async (dir: string, maxDepth: number, depth = 1): Promise<void> => {
     const walkDeep = deepContainerDirs.has(dir);
 
     try {
@@ -260,23 +273,21 @@ export async function discoverSkills(
         // Don't descend past a discovered SKILL.md (matches the existing
         // flat-layout semantics) and don't go deeper inside non-container
         // priority dirs.
-        if (foundAtChild || !walkDeep) continue;
+        if (foundAtChild || !walkDeep || depth >= maxDepth) continue;
         if (SKIP_DIRS.includes(entry.name)) continue;
 
-        // Walk one extra level for catalog layouts.
-        try {
-          const grandEntries = await readdir(childDir, { withFileTypes: true });
-          for (const grand of grandEntries) {
-            if (!grand.isDirectory() || SKIP_DIRS.includes(grand.name)) continue;
-            await tryAddSkillAt(join(childDir, grand.name));
-          }
-        } catch {
-          // Child dir unreadable; skip silently.
-        }
+        await walkSkillDirs(childDir, maxDepth, depth + 1);
       }
     } catch {
-      // Directory doesn't exist
+      // Directory doesn't exist or is unreadable.
     }
+  };
+
+  for (const dir of prioritySearchDirs) {
+    await walkSkillDirs(
+      dir,
+      deepContainerDirs.has(dir) ? DEFAULT_SKILL_CONTAINER_DEPTH : 1,
+    );
   }
 
   // Fall back to recursive search if nothing found, or if fullDepth is set

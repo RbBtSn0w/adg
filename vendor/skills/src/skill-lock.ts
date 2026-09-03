@@ -35,6 +35,10 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Canonical well-known endpoint used to discover this skill. */
+  sourceBaseUrl?: string;
+  /** Digest of the well-known skill payload at installation time. */
+  wellKnownDigest?: string;
 }
 
 /**

@@ -13,6 +13,7 @@ interface InstallTelemetryData {
   agents: string;
   global?: "1";
   skillFiles?: string; // JSON stringified { skillName: relativePath }
+  installUrl?: string;
   sourceType?: string;
 }
 

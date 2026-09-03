@@ -6,13 +6,23 @@ wrapped by `adg skills`.
 | Field | Value |
 |-------|-------|
 | Upstream repo | https://github.com/vercel-labs/skills |
-| npm package | `skills` (v1.5.14) |
-| Vendored commit | `2adcfe5a4cce0ce5f4d5547a997b2a161ec5d127` (tag `v1.5.14`) |
-| Vendored on | 2026-07-02 |
+| npm package | `skills` (v1.5.23) |
+| Vendored commit | `c1755dd49618b02a4181495ee7404eec3d744c81` (tag `v1.5.23`) |
+| Vendored on | 2026-09-03 |
 | Previous vendoring | `be0dd25` (v1.5.11), 2026-06-11 |
 | What was copied | `src/` (excluding `*.test.ts`) and `ThirdPartyNoticeText.txt` |
 
-## Re-sync notes (v1.5.11 → v1.5.14, 2026-07-02)
+## Re-sync notes (v1.5.14 → v1.5.23, 2026-09-03)
+
+3-way merge (base `2adcfe5`, ours = prior vendoring + ADG patches, theirs `c1755dd`).
+The first pass accidentally retained old implementations in several overlapping
+files. This re-sync restores the upstream archive/direct-download flow, well-known
+digest/update flow, expanded discovery depth and agents, GitHub Enterprise auth
+paths, Git transport hardening, and lock/update metadata. ADG-owned security and
+runtime patches were then re-applied manually. The upstream package floors now
+require `@clack/prompts` 1.2.0, `simple-git` 3.36.0, and `tar` 7.5.20.
+
+The previous merge notes are retained below as the patch history.
 
 3-way merge (base `be0dd25`, ours = prior vendoring + ADG patches, theirs `2adcfe5`).
 Upstream dependencies were unchanged. Resolution map:
@@ -82,6 +92,10 @@ re-vendoring. Each is marked inline with an `ADG patch:` comment.
 | `src/update.ts` → both `spawnSync` self-CLI re-invokes (+ new `src/self-cli.ts`) | Forward `process.execArgv`, call `skills add` instead of `add`, and wrap in OpenTelemetry CLIENT spans | The child process runs `adg skills add` inside the spawned Node context, ensuring type-stripping flags inherit properly, and OTel spans capture subprocess execution metadata. |
 | `package.json` → `@vercel/detect-agent` dependency (not a vendored-source change) | `^0.1.0` → `^1.2.3` | `src/detect-agent.ts` (upstream, unpatched) imports `AgentResult` and expects `determineAgent(): Promise<AgentResult>` (object API). The stale `0.1.0` pin only exported `determineAgent(): Promise<string \| false>` and no `AgentResult`, which broke typecheck and left `cachedResult.isAgent` always `undefined` at runtime — agent auto-detection (non-interactive mode in `add`/`sync`/`remove`/`find`/`cli`) silently never fired. The `1.x` line restores the API the fork targets, so `detect-agent.ts` needs **no** local patch. Keep this dependency on `1.x` across re-vendoring. |
 | `src/git-tree.ts` (**new ADG file**) + `src/add.ts` clone-fallback branch | github source that falls back to a `git clone` now records the git **tree SHA** (`git rev-parse HEAD:<folder>`), not a sha256 content hash | Install and update must use ONE hash scheme per source. Update-check always uses the git tree SHA; the old clone fallback stored a sha256 content hash, so those skills were re-flagged on **every** update (a collection repo appeared to "fully update" each run). `git-tree.ts` is standalone (uses `child_process`, no simple-git) so it typechecks under ADG's strict tsconfig when a test imports it. |
+| `src/add.ts` → direct-download and well-known fallback | Route `download` sources through `downloadSource()` and fall back from empty well-known discovery to raw `SKILL.md`/archive download | `source-parser.ts` already classified these URLs, but the installer previously fell through to `cloneRepo()`, making the new source type unusable. |
+| `src/add.ts`, `src/skill-lock.ts`, `src/local-lock.ts`, `src/update.ts` → well-known metadata | Persist the canonical base URL and content digest, then use them for global/project update checks | Without the digest metadata, well-known skills could install but could not participate in the upstream update lifecycle. |
+| `src/skills.ts` → discovery depth and agent containers | Restore upstream three-level known-container discovery and current agent directories while retaining ADG path/lock filtering | Prevents nested catalog skills and newly supported agent locations from disappearing during synchronization. |
+| `src/cli.ts`, `src/add.ts` → help and argument errors | Restore side-effect-free subcommand help and explicit option parse errors; retain ADG-specific OpenClaw help/security behavior | Keeps CLI behavior predictable without reintroducing upstream's removed OpenClaw execution warning policy. |
 | `src/git-tree.ts` → `gitTreeShaForFolder` | Route the ADG-added `git rev-parse` subprocess through the root OTel CLIENT-span runner | Keeps the local fallback compliant with ADG's CLI semantic-convention policy without duplicating instrumentation inside the vendored fork. |
 | `src/skill-lock.ts`, `src/update.ts`, `src/use.ts` | Route GitHub auth, self-update, and interactive agent subprocesses through the root OTel CLIENT-span runner | Enforces required exit/error attributes and privacy-safe command arguments consistently across the vendored CLI. |
 | `src/skill-lock.ts` → `getGitHubToken` auth warning | Prefix the one-shot stderr warning with `\r\x1b[K` on a TTY | The warning lands on the same physical terminal line as `update.ts`'s transient stdout status line, which carries no trailing newline — without rewinding, the two are rendered concatenated. |

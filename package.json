@@ -46,7 +46,7 @@
   ],
   "comment:dependencies": "Runtime deps below are required only by the vendored skills CLI (vendor/skills); ADG's own plugins code has zero runtime deps. Root is the single source of truth: each range MUST be >= the floor declared in vendor/skills/package.json, since that is the version the vendored source was authored against. `npm run check:vendor-deps` enforces this and fails on drift.",
   "dependencies": {
-    "@clack/prompts": "^0.11.0",
+    "@clack/prompts": "^1.2.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
     "@opentelemetry/resources": "^2.8.0",
@@ -56,6 +56,7 @@
     "@vercel/detect-agent": "^1.2.3",
     "picocolors": "^1.1.1",
     "simple-git": "^3.36.0",
+    "tar": "^7.5.20",
     "xdg-basedir": "^5.1.0",
     "yaml": "^2.8.3"
   },
