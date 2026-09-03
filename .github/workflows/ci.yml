@@ -190,7 +190,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       issues: write
       pull-requests: write
       packages: write
@@ -223,7 +223,6 @@ jobs:
           PR_NUM="${{ github.event.pull_request.number }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           SHORT_SHA="${HEAD_SHA:0:7}"
-          RAW_VERSION="$(node -p 'require("./package.json").version')"
           BASE_VERSION="$(node -p 'require("./package.json").version.replace(/-.*$/, "")')"
           DEV_VERSION="${BASE_VERSION}-dev.pr${PR_NUM}.${SHORT_SHA}"
           npm version "${DEV_VERSION}" --no-git-tag-version --allow-same-version
@@ -231,48 +230,76 @@ jobs:
           echo "base_version=${BASE_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm (next dist-tag)
+        id: npm_publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           DEV_VERSION="${{ steps.versioning.outputs.dev_version }}"
           if [ -n "${NODE_AUTH_TOKEN}" ]; then
             echo "Publishing ${DEV_VERSION} to npm with NPM_TOKEN..."
-            npm publish --tag next --access public
-            echo "Successfully published ${DEV_VERSION} to npm (dist-tag: next)"
+            if npm publish --tag next --access public; then
+              echo "npm_published=true" >> "$GITHUB_OUTPUT"
+              echo "Successfully published ${DEV_VERSION} to npm (dist-tag: next)"
+            else
+              echo "npm_published=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::npm publish with NPM_TOKEN failed."
+            fi
           else
             echo "NPM_TOKEN secret is not set; attempting OIDC provenance publish..."
             sed -i.bak '/_authToken/d' ~/.npmrc || true
             if npm publish --provenance --tag next --access public; then
+              echo "npm_published=true" >> "$GITHUB_OUTPUT"
               echo "Successfully published ${DEV_VERSION} to npm via OIDC (dist-tag: next)"
             else
+              echo "npm_published=false" >> "$GITHUB_OUTPUT"
               echo "::warning::npm publish via OIDC rejected. (npm OIDC Trusted Publisher policy may require main/beta). Ensure NPM_TOKEN secret is configured for PR releases."
             fi
           fi
 
       - name: Mirror to GitHub Packages
+        id: gh_packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DEV_VERSION="${{ steps.versioning.outputs.dev_version }}"
           echo "@rbbtsn0w:registry=https://npm.pkg.github.com" > .npmrc
           echo '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}' >> .npmrc
-          npm publish --registry https://npm.pkg.github.com --tag next || echo "GitHub Packages: version ${DEV_VERSION} already exists or mirror skipped."
+          if npm publish --registry https://npm.pkg.github.com --tag next; then
+            echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eqi 'EPUBLISHCONFLICT|cannot publish over|version .+ already exists' ~/.npm/_logs/* 2>/dev/null; then
+            echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Packages: version ${DEV_VERSION} already exists."
+          else
+            echo "gh_packages_published=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Packages: publish finished or version exists."
+          fi
 
       - name: Post or Update PR Comment
+        if: steps.npm_publish.outputs.npm_published == 'true' || steps.gh_packages.outputs.gh_packages_published == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const devVersion = '${{ steps.versioning.outputs.dev_version }}';
+            const npmPublished = '${{ steps.npm_publish.outputs.npm_published }}' === 'true';
+            const ghPublished = '${{ steps.gh_packages.outputs.gh_packages_published }}' === 'true';
+
             const commentHeader = '### 🚀 PR Dev Preview Released';
+            const registries = [];
+            if (npmPublished) {
+              registries.push('| **npm** | `@rbbtsn0w/adg@' + devVersion + '` | `next` |');
+            }
+            if (ghPublished) {
+              registries.push('| **GitHub Packages** | `@rbbtsn0w/adg@' + devVersion + '` | `next` |');
+            }
+
             const body = `${commentHeader}
 
             A temporary development build has been published for testing and acceptance verification:
 
             | Registry | Package / Version | Dist-tag |
             | :--- | :--- | :--- |
-            | **npm** | \`@rbbtsn0w/adg@${devVersion}\` | \`next\` |
-            | **GitHub Packages** | \`@rbbtsn0w/adg@${devVersion}\` | \`next\` |
+            ${registries.join('\n')}
 
             #### 🛠️ Quick Verification Options
 
