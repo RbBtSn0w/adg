@@ -100,15 +100,19 @@ function runSelfUpdate(args: string[]): CommandOutcome {
     console.log(SELF_UPDATE_USAGE);
     return commandOutcome("success");
   }
-  const command = selfUpdateCommand(options.beta);
+  const command = selfUpdateCommand(options);
+  if (options.dryRun) {
+    console.log(`[dry-run] would run: ${command.command} ${command.args.join(" ")}`);
+    return commandOutcome("success");
+  }
   // npm's own inherited output is the progress indicator once it starts; this
   // frames the silent stretch before it and states what is about to happen.
-  process.stderr.write(`${ui.meta(formatSelfUpdateStart(getVersion(), options.beta))}\n`);
+  process.stderr.write(`${ui.meta(formatSelfUpdateStart(getVersion(), options))}\n`);
   const started = Date.now();
   const r = runSubprocessSync(command.command, command.args, selfUpdateSpawnOptions());
   if (r.error) {
     console.error(`${ui.err("error:")} ${r.error.message}`);
-    console.error(ui.meta(selfUpdateFailureHint(options.beta)));
+    console.error(ui.meta(selfUpdateFailureHint(options)));
     return commandOutcome("failure", "dependency");
   }
   const exitCode = r.status ?? 1;
@@ -118,7 +122,7 @@ function runSelfUpdate(args: string[]): CommandOutcome {
     return commandOutcome("success");
   }
   process.stderr.write(`${ui.err(formatSelfUpdateResult(false, elapsed))}\n`);
-  console.error(ui.meta(selfUpdateFailureHint(options.beta)));
+  console.error(ui.meta(selfUpdateFailureHint(options)));
   return { ...commandOutcome("failure", "dependency"), exitCode };
 }
 

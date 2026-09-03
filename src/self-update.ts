@@ -4,14 +4,48 @@ export const PACKAGE_NAME = "@rbbtsn0w/adg";
 
 export interface SelfUpdateOptions {
   beta: boolean;
+  dev: boolean;
+  tag?: string;
+  dryRun: boolean;
   help: boolean;
 }
 
 export function parseSelfUpdateArgs(args: string[]): SelfUpdateOptions {
-  const options: SelfUpdateOptions = { beta: false, help: false };
-  for (const arg of args) {
+  const options: SelfUpdateOptions = {
+    beta: false,
+    dev: false,
+    tag: undefined,
+    dryRun: false,
+    help: false,
+  };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
     if (arg === "--beta" || arg === "-b") {
       options.beta = true;
+      continue;
+    }
+    if (arg === "--dev") {
+      options.dev = true;
+      continue;
+    }
+    if (arg === "--tag" || arg === "-t") {
+      const val = args[++i];
+      if (!val || val.startsWith("-")) {
+        throw new Error(`flag \`${arg}\` requires a version or dist-tag argument`);
+      }
+      options.tag = val;
+      continue;
+    }
+    if (arg.startsWith("--tag=")) {
+      const val = arg.slice("--tag=".length);
+      if (!val) {
+        throw new Error(`flag \`--tag\` requires a version or dist-tag argument`);
+      }
+      options.tag = val;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      options.dryRun = true;
       continue;
     }
     if (arg === "--help" || arg === "-h") {
@@ -25,14 +59,31 @@ export function parseSelfUpdateArgs(args: string[]): SelfUpdateOptions {
   return options;
 }
 
-export function selfUpdateTarget(beta: boolean): string {
-  return beta ? "beta" : "latest";
+export type SelfUpdateTargetInput = boolean | { beta?: boolean; dev?: boolean; tag?: string };
+
+export function selfUpdateTarget(target: SelfUpdateTargetInput): string {
+  if (typeof target === "boolean") {
+    return target ? "beta" : "latest";
+  }
+  if (target.tag) {
+    return target.tag;
+  }
+  if (target.dev) {
+    return "next";
+  }
+  if (target.beta) {
+    return "beta";
+  }
+  return "latest";
 }
 
-export function selfUpdateCommand(beta: boolean, npmBin = "npm"): { command: string; args: string[] } {
+export function selfUpdateCommand(
+  target: SelfUpdateTargetInput,
+  npmBin = "npm"
+): { command: string; args: string[] } {
   return {
     command: npmBin,
-    args: ["install", "-g", `${PACKAGE_NAME}@${selfUpdateTarget(beta)}`],
+    args: ["install", "-g", `${PACKAGE_NAME}@${selfUpdateTarget(target)}`],
   };
 }
 
@@ -45,9 +96,9 @@ export function selfUpdateSpawnOptions(platform: NodeJS.Platform = process.platf
  * seconds, so without this the command that is *named* "update" shows nothing at
  * all until npm's summary block appears.
  */
-export function formatSelfUpdateStart(currentVersion: string, beta: boolean): string {
-  const { command, args } = selfUpdateCommand(beta);
-  return `adg ${currentVersion} → installing ${selfUpdateTarget(beta)} (${command} ${args.join(" ")})`;
+export function formatSelfUpdateStart(currentVersion: string, target: SelfUpdateTargetInput): string {
+  const { command, args } = selfUpdateCommand(target);
+  return `adg ${currentVersion} → installing ${selfUpdateTarget(target)} (${command} ${args.join(" ")})`;
 }
 
 /** Closing line for a self-update run. */
@@ -59,15 +110,16 @@ export function formatSelfUpdateResult(ok: boolean, elapsedMs: number): string {
 }
 
 /** Actionable next step when npm could not be launched or exited non-zero. */
-export function selfUpdateFailureHint(beta: boolean): string {
-  const { command, args } = selfUpdateCommand(beta);
+export function selfUpdateFailureHint(target: SelfUpdateTargetInput): string {
+  const { command, args } = selfUpdateCommand(target);
   return `try running it directly: ${command} ${args.join(" ")}\nif that fails with EACCES, npm's global prefix needs write access (or install via a version manager).`;
 }
 
 export function selfUpdateHint(latestVersion: string): string {
   const channel = prereleaseChannel(latestVersion);
   if (channel === "beta") return "adg update --beta";
-  if (channel) return `npm install -g ${PACKAGE_NAME}@${latestVersion}`;
+  if (channel === "dev" || channel === "next") return "adg update --dev";
+  if (channel) return `adg update --tag ${latestVersion}`;
   return "adg update";
 }
 
@@ -78,4 +130,11 @@ Usage:
         Install the latest stable release with npm.
   adg update --beta
   adg update -b
-        Install the latest beta release with npm.`;
+        Install the latest beta release with npm.
+  adg update --dev
+        Install the latest PR development / canary release (dist-tag: next).
+  adg update --tag <tag|version>
+  adg update -t <tag|version>
+        Install a specific version or dist-tag with npm.
+  adg update --dry-run
+        Simulate update command without running npm.`;
