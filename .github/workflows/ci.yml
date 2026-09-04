@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npm run check:vendor-deps
       - run: npm run check:docs
       # Keep the shipped CLI's runtime dependencies clean. Dev-only tooling is
@@ -95,7 +95,7 @@ jobs:
         # lack of an NPM_TOKEN. Pin a known-good npm so publish uses OIDC.
         run: npm install -g npm@11.18.0
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
       - name: Build
         # Must run before publish: npm validates the `bin` target exists when it
         # normalizes package.json at the START of `npm publish` — earlier than
@@ -224,7 +224,7 @@ jobs:
         run: npm install -g npm@11.18.0
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Build
         run: npm run build

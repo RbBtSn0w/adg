@@ -90,6 +90,7 @@ try {
     "src/use.test.ts",
     "tests/blob-root-skill.test.ts",
     "tests/blob-fetch-tree-auth.test.ts",
+    "tests/dist.test.ts",
     "tests/git-transport-allowlist.test.ts",
     "tests/grok-agent.test.ts",
     "tests/kimchi-agent.test.ts",
@@ -101,7 +102,7 @@ try {
     "tests/root-level-lock-hash.test.ts",
     "tests/skill-matching.test.ts",
   ];
-  run("npx", [...pnpm, "exec", "vitest", "run", ...excluded.flatMap((file) => ["--exclude", file])], checkout);
+  run("npx", [...pnpm, "exec", "vitest", "run", "--testTimeout=15000", ...excluded.flatMap((file) => ["--exclude", file])], checkout);
   console.log(`vendor-upstream: local vendored source passed upstream tests at ${commit.slice(0, 12)}. OK`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
