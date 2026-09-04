@@ -95,7 +95,11 @@ test("CI covers the minimum Node runtime and repository release gates", () => {
 });
 
 test("workflows pin third-party actions to immutable commits", () => {
-  for (const file of [".github/workflows/ci.yml", ".github/workflows/sync-main-to-beta.yml"]) {
+  for (const file of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/sync-main-to-develop.yml",
+    ".github/workflows/scheduled-release-pr.yml",
+  ]) {
     const workflow = readFileSync(resolve(file), "utf8");
     const refs = [...workflow.matchAll(/^\s*uses:\s*[^\s@]+@([^\s#]+)/gm)].map((match) => match[1]!);
     assert.ok(refs.length > 0, `${file} should use at least one action`);
