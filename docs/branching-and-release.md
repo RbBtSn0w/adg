@@ -16,7 +16,7 @@ dist-tag (prereleases as `x.y.z-beta.N`).
 
 ## Automated Weekly Stable Release
 
-Every Friday at 15:00 CST (07:00 UTC), a scheduled automation workflow
+Every Friday at 15:00 Beijing time (UTC+8 / 07:00 UTC), a scheduled automation workflow
 (`.github/workflows/scheduled-release-pr.yml`):
 
 1. Checks if `develop` has new commits ahead of `main`.

@@ -1,12 +1,12 @@
 name: Scheduled Release PR
 
-# Every Friday at 15:00 CST (07:00 UTC), check if develop has unreleased commits
+# Every Friday at 15:00 Beijing time (UTC+8 / 07:00 UTC), check if develop has unreleased commits
 # ahead of main. If so, open a `develop -> main` release PR and enable auto-merge.
 # Once CI completes and all checks pass without failure or conflicts, GitHub
 # automatically merges the PR into main, triggering the stable production release.
 on:
   schedule:
-    # 15:00 every Friday Beijing time (UTC+8) -> 07:00 UTC Friday
+    # 15:00 every Friday Beijing time (UTC+8 / 07:00 UTC)
     - cron: '0 7 * * 5'
   workflow_dispatch:
 
