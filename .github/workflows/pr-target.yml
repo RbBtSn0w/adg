@@ -1,7 +1,7 @@
 name: PR Target Branch
 
-# Enforce the contribution flow: feature/fix PRs must target `beta`.
-# The only PR allowed to target `main` is the maintainer release PR from `beta`.
+# Enforce the contribution flow: feature/fix PRs must target `develop`.
+# The only PR allowed to target `main` is the release PR from `develop`.
 #
 # Uses `pull_request` (not `pull_request_target`): the check only reads the
 # event's member-specific PR refs — no secrets or write access. The shortcut
@@ -11,7 +11,7 @@ name: PR Target Branch
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-    branches: [ main, beta ]
+    branches: [ main, develop ]
 
 permissions:
   contents: read
@@ -27,14 +27,14 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
           echo "PR: ${HEAD} -> ${BASE}"
-          if [ "${BASE}" = "beta" ]; then
-            echo "OK: targeting the integration branch (beta)."
+          if [ "${BASE}" = "develop" ]; then
+            echo "OK: targeting the integration branch (develop)."
             exit 0
           fi
-          if [ "${BASE}" = "main" ] && [ "${HEAD}" = "beta" ]; then
-            echo "OK: maintainer release PR (beta -> main)."
+          if [ "${BASE}" = "main" ] && [ "${HEAD}" = "develop" ]; then
+            echo "OK: release PR (develop -> main)."
             exit 0
           fi
-          echo "::error::Pull requests must target the beta branch."
-          echo "main is reserved for stable releases. Re-open this PR with base = beta."
+          echo "::error::Pull requests must target the develop branch."
+          echo "main is reserved for stable releases. Re-open this PR with base = develop."
           exit 1
