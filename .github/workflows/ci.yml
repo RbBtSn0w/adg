@@ -48,7 +48,19 @@ jobs:
       - run: npm run check:docs
       # Keep the shipped CLI's runtime dependencies clean. Dev-only tooling is
       # monitored by Dependabot and constrained with overrides when fixes exist.
-      - run: npm run audit:prod
+      # Gate audit to the single canonical smoke runner with retry to prevent redundant
+      # API churn and external 503 registry failures from blocking the entire matrix.
+      - name: Audit production dependencies
+        if: matrix.package-smoke == true
+        run: |
+          for i in 1 2 3; do
+            if npm run audit:prod; then
+              exit 0
+            fi
+            echo "npm audit failed (attempt $i/3); retrying in 5s..."
+            sleep 5
+          done
+          npm run audit:prod
       - run: npm run typecheck
       - run: npm run build
       - run: npm test

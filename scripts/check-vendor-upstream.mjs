@@ -13,29 +13,38 @@ if (!commit) {
   process.exit(1);
 }
 
-function run(command, args, cwd, timeout = 300_000) {
+function run(command, args, cwd, timeout = 300_000, retries = 0) {
   const env = { ...process.env, CI: "", DISABLE_TELEMETRY: "1" };
   delete env.CODEX_CI;
   delete env.CODEX_THREAD_ID;
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    stdio: "inherit",
-    timeout,
-    env,
-    shell: process.platform === "win32",
-  });
-  if (result.error || result.status !== 0) {
-    throw result.error ?? new Error(`${command} exited with status ${result.status}`);
+
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      console.warn(`Retry attempt ${attempt}/${retries} for ${command} ${args.join(" ")}...`);
+    }
+    const result = spawnSync(command, args, {
+      cwd,
+      encoding: "utf8",
+      stdio: "inherit",
+      timeout,
+      env,
+      shell: process.platform === "win32",
+    });
+    if (!result.error && result.status === 0) {
+      return;
+    }
+    lastError = result.error ?? new Error(`${command} exited with status ${result.status}`);
   }
+  throw lastError;
 }
 
 const scratch = mkdtempSync(join(tmpdir(), "adg-vendor-upstream-"));
 const checkout = join(scratch, "vendor", "skills");
 try {
   mkdirSync(join(scratch, "vendor"), { recursive: true });
-  run("git", ["clone", "--quiet", "--no-checkout", "https://github.com/vercel-labs/skills.git", checkout], root);
-  run("git", ["-C", checkout, "fetch", "--quiet", "--depth", "1", "origin", commit], root);
+  run("git", ["clone", "--quiet", "--no-checkout", "https://github.com/vercel-labs/skills.git", checkout], root, 300_000, 2);
+  run("git", ["-C", checkout, "fetch", "--quiet", "--depth", "1", "origin", commit], root, 300_000, 2);
   run("git", ["-C", checkout, "checkout", "--quiet", "FETCH_HEAD"], root);
 
   const localSrc = join(root, "vendor", "skills", "src");
@@ -53,11 +62,11 @@ try {
   cpSync(join(root, "package.json"), join(scratch, "package.json"));
 
   const pnpm = ["--yes", "pnpm@10.17.1"];
-  run("npx", [...pnpm, "install", "--frozen-lockfile"], checkout);
+  run("npx", [...pnpm, "install", "--frozen-lockfile"], checkout, 300_000, 2);
   const otelDependencies = Object.entries(rootPackage.dependencies)
     .filter(([name]) => name.startsWith("@opentelemetry/"))
     .map(([name, version]) => `${name}@${version}`);
-  run("npx", [...pnpm, "add", "--save-dev", ...otelDependencies], checkout);
+  run("npx", [...pnpm, "add", "--save-dev", ...otelDependencies], checkout, 300_000, 2);
   symlinkSync(
     join(checkout, "node_modules"),
     join(scratch, "node_modules"),
