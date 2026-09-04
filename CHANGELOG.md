@@ -1,3 +1,9 @@
+## [0.8.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.7...0.8.0-beta.8) (2026-09-04)
+
+### Added
+
+* **ci:** migrate integration to develop and add Friday auto-release to main ([#100](https://github.com/RbBtSn0w/adg/issues/100)) ([3d6a5a6](https://github.com/RbBtSn0w/adg/commit/3d6a5a6fc1c553e640835c6ae957beb9821e79e9))
+
 ## [0.8.0-beta.7](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.6...0.8.0-beta.7) (2026-09-03)
 
 ### Added
