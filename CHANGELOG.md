@@ -1,3 +1,43 @@
+## [0.8.0](https://github.com/RbBtSn0w/adg/compare/0.7.1...0.8.0) (2026-09-06)
+
+### Added
+
+* **ci:** add automated PR dev preview release and CLI update support ([#99](https://github.com/RbBtSn0w/adg/issues/99)) ([bd42af2](https://github.com/RbBtSn0w/adg/commit/bd42af24a6c330d73c1fce12d86206b99d980865))
+* **ci:** migrate integration to develop and add Friday auto-release to main ([#100](https://github.com/RbBtSn0w/adg/issues/100)) ([3d6a5a6](https://github.com/RbBtSn0w/adg/commit/3d6a5a6fc1c553e640835c6ae957beb9821e79e9))
+* **marketing:** add ADG Cloudflare Pages homepage ([#98](https://github.com/RbBtSn0w/adg/issues/98)) ([f061d0c](https://github.com/RbBtSn0w/adg/commit/f061d0cf6fd20961bf6af295d44e2f7f9d7816b3))
+* **projection:** add observeSlot/applySlotAction IO layer (Phase 2 of [#85](https://github.com/RbBtSn0w/adg/issues/85) finding [#1](https://github.com/RbBtSn0w/adg/issues/1)) ([6b4625b](https://github.com/RbBtSn0w/adg/commit/6b4625ba020fa02e939bd39cc66151b0b3481549))
+* **projection:** add pure projection-slot decision model (Phase 1 of [#85](https://github.com/RbBtSn0w/adg/issues/85) finding [#1](https://github.com/RbBtSn0w/adg/issues/1)) ([195b49f](https://github.com/RbBtSn0w/adg/commit/195b49fa0290bb99ea949a53ed96f5cff87d365c))
+* **projection:** rewire agents/antigravity.ts onto the projection-slot pipeline (Phase 3 of [#85](https://github.com/RbBtSn0w/adg/issues/85) finding [#1](https://github.com/RbBtSn0w/adg/issues/1)) ([#95](https://github.com/RbBtSn0w/adg/issues/95)) ([c5d7597](https://github.com/RbBtSn0w/adg/commit/c5d7597d88864295941024f99f372423cc928a34))
+* **skills:** sync vendor with upstream v1.5.23 ([#97](https://github.com/RbBtSn0w/adg/issues/97)) ([61d1ec4](https://github.com/RbBtSn0w/adg/commit/61d1ec4cee3a4630781d77143a7d1dee12d490eb))
+
+### Fixed
+
+* **antigravity:** guard the runner's entry-point check against a non-path argv[1] ([faf6f44](https://github.com/RbBtSn0w/adg/commit/faf6f440b2c8de8c8f398dfc5837707996f3096e))
+* **deps:** remediate Dependabot security alerts ([#96](https://github.com/RbBtSn0w/adg/issues/96)) ([55620cc](https://github.com/RbBtSn0w/adg/commit/55620cc95f4e8e1c5aec193ccec686b906440afb))
+* **install:** stop leaking temp dirs when prepareSource/synthesize throws ([a38fc36](https://github.com/RbBtSn0w/adg/commit/a38fc36dba41a7a195d7d435de281da5f9ddba88))
+* **projection:** distinguish confirmed-absent from foreign-blocked-removal ([08092dd](https://github.com/RbBtSn0w/adg/commit/08092dd6005c80c07afcea9fbda72e8d9a8f236d))
+* **projection:** give removeOwned a clear refusal for a plain file, not a raw ENOTDIR ([98878a9](https://github.com/RbBtSn0w/adg/commit/98878a905d310e475c73be3f2ab0d626fe185c81))
+* **projection:** guard the copy-fallback against pre-existing content and write the ownership marker before copying ([0ec3c85](https://github.com/RbBtSn0w/adg/commit/0ec3c8585003349c737eba10aa350f8e382851f5))
+* **projection:** rethrow non-ENOENT stat failures in the slot IO layer ([26e9785](https://github.com/RbBtSn0w/adg/commit/26e9785c772605f1d4552530ba53ed463fcf9633))
+* **projection:** stop assertNever from leaking a full state object ([32ce252](https://github.com/RbBtSn0w/adg/commit/32ce252015f1e6b36879b44d01f8b84e1772f351))
+* **projection:** stop existsSync-swallowed errors from misreporting broken links, harden the ownership marker, and re-check before deleting ([fb21d1b](https://github.com/RbBtSn0w/adg/commit/fb21d1b44d5d162a882c640fc99d0a712c07da0d))
+* **projection:** stop the marker from being clobbered or spoofed ([1734fc0](https://github.com/RbBtSn0w/adg/commit/1734fc0f68b454887d95f53c49addb2a93ddf464))
+* **telemetry:** close the sanitizeArgs allowlist gap for init/adapt/aliases ([b55024f](https://github.com/RbBtSn0w/adg/commit/b55024fd37c239bbb79a2b191d0bc07b582abed9)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **test:** use fileURLToPath instead of URL.pathname for the runner test path ([37a956b](https://github.com/RbBtSn0w/adg/commit/37a956b1853efd8b1d91917b74876247eb1db206))
+* **update:** show progress instead of hanging silently ([#86](https://github.com/RbBtSn0w/adg/issues/86)) ([df4ffd4](https://github.com/RbBtSn0w/adg/commit/df4ffd46053ea585e92e13d62cc8dec4585f0456))
+
+### Changed
+
+* **antigravity:** extract the embedded hook-runner into a real .mjs file ([8ec2334](https://github.com/RbBtSn0w/adg/commit/8ec23347091f26214224564b6453a6f61d377cfc)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **cli:** share update-scope loop between `plugins update` and `marketplace upgrade` ([16d25b4](https://github.com/RbBtSn0w/adg/commit/16d25b4d338b54f61e2401a5a641c47cb22dde7a)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **install:** extract prepareSource() and synthesizeDefaultDslPlugin() from addPlugins ([61cdff0](https://github.com/RbBtSn0w/adg/commit/61cdff086945d5d568de059fdf52cf6072d65bc5)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **projection:** correct observeSlot's doc comment to mention the marker read ([3fda86f](https://github.com/RbBtSn0w/adg/commit/3fda86ff8d89cab21df9aa88c2c1d86f84890718))
+* **readme:** correct telemetry wording and disclose the endpoint URL ([cffb267](https://github.com/RbBtSn0w/adg/commit/cffb267a7fb1e7fe41375618663eb613f58c5afc))
+* **readme:** disclose default-on telemetry and its opt-out ([4d7a82b](https://github.com/RbBtSn0w/adg/commit/4d7a82b67f8c13bb94e738c33e625fd297b82808)), closes [#85](https://github.com/RbBtSn0w/adg/issues/85)
+* **readme:** fix telemetry endpoint path and sanitizeArgs depth claim ([259648a](https://github.com/RbBtSn0w/adg/commit/259648aa0451af54b8eaf06b3b715ff8119858f1))
+* **readme:** fix telemetry wording to match the implementation ([0143cee](https://github.com/RbBtSn0w/adg/commit/0143cee33845abb6e0efbb6626001753c96cf8d3))
+* **telemetry:** fix "two domains" doc comment listing three items ([b5f923e](https://github.com/RbBtSn0w/adg/commit/b5f923e63cd265d18004f32905cfbe77d5c4c01f))
+
 ## [0.8.0-beta.8](https://github.com/RbBtSn0w/adg/compare/0.8.0-beta.7...0.8.0-beta.8) (2026-09-04)
 
 ### Added
