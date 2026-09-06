@@ -1,6 +1,6 @@
 {
   "name": "@rbbtsn0w/adg",
-  "version": "0.7.1",
+  "version": "0.8.0-beta.8",
   "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
   "type": "module",
   "license": "MIT",
@@ -23,7 +23,7 @@
   },
   "scripts": {
     "adg": "node ./bin/adg.ts",
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --noCheck && node -e \"require('fs').chmodSync('dist/bin/adg.js',0o755)\"",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --noCheck && node -e \"require('fs').cpSync('src/adapters/antigravity-hook-runner.mjs','dist/src/adapters/antigravity-hook-runner.mjs')\" && node -e \"require('fs').chmodSync('dist/bin/adg.js',0o755)\"",
     "test": "node scripts/run-tests.mjs \"test/**/*.test.ts\" test/cache-sandbox.test.mjs",
     "test:codex-sandbox": "node --test test/codex-sandbox.test.mjs",
     "test:cache-sandbox": "node --test test/cache-sandbox.test.mjs",
@@ -46,7 +46,7 @@
   ],
   "comment:dependencies": "Runtime deps below are required only by the vendored skills CLI (vendor/skills); ADG's own plugins code has zero runtime deps. Root is the single source of truth: each range MUST be >= the floor declared in vendor/skills/package.json, since that is the version the vendored source was authored against. `npm run check:vendor-deps` enforces this and fails on drift.",
   "dependencies": {
-    "@clack/prompts": "^0.11.0",
+    "@clack/prompts": "^1.2.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
     "@opentelemetry/resources": "^2.8.0",
@@ -56,6 +56,7 @@
     "@vercel/detect-agent": "^1.2.3",
     "picocolors": "^1.1.1",
     "simple-git": "^3.36.0",
+    "tar": "^7.5.20",
     "xdg-basedir": "^5.1.0",
     "yaml": "^2.8.3"
   },
@@ -71,8 +72,17 @@
     "semantic-release": "^25.0.5",
     "typescript": "^5.6.0"
   },
-  "comment:overrides": "Security floor: npm 11 before 11.18.0 bundles vulnerable undici 6.26.0; keep npm on patched 11.x until @semantic-release/npm supports a newer major.",
+  "comment:overrides": "Security floors for transitive development tooling: keep npm on a patched 11.x release, and pin vulnerable transitive undici/js-yaml branches to their patched versions.",
   "overrides": {
-    "npm": "^11.18.0"
+    "npm": "^11.19.1",
+    "@actions/http-client": {
+      "undici": "^6.28.0"
+    },
+    "@semantic-release/github": {
+      "undici": "^7.29.0"
+    },
+    "cosmiconfig": {
+      "js-yaml": "^4.3.1"
+    }
   }
 }

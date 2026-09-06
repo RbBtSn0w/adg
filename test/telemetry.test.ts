@@ -9,6 +9,7 @@ import type { Attributes, Span } from "@opentelemetry/api";
 import { readLock, writeLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
 import {
+  ADG_SAFE_POSITIONALS,
   defaultTelemetryConfig,
   normalizeTraceEndpoint,
   recordTelemetryEvent,
@@ -20,6 +21,7 @@ import { ADG_SCHEMA_VERSION } from "../src/types.ts";
 import { migrateLayout } from "../src/commands/migrate.ts";
 import { installPlugin } from "../src/commands/install.ts";
 import { defaultGitRunner, gitErrorType, runGit } from "../src/sources.ts";
+import { PLUGIN_ALIASES, PLUGIN_COMMANDS } from "../src/cli/index.ts";
 
 interface RecordedEvent {
   name: string;
@@ -580,4 +582,15 @@ test("sanitizeArgs preserves safe subcommands after option values", () => {
     sanitizeArgs(["npm", "--prefix", "/Users/snow/private", "install", "private-package"]),
     ["npm", "[FLAG]", "[VALUE]", "install", "[VALUE]"],
   );
+});
+
+// Regression guard for the drift the issue describes: `sanitizeArgs`'s allowlist
+// is a hand-maintained copy of the `plugins` command surface, so a new verb or
+// alias added to `PLUGIN_COMMANDS`/`PLUGIN_ALIASES` without updating the
+// allowlist would silently get recorded as `[VALUE]` instead of its name.
+test("every PLUGIN_COMMANDS key and PLUGIN_ALIASES entry is in the sanitizeArgs allowlist", () => {
+  const missingCommands = Object.keys(PLUGIN_COMMANDS).filter((verb) => !ADG_SAFE_POSITIONALS.has(verb));
+  const missingAliases = Object.keys(PLUGIN_ALIASES).filter((alias) => !ADG_SAFE_POSITIONALS.has(alias));
+  assert.deepEqual(missingCommands, [], "add these verbs to ADG_SAFE_POSITIONALS in src/telemetry.ts");
+  assert.deepEqual(missingAliases, [], "add these aliases to ADG_SAFE_POSITIONALS in src/telemetry.ts");
 });

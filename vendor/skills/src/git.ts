@@ -7,8 +7,10 @@ import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { isGitHubHost } from './github-host.ts';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
+const ALLOWED_GIT_PROTOCOLS = 'https:http:ssh:git:file';
 const CLONE_TIMEOUT_MS = (() => {
   const raw = process.env.SKILLS_CLONE_TIMEOUT_MS;
   if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
@@ -64,21 +66,22 @@ export class GitCloneError extends Error {
 }
 
 export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
-  const sshMatch = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
-  if (sshMatch) {
-    const owner = sshMatch[1]!;
-    const repo = sshMatch[2]!;
+  const sshMatch = url.match(/^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (sshMatch && isGitHubHost(sshMatch[1]!)) {
+    const host = sshMatch[1]!;
+    const owner = sshMatch[2]!;
+    const repo = sshMatch[3]!;
     return {
       owner,
       repo,
       slug: `${owner}/${repo}`,
-      sshUrl: `git@github.com:${owner}/${repo}.git`,
+      sshUrl: `git@${host}:${owner}/${repo}.git`,
     };
   }
 
   try {
     const parsed = new URL(url);
-    if (parsed.hostname !== 'github.com') return null;
+    if (!isGitHubHost(parsed.host)) return null;
 
     const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
     if (!match) return null;
@@ -89,7 +92,7 @@ export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
       owner,
       repo,
       slug: `${owner}/${repo}`,
-      sshUrl: `git@github.com:${owner}/${repo}.git`,
+      sshUrl: `git@${parsed.host}:${owner}/${repo}.git`,
     };
   } catch {
     return null;
@@ -99,7 +102,7 @@ export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
 export function isGitHubHttpsCloneUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'https:' && parsed.hostname === 'github.com';
+    return parsed.protocol === 'https:' && isGitHubHost(parsed.host);
   } catch {
     return false;
   }
@@ -145,6 +148,7 @@ function createGitEnvironment(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...gitEnv,
     GIT_TERMINAL_PROMPT: '0',
+    GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
     // When git-lfs IS installed, tell it not to download LFS content during
     // checkout. See #952 for context and empirical impact.
     GIT_LFS_SKIP_SMUDGE: '1',
@@ -203,7 +207,8 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   let cloneTarget = repo.slug;
 
   try {
-    const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status', '-h', 'github.com'], {
+    const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
+    const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status', '-h', host], {
       timeout: 5000,
       env: createGitEnvironment(),
     });
@@ -218,19 +223,20 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
   await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
     timeout: CLONE_TIMEOUT_MS,
-    env: createGitEnvironment(),
+    env: createGitEnvironment({ GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS }),
   });
   return true;
 }
 
 function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message: string): string {
+  const githubHost = repo?.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
   if (repo && isGitHubSsoAuthError(message)) {
     return (
       `GitHub blocked HTTPS access to ${url} because the organization enforces SAML SSO.\n` +
       `  skills tried your existing git credentials and available fallbacks, but none succeeded.\n` +
       `  - Re-authorize your GitHub credentials/app for that org's SSO policy\n` +
       `  - Or rerun with SSH: npx skills add ${repo.sshUrl}\n` +
-      `  - Verify access with: gh auth status -h github.com or ssh -T git@github.com`
+      `  - Verify access with: gh auth status -h ${githubHost} or ssh -T git@${githubHost}`
     );
   }
 
@@ -239,16 +245,41 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
       `Authentication failed for ${url}.\n` +
       `  - For private repos, ensure you have access\n` +
       `  - Retry with SSH: npx skills add ${repo.sshUrl}\n` +
-      `  - Check access with: gh auth status -h github.com or ssh -T git@github.com`
+      `  - Check access with: gh auth status -h ${githubHost} or ssh -T git@${githubHost}`
     );
   }
 
   return (
     `Authentication failed for ${url}.\n` +
     `  - For private repos, ensure you have access\n` +
-    `  - For SSH: Check your keys with 'ssh -T git@github.com'\n` +
+    `  - For SSH: Check your keys with 'ssh -T git@${githubHost}'\n` +
     `  - For HTTPS: Run 'gh auth login' or configure git credentials`
   );
+}
+
+/** Resolve the Git tree object for a locked skill path in a cloned repository. */
+export async function getGitTreeHash(repoDir: string, skillPath: string): Promise<string | null> {
+  const normalizedPath = skillPath.replace(/\\/g, '/');
+  const segments = normalizedPath.split('/');
+  segments.pop();
+  const folderPath = segments.join('/');
+  const revision = folderPath ? `HEAD:${folderPath}` : 'HEAD^{tree}';
+
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', repoDir, 'rev-parse', '--verify', '--end-of-options', revision],
+      {
+        encoding: 'utf8',
+        timeout: CLONE_TIMEOUT_MS,
+        env: createGitEnvironment({ GIT_OPTIONAL_LOCKS: '0' }),
+      }
+    );
+    const hash = stdout.trim();
+    return /^[0-9a-f]{40}$/i.test(hash) ? hash.toLowerCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {

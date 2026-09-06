@@ -140,6 +140,29 @@ test("add (remote, injected clone) installs a native market with --all", async (
   }
 });
 
+test("add removes its git clone tmp dir when the clone runner throws", async () => {
+  const root = scratch();
+  try {
+    const pluginsDir = join(root, "pdir");
+    // cloneGitHub passes the clone destination as the runner's last arg —
+    // capture it instead of diffing the shared OS tmpdir(), so this can't
+    // flake under concurrent test processes that also create adg-clone-* dirs.
+    let clonedTo: string | undefined;
+    const throwingRunner: GitRunner = (args) => {
+      clonedTo = args[args.length - 1];
+      throw new Error("simulated clone failure");
+    };
+    await assert.rejects(
+      () => addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner: throwingRunner }),
+      /simulated clone failure/,
+    );
+    assert.ok(clonedTo, "the throwing runner must have been called with a clone destination");
+    assert.equal(existsSync(clonedTo!), false, "the clone tmp dir must not survive a failed clone");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("remote add --plugin reconciles the store down from a previous --all install", async () => {
   const root = scratch();
   try {

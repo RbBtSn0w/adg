@@ -142,10 +142,18 @@ export function cloneGitHub(
   return dest;
 }
 
+/**
+ * Default timeouts. A remote probe is a metadata round trip and should be quick;
+ * a clone legitimately takes minutes on a large repository. Both exist because
+ * an unbounded `execFileSync` here is an indefinite, output-free hang.
+ */
+export const GIT_REMOTE_PROBE_TIMEOUT_MS = 20_000;
+export const GIT_CLONE_TIMEOUT_MS = 300_000;
+
 export type GitRunner = (args: string[]) => void;
 
 export const defaultGitRunner: GitRunner = (args) => {
-  runGit(args);
+  runGit(args, false, GIT_CLONE_TIMEOUT_MS);
 };
 
 /** Return a low-cardinality, string-safe error type for Git subprocess spans. */
@@ -154,17 +162,52 @@ export function gitErrorType(error: unknown, exitCode: number): string {
   return code === undefined || code === null ? `EXIT_CODE_${exitCode}` : String(code);
 }
 
+/**
+ * Environment for every git subprocess we spawn.
+ *
+ * `GIT_TERMINAL_PROMPT=0` is the important one: a private or moved repository
+ * makes git prompt for credentials, and because these calls run with
+ * `stdio: "ignore"` that prompt is invisible — the CLI simply hangs forever with
+ * nothing on screen. Disabling the prompt turns that into a fast, reportable
+ * failure that surfaces per-source as "could not be checked". `GIT_ASKPASS` /
+ * `SSH_ASKPASS` are neutralized for the same reason: an IDE-injected helper can
+ * re-introduce an invisible interactive wait. Ordinary credential helpers
+ * (`credential.helper`), proxies, and `SSH_AUTH_SOCK` are left alone, matching
+ * the vendored fork's sanitization (see vendor/skills/src/git.ts).
+ *
+ * Deliberately NOT set: `GIT_SSH_COMMAND`. The environment variable outranks the
+ * `core.sshCommand` git config, so defaulting it here would silently discard a
+ * user's configured ssh invocation (a deploy key, a proxy command) for `git`
+ * origins that carry an ssh URL. Bounding ssh's own prompts is the timeout's
+ * job, not this function's.
+ */
+export function gitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  // Case-insensitive: Windows env keys preserve case but compare insensitively,
+  // so an exact-key delete alone can be bypassed.
+  for (const key of Object.keys(env)) {
+    const upper = key.toUpperCase();
+    if (upper === "GIT_ASKPASS" || upper === "SSH_ASKPASS") delete env[key];
+  }
+  env.GIT_TERMINAL_PROMPT = "0";
+  return env;
+}
+
 /** Run git under the shared CLI semantic-convention instrumentation. */
-export function runGit(args: string[], captureOutput = false): string | undefined {
+export function runGit(args: string[], captureOutput = false, timeoutMs?: number): string | undefined {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
       span.setAttribute("process.executable.name", "git");
       span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
 
-      const output = execFileSync("git", args, captureOutput
-        ? { stdio: "pipe", encoding: "utf8" }
-        : { stdio: "ignore" });
+      const output = execFileSync("git", args, {
+        ...(captureOutput
+          ? { stdio: "pipe" as const, encoding: "utf8" as const }
+          : { stdio: "ignore" as const }),
+        env: gitEnv(),
+        ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+      });
 
       span.setAttribute("process.exit.code", 0);
       return captureOutput ? String(output).trimEnd() : undefined;
@@ -212,7 +255,11 @@ export function gitRemoteRevision(repo: string, ref?: string): string | undefine
   if (ref && GIT_SHA_RE.test(ref)) return ref.toLowerCase();
   try {
     const pattern = ref || "HEAD";
-    const output = runGit(["ls-remote", `https://github.com/${repo}.git`, pattern, `${pattern}^{}`], true);
+    const output = runGit(
+      ["ls-remote", `https://github.com/${repo}.git`, pattern, `${pattern}^{}`],
+      true,
+      GIT_REMOTE_PROBE_TIMEOUT_MS,
+    );
     return parseRemoteRevision(output, ref);
   } catch { return undefined; }
 }

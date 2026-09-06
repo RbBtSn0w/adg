@@ -33,7 +33,7 @@ try {
   const packed = JSON.parse(pack.stdout)[0];
   if (!packed?.filename) throw new Error("npm pack did not report a tarball filename");
   const paths = new Set((packed.files ?? []).map((entry) => entry.path));
-  for (const required of ["dist/bin/adg.js", "vendor/skills/LICENSE", "vendor/skills/PROVENANCE.md"]) {
+  for (const required of ["dist/bin/adg.js", "dist/src/adapters/antigravity-hook-runner.mjs", "vendor/skills/LICENSE", "vendor/skills/PROVENANCE.md"]) {
     if (!paths.has(required)) throw new Error(`packed artifact is missing ${required}`);
   }
   if ([...paths].some((path) => path.startsWith("vendor/skills/src/") || path === "vendor/skills/package.json")) {

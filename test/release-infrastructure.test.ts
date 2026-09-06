@@ -87,13 +87,19 @@ test("CI covers the minimum Node runtime and repository release gates", () => {
   assert.match(workflow, /npm run check:package-smoke/);
   assert.match(workflow, /npm run check:vendor-upstream/);
   assert.match(workflow, /npm install -g npm@11\.18\.0/);
+  assert.match(workflow, /pr-dev-release:/);
+  assert.match(workflow, /--tag next/);
   assert.ok(pkg.scripts?.["check:docs"]);
   assert.ok(pkg.scripts?.["check:package-smoke"]);
   assert.ok(pkg.scripts?.["check:vendor-upstream"]);
 });
 
 test("workflows pin third-party actions to immutable commits", () => {
-  for (const file of [".github/workflows/ci.yml", ".github/workflows/sync-main-to-beta.yml"]) {
+  for (const file of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/sync-main-to-develop.yml",
+    ".github/workflows/scheduled-release-pr.yml",
+  ]) {
     const workflow = readFileSync(resolve(file), "utf8");
     const refs = [...workflow.matchAll(/^\s*uses:\s*[^\s@]+@([^\s#]+)/gm)].map((match) => match[1]!);
     assert.ok(refs.length > 0, `${file} should use at least one action`);

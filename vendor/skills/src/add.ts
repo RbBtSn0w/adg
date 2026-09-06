@@ -30,7 +30,19 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
   // When normalizedSource is used, parseSource() later resolves it to HTTPS,
   // breaking restore for private repos that require SSH authentication.
   const isSSH = parsedUrl.startsWith('git@') || parsedUrl.startsWith('ssh://');
-  return isSSH ? parsedUrl : normalizedSource;
+  if (isSSH) return parsedUrl;
+  if (parsedUrl.startsWith('http://') || parsedUrl.startsWith('https://')) {
+    try {
+      if (new URL(parsedUrl).hostname !== 'github.com') return parsedUrl;
+    } catch {
+      return normalizedSource;
+    }
+  }
+  return normalizedSource;
+}
+
+export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
+  return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { gitTreeShaForFolder } from './git-tree.ts';
@@ -59,7 +71,13 @@ import {
   type PartnerAudit,
 } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
-import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import {
+  wellKnownProvider,
+  computeWellKnownSkillDigest,
+  WellKnownScopeNotFoundError,
+  type WellKnownSkill,
+} from './providers/index.ts';
+import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
@@ -523,6 +541,8 @@ export interface AddOptions {
   agent?: string[];
   yes?: boolean;
   skill?: string[];
+  /** Valid JSON retained for compatibility; ADG telemetry does not export raw metadata. */
+  metadata?: string;
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
@@ -544,20 +564,29 @@ async function handleWellKnownSkills(
   url: string,
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
-): Promise<void> {
+): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
-  // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  // Fetch all skills from the well-known endpoint. Explicit named selection
+  // is the documented escape hatch for internal skills; wildcard is not.
+  let skills: WellKnownSkill[] = [];
+  try {
+    skills = await wellKnownProvider.fetchAllSkills(url, {
+      includeInternal: Boolean(
+        options.skill && options.skill.length > 0 && !options.skill.includes('*')
+      ),
+    });
+  } catch (error) {
+    if (error instanceof WellKnownScopeNotFoundError) {
+      spinner.stop(pc.red('No matching skills'));
+      p.log.error(error.message);
+      process.exit(1);
+    }
+  }
 
   if (skills.length === 0) {
-    spinner.stop(pc.red('No skills found'));
-    p.outro(
-      pc.red(
-        'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
-      )
-    );
-    process.exit(1);
+    spinner.stop(pc.dim('No well-known skills found; trying direct download...'));
+    return false;
   }
 
   spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
@@ -882,6 +911,7 @@ async function handleWellKnownSkills(
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
       skillFiles: JSON.stringify(skillFiles),
+      installUrl: url,
       sourceType: 'well-known',
     });
   }
@@ -897,6 +927,8 @@ async function handleWellKnownSkills(
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
             skillFolderHash: '', // Well-known skills don't have a folder hash
+            sourceBaseUrl: url,
+            wellKnownDigest: computeWellKnownSkillDigest(skill),
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -919,8 +951,10 @@ async function handleWellKnownSkills(
               skill.installName,
               {
                 source: sourceIdentifier,
+                sourceUrl: url,
                 sourceType: 'well-known',
                 computedHash,
+                wellKnownDigest: computeWellKnownSkillDigest(skill),
               },
               cwd
             );
@@ -996,6 +1030,7 @@ async function handleWellKnownSkills(
 
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
+  return true;
 }
 
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
@@ -1082,10 +1117,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
     })();
 
-    // Handle well-known skills from arbitrary URLs
+    let directDownload = parsed.type === 'download';
+
+    // Handle well-known skills from arbitrary URLs. If discovery does not
+    // yield skills, the same URL may still be a raw SKILL.md or archive.
     if (parsed.type === 'well-known') {
-      await handleWellKnownSkills(source, parsed.url, options, spinner);
-      return;
+      const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
+      if (handled) return;
+      directDownload = true;
     }
 
     // If skillFilter is present from @skill syntax (e.g., owner/repo@skill-name),
@@ -1099,7 +1138,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Include internal skills when a specific skill is explicitly requested
     // (via --skill or @skill syntax)
-    const includeInternal = !!(options.skill && options.skill.length > 0);
+    const includeInternal = Boolean(
+      options.skill && options.skill.length > 0 && !options.skill.includes('*')
+    );
 
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
@@ -1116,6 +1157,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       spinner.start('Discovering skills...');
       skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
+        includeInternal,
+        fullDepth: options.fullDepth,
+      });
+    } else if (parsed.type === 'well-known' || parsed.type === 'download') {
+      spinner.start('Downloading source...');
+      const downloaded = await downloadSource(parsed.url);
+      tempDir = downloaded.tempDir;
+      spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
+
+      spinner.start('Discovering skills...');
+      skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
         includeInternal,
         fullDepth: options.fullDepth,
       });
@@ -1786,9 +1838,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Normalize source to owner/repo format for telemetry
-    const normalizedSource = getOwnerRepo(parsed);
+    const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
 
-    const lockSource = getLockSource(parsed.url, normalizedSource);
+    const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
+    const projectLockSourceUrl = directDownload
+      ? undefined
+      : getProjectLockSourceUrl(parsed.type, parsed.url);
 
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has
@@ -1880,7 +1935,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to local lock file for project-scoped installs
-    if (successful.length > 0 && !installGlobally) {
+    if (successful.length > 0 && !installGlobally && !directDownload) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       // Record Eve subagent placement (root = '') so `update` can restore it.
       // Only meaningful when Eve is among the targets and a non-root subagent
@@ -1906,6 +1961,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skill.name,
               {
                 source: lockSource || parsed.url,
+                ...(projectLockSourceUrl && { sourceUrl: projectLockSourceUrl }),
                 ref: parsed.ref,
                 sourceType: parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
@@ -2133,9 +2189,14 @@ async function promptForFindSkills(
 }
 
 // Parse command line options from args array
-export function parseAddOptions(args: string[]): { source: string[]; options: AddOptions } {
+export function parseAddOptions(args: string[]): {
+  source: string[];
+  options: AddOptions;
+  errors: string[];
+} {
   const options: AddOptions = {};
   const source: string[] = [];
+  const errors: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -2151,6 +2212,7 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;
+      if (!args[i] || args[i]!.startsWith('-')) errors.push(`${arg} requires an agent name`);
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
         options.agent.push(nextArg);
@@ -2161,6 +2223,7 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
     } else if (arg === '-s' || arg === '--skill') {
       options.skill = options.skill || [];
       i++;
+      if (!args[i] || args[i]!.startsWith('-')) errors.push(`${arg} requires a skill name`);
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
         options.skill.push(nextArg);
@@ -2168,6 +2231,18 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg === '--metadata') {
+      const metadata = args[++i];
+      if (metadata === undefined) {
+        errors.push('--metadata requires a JSON value');
+      } else {
+        try {
+          JSON.parse(metadata);
+          options.metadata = metadata;
+        } catch {
+          errors.push('--metadata must be valid JSON');
+        }
+      }
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
     } else if (arg === '--copy') {
@@ -2175,6 +2250,7 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
     } else if (arg === '--subagent') {
       options.subagent = options.subagent || [];
       i++;
+      if (!args[i] || args[i]!.startsWith('-')) errors.push('--subagent requires a name');
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
         options.subagent.push(nextArg);
@@ -2184,8 +2260,10 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
+    } else if (arg) {
+      errors.push(`Unknown option: ${arg}`);
     }
   }
 
-  return { source, options };
+  return { source, options, errors };
 }

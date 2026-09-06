@@ -310,6 +310,20 @@ async function main(): Promise<void> {
   const command = args[0];
   const restArgs = args.slice(1);
 
+  // Subcommand help must short-circuit before dispatch so that commands such
+  // as `skills update --help` never execute side effects.
+  if (
+    command !== '--help' &&
+    command !== '-h' &&
+    command !== '--version' &&
+    command !== '-v' &&
+    (restArgs.includes('--help') || restArgs.includes('-h'))
+  ) {
+    if (command === 'remove' || command === 'rm' || command === 'r') showRemoveHelp();
+    else showHelp();
+    return;
+  }
+
   switch (command) {
     case 'find':
     case 'search':
@@ -334,7 +348,12 @@ async function main(): Promise<void> {
     case 'a':
     case 'add': {
       if (!inAgent) showLogo();
-      const { source: addSource, options: addOpts } = parseAddOptions(restArgs);
+      const { source: addSource, options: addOpts, errors } = parseAddOptions(restArgs);
+      if (errors.length > 0) {
+        for (const error of errors) console.error(`Error: ${error}`);
+        process.exitCode = 1;
+        break;
+      }
       await runAdd(addSource, addOpts);
       break;
     }
@@ -385,6 +404,7 @@ async function main(): Promise<void> {
     default:
       console.log(`Unknown command: ${command}`);
       console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      process.exitCode = 1;
   }
 }
 

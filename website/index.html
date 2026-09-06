@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="ADG is the control plane for AI agent plugins and skills. Author once, install reproducibly, and keep every runtime in sync.">
+    <meta name="theme-color" content="#0b0f14">
+    <link rel="canonical" href="https://adg.rbbtsn0w.me/">
+    <meta property="og:title" content="ADG — One source of truth for your agents">
+    <meta property="og:description" content="Bring plugins and skills under control. ADG makes agent tooling discoverable, reproducible, and portable.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://adg.rbbtsn0w.me/">
+    <title>ADG — One source of truth for your agents</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="site-header shell">
+      <a class="brand" href="#top" aria-label="ADG home">
+        <span class="brand-mark" aria-hidden="true">A</span>
+        <span>ADG</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#why">Why ADG</a>
+        <a href="#how">How it works</a>
+        <a href="https://github.com/RbBtSn0w/adg">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero shell">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="pulse"></span> The agent tooling control plane</p>
+          <h1>Make every agent<br><em>feel at home.</em></h1>
+          <p class="lede">ADG brings plugins and skills under one source of truth — so your tools stay discoverable, reproducible, and in sync across the runtimes you use.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/RbBtSn0w/adg">Explore ADG <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="#how">See how it works <span aria-hidden="true">↓</span></a>
+          </div>
+        </div>
+        <div class="hero-visual" role="img" aria-label="A diagram showing one ADG source connecting to multiple agent runtimes">
+          <div class="orb orb-one"></div>
+          <div class="orb orb-two"></div>
+          <div class="orbit orbit-large"></div>
+          <div class="orbit orbit-small"></div>
+          <div class="source-node"><span class="source-icon">✦</span><strong>.agents</strong><small>one source of truth</small></div>
+          <div class="runtime runtime-top"><span>⌘</span> Codex</div>
+          <div class="runtime runtime-right"><span>✺</span> Claude</div>
+          <div class="runtime runtime-bottom"><span>✦</span> Antigravity</div>
+          <div class="connection connection-a"></div><div class="connection connection-b"></div><div class="connection connection-c"></div>
+        </div>
+      </section>
+
+      <section class="signal-strip" aria-label="ADG capabilities">
+        <div class="shell signal-grid">
+          <div><strong>01</strong><span>Author once</span></div>
+          <div><strong>02</strong><span>Adapt everywhere</span></div>
+          <div><strong>03</strong><span>Know what changed</span></div>
+        </div>
+      </section>
+
+      <section class="section shell" id="why">
+        <div class="section-intro"><p class="eyebrow">Less drift. More intent.</p><h2>Your agent stack<br><em>should compound.</em></h2></div>
+        <div class="feature-grid">
+          <article class="feature-card feature-featured"><span class="feature-number">01 / CONTROL</span><div class="feature-icon">◉</div><h3>One manifest.<br>Every runtime.</h3><p>Keep the canonical plugin definition in `.agents/.plugin.json`. ADG generates the runtime-facing shape each agent expects.</p><a href="https://github.com/RbBtSn0w/adg#agents-spec">Read the spec <span aria-hidden="true">↗</span></a></article>
+          <article class="feature-card"><span class="feature-number">02 / TRUST</span><div class="feature-icon">⌁</div><h3>Reproducible<br>by design.</h3><p>Lock provenance, versions, dependencies, and content hashes so installs can be understood and repeated.</p><a href="https://github.com/RbBtSn0w/adg#default-plugin-layout">See the workflow <span aria-hidden="true">↗</span></a></article>
+          <article class="feature-card"><span class="feature-number">03 / FLOW</span><div class="feature-icon">→</div><h3>From setup<br>to momentum.</h3><p>Discover, install, link, update. One CLI keeps the path from a new plugin to a working agent short.</p><a href="https://github.com/RbBtSn0w/adg#install-and-quick-start">Get started <span aria-hidden="true">↗</span></a></article>
+        </div>
+      </section>
+
+      <section class="section section-process" id="how">
+        <div class="shell process-layout">
+          <div class="section-intro"><p class="eyebrow">A calmer way to compose</p><h2>The system stays<br><em>out of your way.</em></h2><p class="section-note">ADG follows the conventions your agents already use. You get a stable control plane without learning a new ecosystem.</p></div>
+          <ol class="process-list">
+            <li><span>01</span><div><h3>Collect</h3><p>Bring plugins and skills into a versioned global store.</p></div></li>
+            <li><span>02</span><div><h3>Connect</h3><p>Link the capabilities to Codex, Claude, or the runtimes you use.</p></div></li>
+            <li><span>03</span><div><h3>Continue</h3><p>Update with confidence. Inspect status when you need the full picture.</p></div></li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="final-cta shell"><p class="eyebrow">Build your agent stack</p><h2>Give your tools<br><em>a place to grow.</em></h2><a class="button button-primary" href="https://github.com/RbBtSn0w/adg">Start with ADG <span aria-hidden="true">↗</span></a></section>
+    </main>
+
+    <footer class="site-footer shell"><a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">A</span><span>ADG</span></a><p>Agent Directory Group · Open source under MIT</p><a href="https://github.com/RbBtSn0w/adg">View on GitHub <span aria-hidden="true">↗</span></a></footer>
+  </body>
+</html>

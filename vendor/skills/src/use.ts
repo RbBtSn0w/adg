@@ -14,8 +14,10 @@ import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
 import type { AgentType, Skill } from './types.ts';
+import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
+  WellKnownScopeNotFoundError,
   type WellKnownSkill,
   type WellKnownFileContent,
 } from './providers/wellknown.ts';
@@ -236,6 +238,8 @@ export async function runUse(
     const ownerRepoRaw = getOwnerRepo(parsed);
     const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
 
+    // ADG safety gate: `use` executes unverified instructions through an agent
+    // with full permissions, so OpenClaw sources require explicit opt-in.
     if (sourceOwner === 'openclaw' && !options.dangerouslyAcceptOpenclawRisks) {
       fail(
         [
@@ -252,13 +256,44 @@ export async function runUse(
     let selectedSkill: UseSkill;
 
     if (parsed.type === 'well-known') {
-      const skills = await wellKnownProvider.fetchAllSkills(parsed.url);
-      selectedSkill = selectWellKnownSkill(skills, selector, source);
+      const skills = await wellKnownProvider
+        .fetchAllSkills(parsed.url, {
+          includeInternal,
+        })
+        .catch((error) => {
+          if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+          return [] as WellKnownSkill[];
+        });
+      if (skills.length > 0) {
+        selectedSkill = selectWellKnownSkill(skills, selector, source);
+      } else {
+        const downloaded = await downloadSource(parsed.url);
+        cloneTempDir = downloaded.tempDir;
+        const downloadedSkills = await discoverSkills(downloaded.rootDir, undefined, {
+          includeInternal,
+          fullDepth: options.fullDepth,
+        });
+        const selected = selectSkill(downloadedSkills, selector, source);
+        selectedSkill = {
+          kind: 'disk',
+          name: selected.name,
+          directoryName: selected.name,
+          rawContent: selected.rawContent,
+          path: selected.path,
+        };
+      }
     } else {
       let skills: Skill[];
       let blobResult: BlobInstallResult | null = null;
 
-      if (parsed.type === 'local') {
+      if (parsed.type === 'download') {
+        const downloaded = await downloadSource(parsed.url);
+        cloneTempDir = downloaded.tempDir;
+        skills = await discoverSkills(downloaded.rootDir, undefined, {
+          includeInternal,
+          fullDepth: options.fullDepth,
+        });
+      } else if (parsed.type === 'local') {
         if (!existsSync(parsed.localPath!)) {
           fail(`Local path does not exist: ${parsed.localPath}`);
         }

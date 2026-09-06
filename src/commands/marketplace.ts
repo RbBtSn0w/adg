@@ -12,6 +12,7 @@ import { removePlugin } from "./remove.ts";
 import { syncPlugins, type SyncResult } from "./sync.ts";
 import { updateLock, type UpdateLockResult } from "./update.ts";
 import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
+import type { UpdatePhase } from "../render/progress.ts";
 
 /**
  * The marketplace layer is a *view* over installed plugins grouped by their
@@ -189,6 +190,13 @@ export async function updatePlugins(
     deactivationAgents?: Agent[];
     /** Injectable low-cost remote revision probe; undefined falls back to git ls-remote. */
     revisionResolver?: (source: string, ref?: string) => string | undefined;
+    /**
+     * Progress sink for the phases that actually cost time: one blocking
+     * `ls-remote` per source, a clone when the revision moved, the per-request
+     * installs, and the local rescan. Forwarded into `addPlugins` so agent
+     * re-activation reports too. Emitting only — printing is the CLI's job.
+     */
+    onProgress?: (phase: UpdatePhase) => void;
   },
 ): Promise<PluginUpdateResult> {
   const allGroups = marketplaceList({ pluginsDir: opts.pluginsDir });
@@ -207,8 +215,11 @@ export async function updatePlugins(
   const remote: PluginUpdateSourceResult[] = [];
   const remoteAgents: AgentSyncResult[] = [];
 
+  let sourceIndex = 0;
   for (const group of remoteGroups) {
+    const position = { index: ++sourceIndex, total: remoteGroups.length };
     try {
+      opts.onProgress?.({ kind: "check", ...position, source: group.source });
       const lock = readLock(lockPath(opts.pluginsDir));
       const revisions = group.installed.map((name) => lock.plugins[name]?.resolvedRevision).filter((revision): revision is string => Boolean(revision));
       const remoteRevision = (opts.revisionResolver ?? gitRemoteRevision)(group.source, group.ref);
@@ -243,9 +254,18 @@ export async function updatePlugins(
       const checkout = mkdtempSync(join(tmpdir(), "adg-marketplace-update-"));
       try {
         const parsed = parseGitHubSource(group.source);
+        opts.onProgress?.({ kind: "fetch", ...position, source: group.source, ...(group.ref ? { ref: group.ref } : {}) });
         cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
         const resolvedRevision = gitRevision(checkout);
+        let requestIndex = 0;
         for (const request of requests) {
+          opts.onProgress?.({
+            kind: "install",
+            index: ++requestIndex,
+            total: requests.length,
+            source: group.source,
+            ...(request.structuralIdentity ? { plugin: request.structuralIdentity } : {}),
+          });
           const result = await addPlugins({
             spec: group.source,
             pluginsDir: opts.pluginsDir,
@@ -269,6 +289,7 @@ export async function updatePlugins(
             now,
             preparedSourceDir: checkout,
             preparedResolvedRevision: resolvedRevision,
+            ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
           });
           installed.push(...result.installed);
           result.available.forEach((name) => available.add(name));
@@ -303,7 +324,13 @@ export async function updatePlugins(
   // source) and only for the local bucket — remote ones were just re-fetched.
   const localNames = opts.source ? [] : (allGroups.find((g) => !g.remote)?.installed ?? []);
   const local: UpdateLockResult = localNames.length
-    ? updateLock(opts.pluginsDir, now, { only: localNames, resync: opts.activate, scope: opts.agentScope, agents: opts.agents })
+    ? updateLock(opts.pluginsDir, now, {
+        only: localNames,
+        resync: opts.activate,
+        scope: opts.agentScope,
+        agents: opts.agents,
+        ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+      })
     : { results: [], missing: [] };
 
   const agents = mergeAgentResults([remoteAgents, local.agents ?? []]);

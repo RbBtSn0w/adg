@@ -35,6 +35,10 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Canonical well-known endpoint used to discover this skill. */
+  sourceBaseUrl?: string;
+  /** Digest of the well-known skill payload at installation time. */
+  wellKnownDigest?: string;
 }
 
 /**
@@ -162,7 +166,12 @@ export function getGitHubToken(): string | null {
   // ADG patch: message broadened — this resolver is now also used to reach
   // private repos, not just to recover from a rate limit.
   if (!_ghWarningShown) {
+    // ADG patch: `skills update` parks the cursor on a transient stdout status
+    // line ("Checking skills from source: …", no trailing newline). This warning
+    // goes to stderr but lands on that same physical line in a terminal, so it
+    // would be concatenated onto it. Rewind and clear first.
     process.stderr.write(
+      (process.stderr.isTTY ? '\r\x1b[K' : '') +
       `${pc.yellow('│')}  ${pc.yellow('GitHub authentication needed')} — using your ${pc.cyan('gh')} login to continue.\n` +
         `${pc.yellow('│')}  ${pc.dim(`Tip: set ${pc.cyan('GITHUB_TOKEN')} to avoid this prompt, or use ${pc.cyan('--full-depth')} to clone instead.\n`)}`
     );

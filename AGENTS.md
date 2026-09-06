@@ -11,14 +11,14 @@ standards-first adapter philosophy.
 
 ## Branch & PR rules
 
-- **All pull requests must target the `beta` branch.** Never open a PR against
+- **All pull requests must target the `develop` branch.** Never open a PR against
   `main`. `main` is reserved for stable releases and is updated only by a
-  maintainer release PR from `beta`.
-- **Never push directly to `main` or `beta`.** Both are protected; all changes
+  release PR from `develop`.
+- **Never push directly to `main` or `develop`.** Both are protected; all changes
   land via PR + review + passing CI.
-- Branch off `beta` for new work: `git switch beta && git pull && git switch -c <type>/<short-desc>`.
-- The CI check `Validate base branch` fails any PR whose base is not `beta`
-  (the only exception is the maintainer release PR `beta → main`).
+- Branch off `develop` for new work: `git switch develop && git pull && git switch -c <type>/<short-desc>`.
+- The CI check `Validate base branch` fails any PR whose base is not `develop`
+  (the only exception is the release PR `develop → main`).
 
 ## Commit messages
 
@@ -57,4 +57,4 @@ npm test
 - Do not edit release/CI config (`.releaserc.json`, `.github/workflows/*`),
   lockfiles, or branch-protection scripts without surfacing the risk first.
 - Do not bypass branch protection or merge to `main` outside the documented
-  `beta → main` release flow.
+  `develop → main` release flow.
