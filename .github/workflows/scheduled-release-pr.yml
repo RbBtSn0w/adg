@@ -35,6 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          token: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           ref: main
 
@@ -47,6 +48,12 @@ jobs:
 
           if [ "${HAS_CUSTOM_TOKEN}" != "true" ]; then
             echo "::warning::Neither release-bot App nor SYNC_TOKEN was available; falling back to default GITHUB_TOKEN. Note that pull requests opened with GITHUB_TOKEN do not automatically trigger CI workflow runs under GitHub's default security policy."
+          fi
+
+          # Guard: verify develop branch exists on origin before attempting fetch/release.
+          if ! gh api "repos/${{ github.repository }}/branches/develop" >/dev/null 2>&1; then
+            echo "develop branch does not exist on origin; nothing to release."
+            exit 0
           fi
 
           git fetch --quiet origin main develop
