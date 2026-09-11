@@ -53,6 +53,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          token: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           ref: main
       - name: Open and auto-merge back-merge PR
@@ -64,6 +65,18 @@ jobs:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+
+          # Self-healing: ensure develop branch exists on origin before attempting sync.
+          # If develop was deleted (e.g. by auto-delete head branches on release promotion),
+          # recreate it directly from the released main ref so the train self-heals.
+          if ! gh api "repos/${{ github.repository }}/branches/develop" >/dev/null 2>&1; then
+            echo "::warning::develop branch was missing from origin! Auto-recreating develop from main..."
+            main_sha="$(git rev-parse HEAD)"
+            gh api "repos/${{ github.repository }}/git/refs" -f ref="refs/heads/develop" -f sha="$main_sha"
+            echo "develop branch recreated at ${main_sha}. Main and develop are aligned."
+            exit 0
+          fi
+
           git fetch --quiet origin main develop
           ahead="$(git rev-list --count origin/develop..origin/main)"
           if [ "$ahead" -eq 0 ]; then
