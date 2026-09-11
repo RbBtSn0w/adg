@@ -13,7 +13,17 @@ try {
   const concurrency = process.platform === "win32"
     ? 1
     : Math.min(availableParallelism?.() ?? 4, 4);
-  const testArgs = ["--test", `--test-concurrency=${concurrency}`, ...process.argv.slice(2)];
+  const userArgs = [];
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg.startsWith("--test-concurrency=")) continue;
+    if (arg === "--test-concurrency") {
+      i++;
+      continue;
+    }
+    userArgs.push(arg);
+  }
+  const testArgs = ["--test", `--test-concurrency=${concurrency}`, ...userArgs];
   const result = spawnSync(process.execPath, testArgs, {
     env: { ...process.env, ADG_CACHE_HOME: cacheHome },
     stdio: "inherit",
