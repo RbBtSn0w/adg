@@ -1,3 +1,9 @@
+## [0.8.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.8.0...0.8.1-beta.1) (2026-09-11)
+
+### Fixed
+
+* **ci:** add self-healing and missing-branch guards to release train ([#104](https://github.com/RbBtSn0w/adg/issues/104)) ([43ac27d](https://github.com/RbBtSn0w/adg/commit/43ac27d6b1292b654055192a6f37ec93b148443b))
+
 ## [0.8.0](https://github.com/RbBtSn0w/adg/compare/0.7.1...0.8.0) (2026-09-06)
 
 ### Added
