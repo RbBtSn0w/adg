@@ -1,3 +1,9 @@
+## [0.8.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.1...0.8.1-beta.2) (2026-09-11)
+
+### Fixed
+
+* **ci:** remediate test concurrency, actions node 24 runtime, and upstream clone depth ([#105](https://github.com/RbBtSn0w/adg/issues/105)) ([afc2cb1](https://github.com/RbBtSn0w/adg/commit/afc2cb13ad476fe7d71765707909b3cda90e3a24))
+
 ## [0.8.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.8.0...0.8.1-beta.1) (2026-09-11)
 
 ### Fixed
