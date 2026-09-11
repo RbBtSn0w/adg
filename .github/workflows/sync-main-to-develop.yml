@@ -67,8 +67,10 @@ jobs:
           set -euo pipefail
 
           # Self-healing: ensure develop branch exists on origin before attempting sync.
-          # If develop was deleted (e.g. by auto-delete head branches on release promotion),
-          # recreate it directly from the released main ref so the train self-heals.
+          # NOTE: Creating `refs/heads/develop` directly via GitHub API is an intentional,
+          # emergency exception to the usual PR-based sync flow to restore a missing integration
+          # branch (e.g. if removed by repository-level delete_branch_on_merge after promotion).
+          # This requires repository rulesets/permissions to allow branch creation when missing.
           if ! gh api "repos/${{ github.repository }}/branches/develop" >/dev/null 2>&1; then
             echo "::warning::develop branch was missing from origin! Auto-recreating develop from main..."
             main_sha="$(git rev-parse HEAD)"

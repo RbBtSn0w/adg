@@ -49,9 +49,11 @@ a `main -> develop` pull request after successful main CI:
   `develop` directly from the newly promoted `main` commit, self-healing the release
   train without human intervention.
 
-The workflow never pushes directly to a protected branch. An open
-`manual-sync-needed` pull request is an operational action item, not a successful
-sync.
+Under normal operations, the workflow never pushes directly to a protected branch;
+all updates land via the auto-merged pull request. The sole exception is the emergency
+self-healing path above, which directly recreates `refs/heads/develop` via the GitHub API
+only when the branch is completely absent from `origin`. An open `manual-sync-needed`
+pull request is an operational action item, not a successful sync.
 
 ## Local release checks
 
