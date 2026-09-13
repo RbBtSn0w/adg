@@ -211,11 +211,12 @@ export function runGit(args: string[], captureOutput = false, timeoutMs?: number
 
       span.setAttribute("process.exit.code", 0);
       return captureOutput ? String(output).trimEnd() : undefined;
-    } catch (error: any) {
-      const exitCode = typeof error.status === "number" ? error.status : 1;
+    } catch (error: unknown) {
+      const err = typeof error === "object" && error !== null ? (error as { status?: unknown; pid?: unknown }) : undefined;
+      const exitCode = typeof err?.status === "number" ? err.status : 1;
       span.setAttribute("process.exit.code", exitCode);
-      if (typeof error.pid === "number") {
-        span.setAttribute("process.pid", error.pid);
+      if (typeof err?.pid === "number") {
+        span.setAttribute("process.pid", err.pid);
       }
       span.setAttribute("error.type", gitErrorType(error, exitCode));
       span.setStatus({

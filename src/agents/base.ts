@@ -71,7 +71,9 @@ export function annotateCliRun(span: CliSpan, bin: string, args: string[], r: Sp
   }
 
   if (r.error) {
-    const errCode = (r.error as any).code;
+    const errCode = typeof r.error === "object" && r.error !== null && "code" in r.error
+      ? (r.error as { code?: unknown }).code
+      : undefined;
     span.setAttribute("process.exit.code", -1);
     span.setAttribute("error.type", (typeof errCode === "string" || typeof errCode === "number" ? String(errCode) : null) || r.error.name || "SpawnError");
     span.setStatus({
