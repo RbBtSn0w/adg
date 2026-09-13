@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { isSymlinkTo } from "../src/commands/remove.ts";
 import { tmp } from "./helpers.ts";
@@ -26,15 +25,13 @@ test("isSymlinkTo: detects a relative symlink regardless of process cwd", () => 
   // Relative target pointing at ../myplugin from the link's own directory.
   symlinkSync(join("..", "myplugin"), linkPath);
 
-  const originalCwd = process.cwd();
   try {
-    // Force a cwd that is NOT the link's parent — the old resolve(readlink(...))
-    // against process.cwd() would have failed to match here.
-    process.chdir(tmpdir());
+    // Verify linkDir is distinct from process.cwd(), proving relative resolution
+    // works against the link's directory rather than process.cwd().
+    assert.notEqual(resolve(process.cwd()), resolve(linkDir));
     assert.equal(isSymlinkTo(linkPath, pluginDir), true);
     assert.equal(isSymlinkTo(linkPath, join(root, "other")), false);
   } finally {
-    process.chdir(originalCwd);
     rmSync(root, { recursive: true, force: true });
   }
 });

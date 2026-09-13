@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readManifest, findManifestFile } from "./manifest.ts";
 import type { PluginCandidate } from "./deps.ts";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
@@ -71,8 +71,9 @@ function decodeGitHubUrlPart(value: string): string {
  * An existing local directory always wins; otherwise the spec is matched
  * against `owner/repo[@ref]` shorthand or a github.com URL.
  */
-export function parseSource(spec: string): ParsedSource {
-  if (existsSync(spec)) return { kind: "local", dir: spec };
+export function parseSource(spec: string, cwd?: string): ParsedSource {
+  const local = cwd ? resolve(cwd, spec) : spec;
+  if (existsSync(local)) return { kind: "local", dir: local };
 
   try {
     return parseGitHubSource(spec);

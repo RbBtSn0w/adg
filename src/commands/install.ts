@@ -240,6 +240,8 @@ export interface AddOptions {
   /** Local path or owner/repo[@ref] / github URL. */
   spec: string;
   pluginsDir: string;
+  /** Working directory to resolve relative local paths against; defaults to process.cwd(). */
+  cwd?: string;
   /** Override the ref parsed from the spec. */
   ref?: string;
   /** Override the derived identity of a default structural plugin. */
@@ -665,7 +667,7 @@ async function synthesizeDefaultDslPlugin(
 export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   // Prepared checkouts are used only by remote marketplace update. Parse their
   // persisted owner/repo key as GitHub even when the caller's CWD shadows it.
-  const parsed = opts.preparedSourceDir ? parseGitHubSource(opts.spec) : parseSource(opts.spec);
+  const parsed = opts.preparedSourceDir ? parseGitHubSource(opts.spec) : parseSource(opts.spec, opts.cwd);
   const sourceRef = parsed.kind === "local" ? undefined : (opts.ref ?? parsed.ref);
   if (parsed.kind === "github" && parsed.path) {
     throw new Error("GitHub subdirectory sources are not supported; define a marketplace and select with --plugin or --all");

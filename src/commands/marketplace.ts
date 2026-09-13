@@ -33,6 +33,8 @@ export interface MarketplaceScope {
   now?: string;
   /** Where the active pluginsDir came from, for scope-aware error messages. */
   scope?: ScopeInfo;
+  /** Working directory to resolve relative paths against; defaults to process.cwd(). */
+  cwd?: string;
 }
 
 /**
@@ -289,6 +291,7 @@ export async function updatePlugins(
             now,
             preparedSourceDir: checkout,
             preparedResolvedRevision: resolvedRevision,
+            ...(opts.cwd ? { cwd: opts.cwd } : {}),
             ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
           });
           installed.push(...result.installed);
