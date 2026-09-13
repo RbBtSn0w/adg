@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { chmodSync, cpSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname ?? dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
 
 // 1. Clean dist

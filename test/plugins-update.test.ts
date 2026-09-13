@@ -104,7 +104,6 @@ test("updatePlugins reports unchanged when the source is identical", async () =>
 
 test("updatePlugins treats a GitHub marketplace key as remote when a matching CWD path exists", async () => {
   const root = scratch();
-  const originalCwd = process.cwd();
   try {
     const remote = join(root, "remote");
     writeNativeMarket(remote, ["sales"]);
