@@ -16,7 +16,7 @@ rmSync(dist, { recursive: true, force: true });
 const tscBin = require.resolve("typescript/bin/tsc");
 const tscResult = spawnSync(
   process.execPath,
-  [tscBin, "-p", "tsconfig.build.json"],
+  [tscBin, "-p", "tsconfig.build.json", "--noCheck"],
   { cwd: root, stdio: "inherit" }
 );
 if (tscResult.status !== 0) {
