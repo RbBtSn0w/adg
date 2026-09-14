@@ -1,3 +1,9 @@
+## [0.9.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.4...0.9.0-beta.1) (2026-09-14)
+
+### Added
+
+* **remote:** unify source update architecture with three-tier transport and streaming tarball ([#108](https://github.com/RbBtSn0w/adg/issues/108)) ([56b51f9](https://github.com/RbBtSn0w/adg/commit/56b51f97826cd23f25896ff08d264b61759315ca))
+
 ## [0.8.1-beta.4](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.3...0.8.1-beta.4) (2026-09-14)
 
 ### Fixed
