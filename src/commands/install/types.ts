@@ -1,3 +1,4 @@
+import type { Span } from "@opentelemetry/api";
 import type { AdapterTarget } from "../../adapters/index.ts";
 import type { ComponentType, DefaultDefinitionProfile, PluginSelection, PluginSource } from "../../types.ts";
 import type { GitRunner } from "../../sources.ts";
@@ -32,7 +33,7 @@ export interface InstallOneOptions {
   skipUnchanged?: boolean;
   /** Rebuild the effective installation even when source and payload hashes match. */
   forceMaterialize?: boolean;
-  telemetrySpan?: Pick<import("@opentelemetry/api").Span, "addEvent">;
+  telemetrySpan?: Pick<Span, "addEvent">;
   definition?: DefaultDefinitionProfile;
 }
 

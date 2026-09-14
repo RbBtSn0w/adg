@@ -230,7 +230,10 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
 
     const installed: InstallResult[] = [];
     for (const name of order) {
-      const candidate = candidates.get(name)!;
+      const candidate = candidates.get(name);
+      if (!candidate) {
+        throw new Error(`candidate "${name}" not found in resolved candidates`);
+      }
       installed.push(
         installPlugin({
           source: candidate.dir,

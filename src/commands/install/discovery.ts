@@ -102,7 +102,8 @@ export async function resolveSelections(
   if (await opts.confirmFull(selected)) return selections; // user kept everything
 
   for (const name of selected) {
-    const cand = candidates.get(name)!;
+    const cand = candidates.get(name);
+    if (!cand) continue;
     const contents = pluginContents(cand.dir, cand.manifest);
     const present = presentComponents(contents);
     // Nothing meaningful to pick: a lone category with at most one member.
