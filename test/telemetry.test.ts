@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Attributes, Span } from "@opentelemetry/api";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 
 import { readLock, writeLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
@@ -593,4 +594,11 @@ test("every PLUGIN_COMMANDS key and PLUGIN_ALIASES entry is in the sanitizeArgs 
   const missingAliases = Object.keys(PLUGIN_ALIASES).filter((alias) => !ADG_SAFE_POSITIONALS.has(alias));
   assert.deepEqual(missingCommands, [], "add these verbs to ADG_SAFE_POSITIONALS in src/telemetry.ts");
   assert.deepEqual(missingAliases, [], "add these aliases to ADG_SAFE_POSITIONALS in src/telemetry.ts");
+});
+
+test("OTLPTraceExporter uses protobuf serialization for shared gateway compatibility", async () => {
+  const exporter = new OTLPTraceExporter();
+  const delegate = (exporter as unknown as { _delegate?: { _transport?: { _transport?: { _parameters?: { headers?: () => Promise<Record<string, string>> } } } } })._delegate;
+  const headers = await delegate?._transport?._transport?._parameters?.headers?.();
+  assert.equal(headers?.["Content-Type"], "application/x-protobuf");
 });
