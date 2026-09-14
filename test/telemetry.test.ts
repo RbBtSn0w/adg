@@ -4,8 +4,12 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { Attributes, Span } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 
 import { readLock, writeLock } from "../src/lock.ts";
 import { readManifest } from "../src/manifest.ts";
@@ -596,9 +600,39 @@ test("every PLUGIN_COMMANDS key and PLUGIN_ALIASES entry is in the sanitizeArgs 
   assert.deepEqual(missingAliases, [], "add these aliases to ADG_SAFE_POSITIONALS in src/telemetry.ts");
 });
 
-test("OTLPTraceExporter uses protobuf serialization for shared gateway compatibility", async () => {
-  const exporter = new OTLPTraceExporter();
-  const delegate = (exporter as unknown as { _delegate?: { _transport?: { _transport?: { _parameters?: { headers?: () => Promise<Record<string, string>> } } } } })._delegate;
-  const headers = await delegate?._transport?._transport?._parameters?.headers?.();
-  assert.equal(headers?.["Content-Type"], "application/x-protobuf");
+test("OTLPTraceExporter sends protobuf serialized payloads with application/x-protobuf content type", async () => {
+  let receivedContentType: string | undefined;
+  let receivedBody: Buffer | undefined;
+
+  const server = createServer((req, res) => {
+    receivedContentType = req.headers["content-type"];
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on("end", () => {
+      receivedBody = Buffer.concat(chunks);
+      res.writeHead(200, { "Content-Type": "application/x-protobuf" });
+      res.end();
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const url = `http://127.0.0.1:${port}/v1/traces`;
+
+  try {
+    const exporter = new OTLPTraceExporter({ url });
+    const provider = new NodeTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+    const tracer = provider.getTracer("test-tracer");
+    const span = tracer.startSpan("test-span");
+    span.end();
+    await provider.forceFlush();
+    await provider.shutdown();
+
+    assert.equal(receivedContentType, "application/x-protobuf");
+    assert.ok(receivedBody && receivedBody.length > 0, "expected non-empty protobuf binary payload");
+  } finally {
+    server.close();
+  }
 });
