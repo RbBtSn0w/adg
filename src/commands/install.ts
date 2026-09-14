@@ -7,6 +7,7 @@ import { lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { resolveInstallOrder } from "../deps.ts";
 import { cloneGitHub, gitRevision, parseGitHubSource, parseSource, type ParsedSource } from "../sources.ts";
+import { materializeSource } from "../remote/index.ts";
 import { pluginState, type DefaultDefinitionProfile, type PluginSource } from "../types.ts";
 import { resolveAgents, type AgentSyncResult } from "../agents/index.ts";
 import { installPlugin } from "./install/install-one.ts";
@@ -39,11 +40,11 @@ interface PreparedSource {
  * marketplace update, already on disk), a local directory (no clone, no
  * cleanup), or a GitHub source (clone to a temp dir, cleaned up by the caller).
  */
-function prepareSource(
+async function prepareSource(
   opts: AddOptions,
   parsed: ParsedSource,
   sourceRef: string | undefined,
-): PreparedSource {
+): Promise<PreparedSource> {
   if (opts.preparedSourceDir) {
     const workRoot = resolve(opts.preparedSourceDir);
     return {
@@ -69,8 +70,11 @@ function prepareSource(
   }
   const tmp = mkdtempSync(join(tmpdir(), "adg-clone-"));
   try {
-    cloneGitHub({ ...parsed, ref: sourceRef }, tmp, { sparse: opts.sparse, runner: opts.gitRunner });
-    const resolvedRevision = gitRevision(tmp);
+    const mat = await materializeSource({ ...parsed, ref: sourceRef }, tmp, {
+      sparse: opts.sparse,
+      runner: opts.gitRunner,
+    });
+    const resolvedRevision = mat.resolvedRevision ?? gitRevision(tmp);
     return {
       workRoot: tmp,
       resolvedRevision,
@@ -137,7 +141,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
   if (parsed.kind === "github" && parsed.path) {
     throw new Error("GitHub subdirectory sources are not supported; define a marketplace and select with --plugin or --all");
   }
-  const prepared = prepareSource(opts, parsed, sourceRef);
+  const prepared = await prepareSource(opts, parsed, sourceRef);
   const { workRoot, buildOrigin, resolvedRevision } = prepared;
   let cleanup = prepared.cleanup;
   let originDirOverride: string | undefined;
