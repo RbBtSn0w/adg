@@ -48,10 +48,10 @@ test("default telemetry config uses the anonymous gateway profile and bounded ba
       maxQueueSize: 256,
       maxExportBatchSize: 64,
       scheduledDelayMillis: 100,
-      exportTimeoutMillis: 1000,
+      exportTimeoutMillis: 2500,
     },
-    exporterTimeoutMillis: 1000,
-    shutdownTimeoutMillis: 1500,
+    exporterTimeoutMillis: 2500,
+    shutdownTimeoutMillis: 3000,
   });
 });
 
