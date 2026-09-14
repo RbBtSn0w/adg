@@ -1,3 +1,9 @@
+## [0.8.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.2...0.8.1-beta.3) (2026-09-14)
+
+### Changed
+
+* remediate technical debt across build, test concurrency, and install modularity ([#106](https://github.com/RbBtSn0w/adg/issues/106)) ([69eb557](https://github.com/RbBtSn0w/adg/commit/69eb5571d04faed0bf065df2828b0cc2ce4bb04f))
+
 ## [0.8.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.1...0.8.1-beta.2) (2026-09-11)
 
 ### Fixed
