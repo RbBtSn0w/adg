@@ -1,3 +1,9 @@
+## [0.8.1-beta.4](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.3...0.8.1-beta.4) (2026-09-14)
+
+### Fixed
+
+* **telemetry:** adopt OTLP protobuf exporter for shared gateway compatibility ([#107](https://github.com/RbBtSn0w/adg/issues/107)) ([67a014c](https://github.com/RbBtSn0w/adg/commit/67a014c1e1ef37d2d5ec031bab96864e2f338c35))
+
 ## [0.8.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.2...0.8.1-beta.3) (2026-09-14)
 
 ### Changed
