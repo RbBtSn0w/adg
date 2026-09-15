@@ -67,7 +67,7 @@ export function renderPluginList(
   if (plugins.length === 0) return [ui.meta(`no plugins recorded in ${pluginsDir}`)];
 
   // Pre-compute each plugin's display row so the name/path columns can be
-  // aligned across rows (à la `adg skills list`). The `Agents:` column is
+  // aligned across rows (à la `adg skills list`). The `Supports:` column is
   // derived from the exposed component types — which agents can adapt it.
   const rows = plugins.map((p) => {
     const exposed = (Object.entries(p.contents ?? {}) as [string, string[]][]).filter(
@@ -86,7 +86,7 @@ export function renderPluginList(
   const nameW = Math.max(...rows.map((r) => r.label.length));
   const pathW = Math.min(PATH_MAX, Math.max(...rows.map((r) => r.path.length)));
 
-  // Color mirrors `adg skills list`: cyan name, dim path / dim "Agents:" label
+  // Color mirrors `adg skills list`: cyan name, dim path / dim "Supports:" label
   // with the agent names left bright, and the provenance/counts line fully
   // dimmed as secondary metadata. Widths are measured on the uncolored strings
   // (above), so wrapping the padded text keeps columns aligned.
@@ -95,13 +95,13 @@ export function renderPluginList(
     if (group.length === 0) return;
     out.push(ui.name(heading));
     for (const r of group) {
-    const partial = r.p.selection ? "  (partial)" : "";
-    const name = ui.name(r.label.padEnd(nameW));
-    const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
-    out.push(`${name}  ${path}  ${ui.meta("Agents:")} ${r.agents}`);
-    const provenance = `[${r.p.origin.type}] ${(r.p.installedHash ?? "").slice(0, 19)}${partial}`;
-    out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
-    if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
+      const partial = r.p.selection ? "  (partial)" : "";
+      const name = ui.name(r.label.padEnd(nameW));
+      const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
+      out.push(`${name}  ${path}  ${ui.meta("Supports:")} ${r.agents}`);
+      const provenance = `[${r.p.origin.type}] ${(r.p.installedHash ?? "").slice(0, 19)}${partial}`;
+      out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
+      if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
     }
   };
   appendRows("Enabled", rows.filter((row) => pluginState(row.p) === "enabled"));

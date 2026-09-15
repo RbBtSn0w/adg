@@ -201,6 +201,8 @@ test("plugins add describes --as as a structural source identity", () => {
   assert.match(text, /installed identity for a manifest-free structural source/);
 });
 
+const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
+
 // Capture console.log over an async call, restoring it even on throw.
 async function captureLog(fn: () => Promise<unknown>): Promise<string> {
   const orig = console.log;
@@ -211,7 +213,7 @@ async function captureLog(fn: () => Promise<unknown>): Promise<string> {
   } finally {
     console.log = orig;
   }
-  return lines.join("\n");
+  return stripAnsi(lines.join("\n"));
 }
 
 function seedPlugin(store: string, name: string): void {
@@ -270,8 +272,61 @@ test("runPlugins list --json prints parseable JSON only", async () => {
     assert.equal(parsed.plugins.length, 1);
     assert.equal(parsed.plugins[0]!.name, "alpha");
     assert.equal(parsed.plugins[0]!.counts.skills, 1);
+    assert.ok(!out.includes("Supports:"), "human list columns must not appear in JSON mode");
     assert.ok(!out.includes("Agents:"), "human list columns must not appear in JSON mode");
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins list human mode renders Supports column", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-human-store-"));
+  try {
+    seedPlugin(dir, "alpha");
+    const out = await captureLog(() => runPlugins("list", ["--dir", dir]));
+    assert.ok(out.includes("Supports:"), "human list renders Supports: column");
+    assert.ok(out.includes("Claude Code"), "human list renders compatible agents");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins unlink outputs tip when a plugin is unlinked", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-unlink-store-"));
+  const geminiDir = mkdtempSync(join(tmpdir(), "adg-gemini-home-"));
+  mkdirSync(join(geminiDir, "antigravity-cli"), { recursive: true });
+  const prevGeminiHome = process.env.GEMINI_HOME;
+  process.env.GEMINI_HOME = geminiDir;
+  try {
+    seedPlugin(dir, "alpha");
+    await captureLog(() => runPlugins("link", ["--dir", dir, "--target", "antigravity", "alpha"]));
+    const out = await captureLog(() => runPlugins("unlink", ["--dir", dir, "--target", "antigravity", "alpha"]));
+    assert.ok(out.includes("unlinked alpha [antigravity]"), "unlinked message printed");
+    assert.ok(out.includes("tip: run `adg plugins status` to inspect runtime projection drift"), "tip printed for project");
+  } finally {
+    if (prevGeminiHome === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prevGeminiHome;
+    rmSync(geminiDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins unlink outputs tip with -g when unlinking in global scope", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-unlink-global-store-"));
+  const geminiDir = mkdtempSync(join(tmpdir(), "adg-gemini-home-global-"));
+  mkdirSync(join(geminiDir, "antigravity-cli"), { recursive: true });
+  const prevGeminiHome = process.env.GEMINI_HOME;
+  process.env.GEMINI_HOME = geminiDir;
+  try {
+    seedPlugin(dir, "alpha");
+    await captureLog(() => runPlugins("link", ["--dir", dir, "-g", "--target", "antigravity", "alpha"]));
+    const out = await captureLog(() => runPlugins("unlink", ["--dir", dir, "-g", "--target", "antigravity", "alpha"]));
+    assert.ok(out.includes("unlinked alpha [antigravity]"), "unlinked message printed");
+    assert.ok(out.includes("tip: run `adg plugins status -g` to inspect runtime projection drift"), "tip with -g printed for global");
+  } finally {
+    if (prevGeminiHome === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prevGeminiHome;
+    rmSync(geminiDir, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 });
