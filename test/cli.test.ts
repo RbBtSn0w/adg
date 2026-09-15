@@ -291,6 +291,10 @@ test("runPlugins list human mode renders Supports column", async () => {
 
 test("runPlugins unlink outputs tip when a plugin is unlinked", async () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-cli-unlink-store-"));
+  const geminiDir = mkdtempSync(join(tmpdir(), "adg-gemini-home-"));
+  mkdirSync(join(geminiDir, "antigravity-cli"), { recursive: true });
+  const prevGeminiHome = process.env.GEMINI_HOME;
+  process.env.GEMINI_HOME = geminiDir;
   try {
     seedPlugin(dir, "alpha");
     await captureLog(() => runPlugins("link", ["--dir", dir, "--target", "antigravity", "alpha"]));
@@ -298,6 +302,29 @@ test("runPlugins unlink outputs tip when a plugin is unlinked", async () => {
     assert.ok(out.includes("unlinked alpha [antigravity]"), "unlinked message printed");
     assert.ok(out.includes("tip: run `adg plugins status` to inspect runtime projection drift"), "tip printed for project");
   } finally {
+    if (prevGeminiHome === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prevGeminiHome;
+    rmSync(geminiDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins unlink outputs tip with -g when unlinking in global scope", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-unlink-global-store-"));
+  const geminiDir = mkdtempSync(join(tmpdir(), "adg-gemini-home-global-"));
+  mkdirSync(join(geminiDir, "antigravity-cli"), { recursive: true });
+  const prevGeminiHome = process.env.GEMINI_HOME;
+  process.env.GEMINI_HOME = geminiDir;
+  try {
+    seedPlugin(dir, "alpha");
+    await captureLog(() => runPlugins("link", ["--dir", dir, "-g", "--target", "antigravity", "alpha"]));
+    const out = await captureLog(() => runPlugins("unlink", ["--dir", dir, "-g", "--target", "antigravity", "alpha"]));
+    assert.ok(out.includes("unlinked alpha [antigravity]"), "unlinked message printed");
+    assert.ok(out.includes("tip: run `adg plugins status -g` to inspect runtime projection drift"), "tip with -g printed for global");
+  } finally {
+    if (prevGeminiHome === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prevGeminiHome;
+    rmSync(geminiDir, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 });
