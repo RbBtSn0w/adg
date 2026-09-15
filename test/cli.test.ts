@@ -201,6 +201,8 @@ test("plugins add describes --as as a structural source identity", () => {
   assert.match(text, /installed identity for a manifest-free structural source/);
 });
 
+const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
+
 // Capture console.log over an async call, restoring it even on throw.
 async function captureLog(fn: () => Promise<unknown>): Promise<string> {
   const orig = console.log;
@@ -211,7 +213,7 @@ async function captureLog(fn: () => Promise<unknown>): Promise<string> {
   } finally {
     console.log = orig;
   }
-  return lines.join("\n");
+  return stripAnsi(lines.join("\n"));
 }
 
 function seedPlugin(store: string, name: string): void {
