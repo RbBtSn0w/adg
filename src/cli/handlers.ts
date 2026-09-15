@@ -311,14 +311,22 @@ async function handleUnlink(rest: string[], cmd: PluginCommand): Promise<void> {
   const targets = resolveVerbTargets(values, "unlink");
   const sc = await resolveActionScope(values, "unlink");
   const names = positionals.length > 0 ? positionals : undefined;
+  let anyUnlinked = false;
   for (const target of targets) {
     const res = unlinkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
-    for (const name of res.unlinked) console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
+    for (const name of res.unlinked) {
+      console.log(`${ui.ok("unlinked")} ${ui.name(name)} ${ui.meta(`[${res.target}]`)}`);
+      anyUnlinked = true;
+    }
     if (res.cliSkipped) {
       printCliUnavailableNote(target, `nothing was unlinked from ${target}.`);
     } else if (res.unlinked.length === 0 && targets.length === 1) {
       console.log(ui.meta(`nothing to unlink from ${target}`));
     }
+  }
+  if (anyUnlinked) {
+    const flag = sc.global ? " -g" : "";
+    console.log(ui.meta(`tip: run \`adg plugins status${flag}\` to inspect runtime projection drift`));
   }
 }
 

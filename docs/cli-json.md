@@ -67,7 +67,9 @@ Field notes:
 
 - `pluginsDir` and each `path` are absolute filesystem paths.
 - `source` is ADG's lock-file provenance object.
-- `agents` contains stable agent ids, not display names.
+- `agents` contains stable agent ids, not display names. Indicates which agents
+  can adapt this plugin's component types (for active per-agent runtime projection
+  status, see `adg plugins status --json`).
 - `contents` always includes every component category, using empty arrays when a
   plugin has none of that category.
 - `counts` mirrors `contents` lengths.

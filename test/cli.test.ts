@@ -270,7 +270,33 @@ test("runPlugins list --json prints parseable JSON only", async () => {
     assert.equal(parsed.plugins.length, 1);
     assert.equal(parsed.plugins[0]!.name, "alpha");
     assert.equal(parsed.plugins[0]!.counts.skills, 1);
+    assert.ok(!out.includes("Supports:"), "human list columns must not appear in JSON mode");
     assert.ok(!out.includes("Agents:"), "human list columns must not appear in JSON mode");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins list human mode renders Supports column", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-human-store-"));
+  try {
+    seedPlugin(dir, "alpha");
+    const out = await captureLog(() => runPlugins("list", ["--dir", dir]));
+    assert.ok(out.includes("Supports:"), "human list renders Supports: column");
+    assert.ok(out.includes("Claude Code"), "human list renders compatible agents");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runPlugins unlink outputs tip when a plugin is unlinked", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-unlink-store-"));
+  try {
+    seedPlugin(dir, "alpha");
+    await captureLog(() => runPlugins("link", ["--dir", dir, "--target", "antigravity", "alpha"]));
+    const out = await captureLog(() => runPlugins("unlink", ["--dir", dir, "--target", "antigravity", "alpha"]));
+    assert.ok(out.includes("unlinked alpha [antigravity]"), "unlinked message printed");
+    assert.ok(out.includes("tip: run `adg plugins status` to inspect runtime projection drift"), "tip printed for project");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

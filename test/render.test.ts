@@ -73,7 +73,7 @@ test("renderPluginList emits a row plus a provenance line per plugin", () => {
   const lines = renderPluginList([listed("alpha", { skills: ["s1"] })], "/store");
   const text = lines.join("\n");
   assert.ok(text.includes("alpha@1.0.0"), "name@version shown");
-  assert.ok(text.includes("Agents:"), "agents column shown");
+  assert.ok(text.includes("Supports:"), "supports column shown");
   assert.ok(text.includes("[local]"), "provenance line shown");
   assert.ok(text.includes("skills: 1"), "component count shown");
 });

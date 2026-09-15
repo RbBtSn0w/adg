@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { agentsForComponents } from "../src/agents/index.ts";
 
 /**
- * `adg plugins list` derives its "Agents:" column from a plugin's exposed
+ * `adg plugins list` derives its "Supports:" column from a plugin's exposed
  * component types: an agent is listed when its adapter can express at least one
  * of those types. Codex consumes skills, hooks, and mcp, while Claude and
  * Antigravity (agy) also take agents/commands — so the derivation must split on
