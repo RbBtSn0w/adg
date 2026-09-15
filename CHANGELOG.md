@@ -1,3 +1,10 @@
+## [0.9.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.9.0-beta.1...0.9.0-beta.2) (2026-09-15)
+
+### Fixed
+
+* **commands:** prevent TypeError during multiselect-skills validation on submit ([#109](https://github.com/RbBtSn0w/adg/issues/109)) ([01a7ef9](https://github.com/RbBtSn0w/adg/commit/01a7ef916de1218383da649bdf2920984bb0ac83))
+* disambiguate plugin compatibility from runtime projection in cli ([#110](https://github.com/RbBtSn0w/adg/issues/110)) ([8d1c28e](https://github.com/RbBtSn0w/adg/commit/8d1c28ee75e3810a6bcfd8240d169ec606d6fcab))
+
 ## [0.9.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.8.1-beta.4...0.9.0-beta.1) (2026-09-14)
 
 ### Added
