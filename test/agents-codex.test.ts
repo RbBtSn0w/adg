@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 
 import type { RunResult } from "../src/agents/base.ts";
 import { parseCodexMarketplaceLocalSources, parseCodexStaleMarketplaceErrors, pruneStaleCodexMarketplaces, syncMarketplace } from "../src/agents/codex.ts";
@@ -84,7 +85,8 @@ test("pruneStaleCodexMarketplaces removes only ADG-owned marketplaces whose dire
   };
   // codexMarketplaceIsLive checks a derived marketplace.json path under the
   // registered source, not the raw source directory itself (see its doc).
-  const exists = (path: string): boolean => path.startsWith("/tmp/still-here/");
+  const liveSource = join("/tmp", "still-here");
+  const exists = (path: string): boolean => path.startsWith(liveSource);
 
   const outcome = pruneStaleCodexMarketplaces(runner, {}, exists, () => [], () => {
     throw new Error("cache sweep must not run when the root is empty");
@@ -108,13 +110,14 @@ test("pruneStaleCodexMarketplaces sweeps orphaned cache dirs left behind by a re
     return result(false, `unexpected call: ${args.join(" ")}`);
   };
   const removedDirs: string[] = [];
+  const cacheRoot = join("/home", ".codex", "plugins", "cache");
 
   const outcome = pruneStaleCodexMarketplaces(
     runner,
     { CODEX_HOME: "/home/.codex" },
     () => true, // /tmp/still-here exists — the live marketplace is untouched
     (dir) => {
-      assert.equal(dir, "/home/.codex/plugins/cache");
+      assert.equal(dir, cacheRoot);
       return ["adg-11111111", "adg-deadbeef", "adg", "not-adg-owned"];
     },
     (path) => removedDirs.push(path),
@@ -122,8 +125,8 @@ test("pruneStaleCodexMarketplaces sweeps orphaned cache dirs left behind by a re
 
   // "adg-11111111" survives (still registered), "adg" (bare) is never touched
   // even though it isn't in the survivor set, and "not-adg-owned" isn't ours.
-  assert.deepEqual(removedDirs, ["/home/.codex/plugins/cache/adg-deadbeef"]);
-  assert.deepEqual(outcome.removed, [{ name: "adg-deadbeef", path: "/home/.codex/plugins/cache/adg-deadbeef" }]);
+  assert.deepEqual(removedDirs, [join(cacheRoot, "adg-deadbeef")]);
+  assert.deepEqual(outcome.removed, [{ name: "adg-deadbeef", path: join(cacheRoot, "adg-deadbeef") }]);
   assert.deepEqual(outcome.errors, []);
 });
 
@@ -193,7 +196,8 @@ test("pruneStaleCodexMarketplaces recovers when list fails on a stale ADG-owned 
     if (args[2] === "remove" && args[3] === "adg-deadbeef") return result(true);
     return result(false, `unexpected call: ${args.join(" ")}`);
   };
-  const exists = (path: string): boolean => path.startsWith("/tmp/still-here/");
+  const liveSource = join("/tmp", "still-here");
+  const exists = (path: string): boolean => path.startsWith(liveSource);
 
   const outcome = pruneStaleCodexMarketplaces(runner, {}, exists, () => []);
 
