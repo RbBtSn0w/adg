@@ -203,6 +203,7 @@ export const ADG_SAFE_POSITIONALS: ReadonlySet<string> = new Set([
   "add",
   "list",
   "status",
+  "prune",
   "remove",
   "disable",
   "enable",

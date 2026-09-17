@@ -5,6 +5,7 @@ import type { ComponentType } from "../types.ts";
 import type { ListedPlugin } from "../commands/list.ts";
 import type { MarketplaceGroup, PluginUpdateResult } from "../commands/marketplace.ts";
 import type { AgentStatus } from "../commands/status.ts";
+import type { AgentPruneResult } from "../agents/types.ts";
 import { pluginState } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -189,6 +190,41 @@ export function renderStatus(statuses: AgentStatus[]): string[] {
   }
 
   out.push(ui.meta("note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure."));
+  return out;
+}
+
+/**
+ * `adg plugins prune` — per-agent report of ADG-owned registrations removed
+ * because their plugin directory no longer exists on disk.
+ */
+export function renderPrune(results: AgentPruneResult[]): string[] {
+  if (results.length === 0) return [ui.meta("no agents detected — nothing to prune.")];
+
+  const out: string[] = [];
+  let totalRemoved = 0;
+  for (const r of results) {
+    const display = getAgent(r.agent)?.displayName ?? r.agent;
+    out.push(ui.name(display));
+    if (r.skipped) {
+      out.push(ui.meta("  skipped — nothing was scanned (agent CLI unavailable or no registry to prune)"));
+      continue;
+    }
+    if (r.removed.length === 0 && r.errors.length === 0) {
+      out.push(ui.meta("  nothing stale"));
+    }
+    for (const entry of r.removed) {
+      totalRemoved += 1;
+      out.push(`  ${ui.ok("removed")} ${ui.name(entry.name)} ${ui.meta(`(missing: ${entry.path})`)}`);
+    }
+    for (const error of r.errors) out.push(ui.warn(`  ${error}`));
+  }
+  // Only claim "found nothing stale" when something was actually checked —
+  // an all-skipped run (no agent CLI available) didn't check anything, so
+  // saying so would misrepresent "not checked" as "checked and clean".
+  const anyChecked = results.some((r) => !r.skipped);
+  if (anyChecked && totalRemoved === 0 && results.every((r) => r.errors.length === 0)) {
+    out.push(ui.meta("no stale registrations found"));
+  }
   return out;
 }
 

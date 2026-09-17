@@ -50,6 +50,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run check:vendor-deps
       - run: npm run check:docs
+      - run: npm run check:test-isolation
       # Keep the shipped CLI's runtime dependencies clean. Dev-only tooling is
       # monitored by Dependabot and constrained with overrides when fixes exist.
       # Gate audit to the single canonical smoke runner with retry to prevent redundant
