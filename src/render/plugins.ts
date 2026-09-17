@@ -206,7 +206,7 @@ export function renderPrune(results: AgentPruneResult[]): string[] {
     const display = getAgent(r.agent)?.displayName ?? r.agent;
     out.push(ui.name(display));
     if (r.skipped) {
-      out.push(ui.meta("  skipped — agent CLI not available, or has no registrations to prune"));
+      out.push(ui.meta("  skipped — nothing was scanned (agent CLI unavailable or no registry to prune)"));
       continue;
     }
     if (r.removed.length === 0 && r.errors.length === 0) {

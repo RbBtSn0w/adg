@@ -185,6 +185,7 @@ test("renderPrune does not claim a clean scan when every agent was only skipped"
     { agent: "codex", skipped: true, removed: [], errors: [] },
   ];
   const text = renderPrune(results).map(stripAnsi).join("\n");
+  assert.match(text, /skipped — nothing was scanned \(agent CLI unavailable or no registry to prune\)/);
   assert.doesNotMatch(text, /no stale registrations found/);
 });
 
