@@ -1,3 +1,9 @@
+## [0.9.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.9.0-beta.2...0.9.0-beta.3) (2026-09-17)
+
+### Added
+
+* **plugins:** add prune command to clean up stale agent registrations ([#111](https://github.com/RbBtSn0w/adg/issues/111)) ([d68af81](https://github.com/RbBtSn0w/adg/commit/d68af81d3de52e59198a4c1438404d308773b2ce))
+
 ## [0.9.0-beta.2](https://github.com/RbBtSn0w/adg/compare/0.9.0-beta.1...0.9.0-beta.2) (2026-09-15)
 
 ### Fixed
