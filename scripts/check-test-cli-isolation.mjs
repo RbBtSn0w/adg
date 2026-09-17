@@ -31,8 +31,8 @@ const SPAWN_CALL_RE = /\b(?:spawnSync|spawn|execFileSync|execFile|execSync|exec)
 // of "bin/adg.ts" in a comment (like this file's own doc comment above). The
 // mention can be anywhere inside the literal (e.g. `"node bin/adg.ts plugins
 // add x"` for an execSync one-liner), not just the whole literal's content.
-const ADG_BIN_LITERAL_RE = /["'`][^"'`]*bin\/adg\.(?:ts|js)[^"'`]*["'`]/;
-const ADG_BIN_MENTION_RE = /bin\/adg\.(?:ts|js)/;
+const ADG_BIN_LITERAL_RE = /["'`][^"'`]*bin(?:\\\\|\/)adg\.(?:ts|js)[^"'`]*["'`]/;
+const ADG_BIN_MENTION_RE = /bin(?:\\\\|\/)adg\.(?:ts|js)/;
 
 const problems = [];
 for (const entry of readdirSync(testDir, { recursive: true })) {
