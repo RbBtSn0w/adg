@@ -139,6 +139,18 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     blurb: "Query each agent's CLI live and diff it against the store: what's in\nsync, missing (needs `link`/`sync`), or present in the agent only. Each drift\nrow carries the command that repairs it. Inspects the active scope (--global →\nuser, else project). Name-level only — run `sync` if unsure.",
     flags: ["target", "json", ...SCOPE],
   },
+  prune: {
+    summary: "remove stale agent-side registrations for deleted plugin directories",
+    synopsis: "adg plugins prune [--target claude|codex|antigravity]",
+    blurb:
+      "Scans each agent's own marketplace/cache registry for ADG-owned entries\n" +
+      "(`adg` / `adg-<hash>`) whose plugin directory no longer exists on disk —\n" +
+      "a deleted project, or a test sandbox that leaked into the real agent config —\n" +
+      "and removes them via that agent's own CLI. Never touches a marketplace ADG\n" +
+      "didn't create, and never one whose directory still exists. Unscoped: checks\n" +
+      "every registration the agent knows about, not just the active project/global store.",
+    flags: ["target", "json"],
+  },
   update: {
     summary: "pull upstream changes for installed plugins",
     synopsis: "adg plugins update [<source>]",

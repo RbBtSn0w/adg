@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 import { installPlugin } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { spawnAdg } from "./sandbox-helpers.mjs";
 
 function run(bin, args, env) {
   const result = spawnSync(bin, args, { env, encoding: "utf8" });
@@ -73,7 +74,14 @@ test("Codex sandbox receives picker metadata from adg link", () => {
 
     run("codex", ["plugin", "marketplace", "add", root], env);
     run("codex", ["plugin", "add", "demo@adg"], env);
-    run(process.execPath, ["bin/adg.ts", "plugins", "link", "--target", "codex", "demo", "--global"], env);
+    // `--target codex` plus `spawnAdg`'s per-agent isolation (Claude/Antigravity
+    // still get throwaway homes here; CODEX_HOME is the one deliberate override,
+    // since this test's assertion depends on Codex's real generated cache).
+    const { result } = spawnAdg(["plugins", "link", "--target", "codex", "demo", "--global"], {
+      isolationRoot: join(root, "other-agent-homes"),
+      env: { ADG_PLUGINS_HOME: store, CODEX_HOME: codexHome, DISABLE_TELEMETRY: "1" },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
 
     const cached = JSON.parse(readFileSync(join(codexHome, "plugins", "cache", "adg", "demo", "1.0.0", ".codex-plugin", "plugin.json"), "utf8"));
     assert.deepEqual(cached.interface, { shortDescription: "Visible sandbox description." });

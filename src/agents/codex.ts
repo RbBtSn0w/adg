@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { SpanKind } from "@opentelemetry/api";
 import { codexMarketplaceRoot, globalPluginsDir, marketplacePath } from "../paths.ts";
 import { readMarketplace, writeMarketplace } from "../marketplace.ts";
-import { makeCli, skippedResult } from "./base.ts";
+import { isAdgOwnedName, isAdgSandboxCacheDirName, makeCli, skippedResult } from "./base.ts";
 import { reconcileCodexMarketplaceAliases } from "../codex-marketplace-migration.ts";
 import { getTracer, recordTelemetryEvent } from "../telemetry.ts";
-import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentSyncResult } from "./types.ts";
+import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentPruneResult, AgentSyncResult, StaleRegistration } from "./types.ts";
 
 const UNRECOGNIZED_PLUGIN_LIST = "codex plugin list returned unrecognized output";
 const MARKETPLACE = "adg";
@@ -93,6 +93,157 @@ function reconcileLegacyAliases(pluginsDir: string, marketplace: string, plugins
   });
 }
 
+/**
+ * Parse `codex plugin marketplace list --json` into every locally-sourced
+ * marketplace with its root directory — the shape `pruneStale` needs to decide
+ * which registrations are stale. A Git-sourced marketplace has no local root
+ * that can vanish this way, so only `sourceType: "local"` entries qualify.
+ */
+export function parseCodexMarketplaceLocalSources(out: string): { name: string; path: string }[] {
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return [];
+    const marketplaces = (parsed as Record<string, unknown>).marketplaces;
+    if (!Array.isArray(marketplaces)) return [];
+    const entries: { name: string; path: string }[] = [];
+    for (const entry of marketplaces) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const { name, marketplaceSource } = entry as Record<string, unknown>;
+      if (typeof name !== "string" || typeof marketplaceSource !== "object" || marketplaceSource === null) continue;
+      const { sourceType, source } = marketplaceSource as Record<string, unknown>;
+      if (sourceType === "local" && typeof source === "string") entries.push({ name, path: source });
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+/** Directory names under `<CODEX_HOME>/plugins/cache` (best-effort; a missing/unreadable root is just empty). */
+function codexCacheDirNames(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Parse every stale-marketplace bullet out of a `codex plugin marketplace
+ * list` failure: `- \`name\` at path: marketplace root does not contain a
+ * supported manifest`. Codex fails the WHOLE `list` call (JSON or not) the
+ * moment ANY registered marketplace's root lacks a manifest — verified live
+ * against codex-cli 0.154.0 — bulleting every offender it found in one
+ * message, so this recovers all of them in a single pass rather than just one.
+ */
+export function parseCodexStaleMarketplaceErrors(out: string): { name: string; path: string }[] {
+  const entries: { name: string; path: string }[] = [];
+  for (const m of out.matchAll(/- `([^`]+)` at (.+?): marketplace root does not contain a supported manifest/g)) {
+    entries.push({ name: m[1]!, path: m[2]! });
+  }
+  return entries;
+}
+
+/**
+ * Whether a Codex marketplace's registered root (`source`) still resolves to
+ * a live ADG marketplace manifest. Checking `existsSync(source)` alone isn't
+ * enough: for a canonical `<root>/.agents/plugins` store, Codex is registered
+ * against `<root>` (see `codexMarketplaceRoot`), not the plugins directory
+ * itself — so after a project's `.agents/` is deleted but its root survives,
+ * `source` still exists even though the marketplace is exactly what Codex
+ * calls stale. An explicit `--dir` store has no such project root: `source`
+ * IS the plugins directory, with `marketplace.json` directly under it.
+ */
+function codexMarketplaceIsLive(source: string, exists: (path: string) => boolean): boolean {
+  return exists(join(source, ".agents", "plugins", "marketplace.json")) || exists(join(source, "marketplace.json"));
+}
+
+/**
+ * List Codex's registered marketplaces, recovering from the failure mode
+ * `parseCodexStaleMarketplaceErrors` targets: one broken ADG-owned
+ * registration otherwise fails the whole `list` call and blocks pruning every
+ * other, unrelated, genuinely-stale entry. Removes every ADG-owned offender
+ * the error names and retries once; a non-ADG-owned offender (not ours to
+ * touch) or a `remove` that itself fails is left in `errors` for the caller.
+ */
+function listCodexMarketplaces(
+  runner: typeof run,
+): { ok: true; sources: { name: string; path: string }[]; removed: StaleRegistration[]; errors: string[] }
+  | { ok: false; error: string; removed: StaleRegistration[]; errors: string[] } {
+  const removed: StaleRegistration[] = [];
+  const errors: string[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const listed = runner(["plugin", "marketplace", "list", "--json"]);
+    if (listed.ok) return { ok: true, sources: parseCodexMarketplaceLocalSources(listed.out), removed, errors };
+
+    const detail = listed.out.trim() || "codex plugin marketplace list failed without an error message";
+    const ownedStale = parseCodexStaleMarketplaceErrors(listed.out).filter((e) => isAdgOwnedName(e.name));
+    if (attempt === 1 || ownedStale.length === 0) return { ok: false, error: detail, removed, errors };
+
+    for (const { name, path } of ownedStale) {
+      const result = runner(["plugin", "marketplace", "remove", name]);
+      if (result.ok) removed.push({ name, path });
+      else errors.push(`failed to remove stale Codex marketplace "${name}": ${result.out.trim() || "no error message"}`);
+    }
+  }
+  /* c8 ignore next */
+  return { ok: false, error: "codex plugin marketplace list failed without an error message", removed, errors };
+}
+
+/**
+ * Remove every ADG-owned Codex marketplace whose plugins directory no longer
+ * exists — e.g. a deleted project, or a test sandbox that leaked into the real
+ * `~/.codex` config (see `adg plugins prune`) — then sweep
+ * `plugins/cache/adg-<hash>` directories that outlived their registry entry
+ * (observed in practice: `codex plugin marketplace remove` doesn't reliably
+ * clear the cache snapshot it staged). Never touches a marketplace ADG didn't
+ * create (`isAdgOwnedName`), never one whose directory is still there, and the
+ * cache sweep never touches the bare global `adg` cache dir (`isAdgSandboxCacheDirName`
+ * requires the hash suffix) since that deletion has no CLI-level undo.
+ */
+export function pruneStaleCodexMarketplaces(
+  runner: typeof run = run,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+  listCacheDirNames: (dir: string) => string[] = codexCacheDirNames,
+  removeCacheDir: (path: string) => void = (path) => rmSync(path, { recursive: true, force: true }),
+): AgentPruneResult {
+  const listing = listCodexMarketplaces(runner);
+  const removed: StaleRegistration[] = [...listing.removed];
+  const errors: string[] = [...listing.errors];
+
+  if (!listing.ok) {
+    errors.push(listing.error);
+    return { agent: "codex", skipped: false, removed, errors };
+  }
+
+  const survivingNames = new Set(listing.sources.map((s) => s.name));
+  for (const { name, path } of listing.sources) {
+    if (!isAdgOwnedName(name) || codexMarketplaceIsLive(path, exists)) continue;
+    const result = runner(["plugin", "marketplace", "remove", name]);
+    if (result.ok) {
+      removed.push({ name, path });
+      survivingNames.delete(name);
+    } else {
+      errors.push(`failed to remove stale Codex marketplace "${name}": ${result.out.trim() || "no error message"}`);
+    }
+  }
+
+  const cacheRoot = join(codexHome(env), "plugins", "cache");
+  for (const dirName of listCacheDirNames(cacheRoot)) {
+    if (!isAdgSandboxCacheDirName(dirName) || survivingNames.has(dirName)) continue;
+    const path = join(cacheRoot, dirName);
+    try {
+      removeCacheDir(path);
+      removed.push({ name: dirName, path });
+    } catch (err) {
+      errors.push(`failed to remove orphaned Codex cache dir "${dirName}": ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { agent: "codex", skipped: false, removed, errors };
+}
+
 export const codexAgent: Agent = {
   id: "codex",
   displayName: "Codex",
@@ -149,6 +300,8 @@ export const codexAgent: Agent = {
     if (fallback.length > 0 || textRes.out.trim() === "") return fallback;
     return codexUnrecognizedListFailure(textRes.out);
   },
+
+  pruneStale: () => (available() ? pruneStaleCodexMarketplaces() : { agent: "codex", skipped: true, removed: [], errors: [] }),
 };
 
 /** Preserve Codex's diagnostic and offer cleanup for a stale ADG project marketplace. */

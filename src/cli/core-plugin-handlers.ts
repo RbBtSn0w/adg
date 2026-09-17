@@ -4,10 +4,11 @@ import { initScaffold, type InitType } from "../commands/init.ts";
 import { inspectSource } from "../commands/inspect.ts";
 import { listPlugins } from "../commands/list.ts";
 import { pluginStatus } from "../commands/status.ts";
+import { pruneAgents, pruneHasErrors } from "../commands/prune.ts";
 import { validatePlugin } from "../commands/validate.ts";
 import { ui } from "../render/ui.ts";
-import { pluginsListJson, pluginsStatusJson, printJson } from "../render/json.ts";
-import { renderPluginList, renderStatus } from "../render/plugins.ts";
+import { pluginsListJson, pluginsPruneJson, pluginsStatusJson, printJson } from "../render/json.ts";
+import { renderPluginList, renderPrune, renderStatus } from "../render/plugins.ts";
 import {
   fail,
   parseVerb,
@@ -17,9 +18,9 @@ import {
   type PluginCommand,
 } from "./index.ts";
 
-type CorePluginVerb = "init" | "adapt" | "validate" | "inspect" | "list" | "status";
+type CorePluginVerb = "init" | "adapt" | "validate" | "inspect" | "list" | "status" | "prune";
 
-const CORE_PLUGIN_VERBS = new Set<string>(["init", "adapt", "validate", "inspect", "list", "status"]);
+const CORE_PLUGIN_VERBS = new Set<string>(["init", "adapt", "validate", "inspect", "list", "status", "prune"]);
 
 export async function handleCorePluginVerb(
   verb: string,
@@ -94,6 +95,20 @@ export async function handleCorePluginVerb(
       const statuses = pluginStatus({ pluginsDir, scope, targets });
       if (values.json) printJson(pluginsStatusJson(statuses, pluginsDir, scope, targets));
       else for (const line of renderStatus(statuses)) console.log(line);
+      return true;
+    }
+    case "prune": {
+      const { values } = parseVerb(verb, cmd.flags, rest);
+      const targets = resolveTargets(values.target);
+      const results = pruneAgents({ targets });
+      if (values.json) printJson(pluginsPruneJson(results, targets));
+      else for (const line of renderPrune(results)) console.log(line);
+      // A per-agent error means a stale registration was found but ADG
+      // couldn't clean it up (the agent's CLI rejected the removal, etc) — a
+      // real failure of this mutating command, not the read-only "found
+      // drift" outcome `status` reports at exit 0. See docs/cli-json.md's
+      // exit-code contract for `adg plugins prune --json`.
+      if (pruneHasErrors(results)) process.exit(1);
       return true;
     }
   }
