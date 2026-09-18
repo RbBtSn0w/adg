@@ -8,6 +8,7 @@ can integrate over the CLI boundary without scraping human-formatted text.
 - Supported commands in this contract:
   - `adg plugins list --json`
   - `adg plugins status --json`
+  - `adg plugins prune --json`
 - On success, stdout contains exactly one valid JSON document and no human
   formatting, ANSI color, notes, or tips.
 - On failure, diagnostics are written to stderr and the process exits non-zero.
@@ -67,7 +68,9 @@ Field notes:
 
 - `pluginsDir` and each `path` are absolute filesystem paths.
 - `source` is ADG's lock-file provenance object.
-- `agents` contains stable agent ids, not display names.
+- `agents` contains stable agent ids, not display names. Indicates which agents
+  can adapt this plugin's component types (for active per-agent runtime projection
+  status, see `adg plugins status --json`).
 - `contents` always includes every component category, using empty arrays when a
   plugin has none of that category.
 - `counts` mirrors `contents` lengths.
@@ -117,3 +120,39 @@ Field notes:
   `agentOnly` remains reserved for runtime plugins absent from the store.
   Content drift is not represented; use `adg plugins sync` when a full runtime
   refresh is required.
+
+## `adg plugins prune --json`
+
+Shape:
+
+```json
+{
+  "targets": ["claude", "codex", "antigravity"],
+  "results": [
+    {
+      "agent": "claude",
+      "skipped": false,
+      "removed": [
+        { "name": "adg-deadbeef", "path": "/var/folders/.../T/adg-cache-sandbox-xyz/state/plugins" }
+      ],
+      "errors": []
+    },
+    { "agent": "codex", "skipped": false, "removed": [], "errors": [] },
+    { "agent": "antigravity", "skipped": true, "removed": [], "errors": [] }
+  ]
+}
+```
+
+Field notes:
+
+- `targets` contains the resolved target ids requested by `--target`; omitted
+  `--target` resolves to all registered targets.
+- `skipped: true` means either the agent's CLI wasn't available, or the agent
+  has no persistent external registry to prune (e.g. Antigravity's
+  file-projection model — it has nothing analogous).
+- `removed` lists every ADG-owned registration (`adg` / `adg-<hash>`) actually
+  deleted because its `path` no longer exists on disk. A registration ADG
+  didn't create, or whose directory is still there, is never listed or touched.
+- `errors` carries diagnostics for entries recognized as stale that could not
+  be removed (the agent's CLI rejected the removal, etc) — these are not
+  fatal; other agents/entries are still processed.

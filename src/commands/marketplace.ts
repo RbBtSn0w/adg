@@ -1,6 +1,7 @@
 import type { AdapterTarget } from "../adapters/index.ts";
 import { gitRemoteRevision, type GitRunner } from "../sources.ts";
 import { cloneGitHub, gitRevision, parseGitHubSource } from "../sources.ts";
+import { materializeSource, resolveRemoteRevision } from "../remote/index.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +34,8 @@ export interface MarketplaceScope {
   now?: string;
   /** Where the active pluginsDir came from, for scope-aware error messages. */
   scope?: ScopeInfo;
+  /** Working directory to resolve relative paths against; defaults to process.cwd(). */
+  cwd?: string;
 }
 
 /**
@@ -188,11 +191,11 @@ export async function updatePlugins(
     agents?: Agent[];
     /** Injection seam for removed remote entries; defaults to every registered agent. */
     deactivationAgents?: Agent[];
-    /** Injectable low-cost remote revision probe; undefined falls back to git ls-remote. */
-    revisionResolver?: (source: string, ref?: string) => string | undefined;
+    /** Injectable low-cost remote revision probe; undefined falls back to resolveRemoteRevision. */
+    revisionResolver?: (source: string, ref?: string) => string | undefined | Promise<string | undefined>;
     /**
      * Progress sink for the phases that actually cost time: one blocking
-     * `ls-remote` per source, a clone when the revision moved, the per-request
+     * probe per source, a materialize/clone when the revision moved, the per-request
      * installs, and the local rescan. Forwarded into `addPlugins` so agent
      * re-activation reports too. Emitting only — printing is the CLI's job.
      */
@@ -222,7 +225,7 @@ export async function updatePlugins(
       opts.onProgress?.({ kind: "check", ...position, source: group.source });
       const lock = readLock(lockPath(opts.pluginsDir));
       const revisions = group.installed.map((name) => lock.plugins[name]?.resolvedRevision).filter((revision): revision is string => Boolean(revision));
-      const remoteRevision = (opts.revisionResolver ?? gitRemoteRevision)(group.source, group.ref);
+      const remoteRevision = await (opts.revisionResolver ?? resolveRemoteRevision)(group.source, group.ref);
       if (!opts.all && remoteRevision && revisions.length === group.installed.length && revisions.every((revision) => revision === remoteRevision)) {
         remote.push({ source: group.source, ...(group.ref ? { ref: group.ref } : {}), updated: [], unchanged: [...group.installed].sort(), deleted: [], available: [] });
         continue;
@@ -255,8 +258,11 @@ export async function updatePlugins(
       try {
         const parsed = parseGitHubSource(group.source);
         opts.onProgress?.({ kind: "fetch", ...position, source: group.source, ...(group.ref ? { ref: group.ref } : {}) });
-        cloneGitHub({ ...parsed, ref: group.ref }, checkout, { runner: opts.gitRunner });
-        const resolvedRevision = gitRevision(checkout);
+        const mat = await materializeSource({ ...parsed, ref: group.ref }, checkout, {
+          runner: opts.gitRunner,
+          resolvedRevision: remoteRevision,
+        });
+        const resolvedRevision = mat.resolvedRevision ?? gitRevision(checkout);
         let requestIndex = 0;
         for (const request of requests) {
           opts.onProgress?.({
@@ -289,6 +295,7 @@ export async function updatePlugins(
             now,
             preparedSourceDir: checkout,
             preparedResolvedRevision: resolvedRevision,
+            ...(opts.cwd ? { cwd: opts.cwd } : {}),
             ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
           });
           installed.push(...result.installed);

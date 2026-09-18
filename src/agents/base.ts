@@ -11,6 +11,31 @@ export interface RunResult {
 }
 
 /**
+ * Matches the marketplace names `claudeMarketplaceName`/`codexMarketplaceName`
+ * generate: the historical global `adg`, or a store-scoped `adg-<8-hex-hash>`.
+ * `pruneStale()` implementations use this to recognize an ADG-owned
+ * registration before ever removing it — never a user's own marketplace that
+ * merely happens to be named "adg" (that would need the hash suffix to collide,
+ * which SHA-1 truncated to 8 hex chars makes negligible, but the check still
+ * exists so intent is explicit rather than implied by never checking).
+ */
+export function isAdgOwnedName(name: string): boolean {
+  return /^adg(-[0-9a-f]{8})?$/.test(name);
+}
+
+/**
+ * Stricter than `isAdgOwnedName`: a *hash-suffixed* ADG marketplace name only,
+ * excluding the bare "adg" global. Used when deleting a filesystem cache
+ * directory by name match with no CLI-level undo — the extra caution against
+ * ever touching the real global cache directory is worth the asymmetry with
+ * the CLI-level removal above (which is safely reversible via `adg plugins
+ * marketplace sync`).
+ */
+export function isAdgSandboxCacheDirName(name: string): boolean {
+  return /^adg-[0-9a-f]{8}$/.test(name);
+}
+
+/**
  * The canonical "CLI absent, so nothing was touched" lifecycle result. Every
  * agent's activate/deactivate guard returns this shape; centralizing it keeps
  * the agent id the single thing that varies and rules out a hand-typed drift
@@ -71,7 +96,9 @@ export function annotateCliRun(span: CliSpan, bin: string, args: string[], r: Sp
   }
 
   if (r.error) {
-    const errCode = (r.error as any).code;
+    const errCode = typeof r.error === "object" && r.error !== null && "code" in r.error
+      ? (r.error as { code?: unknown }).code
+      : undefined;
     span.setAttribute("process.exit.code", -1);
     span.setAttribute("error.type", (typeof errCode === "string" || typeof errCode === "number" ? String(errCode) : null) || r.error.name || "SpawnError");
     span.setStatus({

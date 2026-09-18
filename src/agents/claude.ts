@@ -6,8 +6,8 @@ import { toPosix, writeJson } from "../fsutil.ts";
 import { readManifest } from "../manifest.ts";
 import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
-import { makeCli, skippedResult, type RunResult } from "./base.ts";
-import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentScope, AgentSyncResult } from "./types.ts";
+import { isAdgOwnedName, makeCli, skippedResult, type RunResult } from "./base.ts";
+import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentPruneResult, AgentScope, AgentSyncResult, StaleRegistration } from "./types.ts";
 
 /**
  * Claude Code agent.
@@ -121,6 +121,55 @@ export function syncMarketplace(
   }
 }
 
+/**
+ * Parse `claude plugin marketplace list --json` into every directory-backed
+ * marketplace with a resolvable path — the shape `pruneStale` needs to decide
+ * which registrations are stale. `parseClaudeMarketplaceList` (above) only
+ * extracts `name` because that's all drift-listing needs; this extracts `path`
+ * too, since a URL/GitHub-sourced marketplace has none and can never go stale
+ * this way (its source isn't a local directory that can vanish).
+ */
+export function parseClaudeMarketplaceDirectories(out: string): { name: string; path: string }[] {
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const entries: { name: string; path: string }[] = [];
+    for (const entry of parsed) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const { name, source, path } = entry as Record<string, unknown>;
+      if (typeof name === "string" && source === "directory" && typeof path === "string") entries.push({ name, path });
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Remove every ADG-owned Claude marketplace whose source directory no longer
+ * exists — e.g. a deleted project, or a test sandbox that leaked into the real
+ * `~/.claude` config (see `adg plugins prune`). Never touches a marketplace ADG
+ * didn't create (`isAdgOwnedName`), and never one whose directory is still there.
+ */
+export function pruneStaleClaudeMarketplaces(
+  runner: (args: string[]) => RunResult = run,
+  exists: (path: string) => boolean = existsSync,
+): AgentPruneResult {
+  const listed = runner(["plugin", "marketplace", "list", "--json"]);
+  if (!listed.ok) {
+    return { agent: "claude", skipped: false, removed: [], errors: [listed.out.trim() || "claude plugin marketplace list failed without an error message"] };
+  }
+  const removed: StaleRegistration[] = [];
+  const errors: string[] = [];
+  for (const { name, path } of parseClaudeMarketplaceDirectories(listed.out)) {
+    if (!isAdgOwnedName(name) || exists(path)) continue;
+    const result = runner(["plugin", "marketplace", "remove", name]);
+    if (result.ok) removed.push({ name, path });
+    else errors.push(`failed to remove stale Claude marketplace "${name}": ${result.out.trim() || "no error message"}`);
+  }
+  return { agent: "claude", skipped: false, removed, errors };
+}
+
 export const claudeAgent: Agent = {
   id: "claude",
   displayName: "Claude Code",
@@ -180,6 +229,8 @@ export const claudeAgent: Agent = {
     if (fallback.length > 0 || textRes.out.trim() === "") return fallback;
     return claudeListFailure(textRes.out);
   },
+
+  pruneStale: () => (available() ? pruneStaleClaudeMarketplaces() : { agent: "claude", skipped: true, removed: [], errors: [] }),
 };
 
 export function claudeListFailure(out: string): AgentListFailure {

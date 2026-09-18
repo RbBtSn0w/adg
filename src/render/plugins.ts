@@ -5,6 +5,7 @@ import type { ComponentType } from "../types.ts";
 import type { ListedPlugin } from "../commands/list.ts";
 import type { MarketplaceGroup, PluginUpdateResult } from "../commands/marketplace.ts";
 import type { AgentStatus } from "../commands/status.ts";
+import type { AgentPruneResult } from "../agents/types.ts";
 import { pluginState } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ export function renderPluginList(
   if (plugins.length === 0) return [ui.meta(`no plugins recorded in ${pluginsDir}`)];
 
   // Pre-compute each plugin's display row so the name/path columns can be
-  // aligned across rows (à la `adg skills list`). The `Agents:` column is
+  // aligned across rows (à la `adg skills list`). The `Supports:` column is
   // derived from the exposed component types — which agents can adapt it.
   const rows = plugins.map((p) => {
     const exposed = (Object.entries(p.contents ?? {}) as [string, string[]][]).filter(
@@ -86,7 +87,7 @@ export function renderPluginList(
   const nameW = Math.max(...rows.map((r) => r.label.length));
   const pathW = Math.min(PATH_MAX, Math.max(...rows.map((r) => r.path.length)));
 
-  // Color mirrors `adg skills list`: cyan name, dim path / dim "Agents:" label
+  // Color mirrors `adg skills list`: cyan name, dim path / dim "Supports:" label
   // with the agent names left bright, and the provenance/counts line fully
   // dimmed as secondary metadata. Widths are measured on the uncolored strings
   // (above), so wrapping the padded text keeps columns aligned.
@@ -95,13 +96,13 @@ export function renderPluginList(
     if (group.length === 0) return;
     out.push(ui.name(heading));
     for (const r of group) {
-    const partial = r.p.selection ? "  (partial)" : "";
-    const name = ui.name(r.label.padEnd(nameW));
-    const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
-    out.push(`${name}  ${path}  ${ui.meta("Agents:")} ${r.agents}`);
-    const provenance = `[${r.p.origin.type}] ${(r.p.installedHash ?? "").slice(0, 19)}${partial}`;
-    out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
-    if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
+      const partial = r.p.selection ? "  (partial)" : "";
+      const name = ui.name(r.label.padEnd(nameW));
+      const path = ui.meta(ellipsizeStart(r.path, pathW).padEnd(pathW));
+      out.push(`${name}  ${path}  ${ui.meta("Supports:")} ${r.agents}`);
+      const provenance = `[${r.p.origin.type}] ${(r.p.installedHash ?? "").slice(0, 19)}${partial}`;
+      out.push(ui.meta(`  ${[provenance, ...r.counts].join("   ")}`));
+      if (opts.verbose) out.push(...renderContents(r.p.contents, 4));
     }
   };
   appendRows("Enabled", rows.filter((row) => pluginState(row.p) === "enabled"));
@@ -189,6 +190,41 @@ export function renderStatus(statuses: AgentStatus[]): string[] {
   }
 
   out.push(ui.meta("note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure."));
+  return out;
+}
+
+/**
+ * `adg plugins prune` — per-agent report of ADG-owned registrations removed
+ * because their plugin directory no longer exists on disk.
+ */
+export function renderPrune(results: AgentPruneResult[]): string[] {
+  if (results.length === 0) return [ui.meta("no agents detected — nothing to prune.")];
+
+  const out: string[] = [];
+  let totalRemoved = 0;
+  for (const r of results) {
+    const display = getAgent(r.agent)?.displayName ?? r.agent;
+    out.push(ui.name(display));
+    if (r.skipped) {
+      out.push(ui.meta("  skipped — nothing was scanned (agent CLI unavailable or no registry to prune)"));
+      continue;
+    }
+    if (r.removed.length === 0 && r.errors.length === 0) {
+      out.push(ui.meta("  nothing stale"));
+    }
+    for (const entry of r.removed) {
+      totalRemoved += 1;
+      out.push(`  ${ui.ok("removed")} ${ui.name(entry.name)} ${ui.meta(`(missing: ${entry.path})`)}`);
+    }
+    for (const error of r.errors) out.push(ui.warn(`  ${error}`));
+  }
+  // Only claim "found nothing stale" when something was actually checked —
+  // an all-skipped run (no agent CLI available) didn't check anything, so
+  // saying so would misrepresent "not checked" as "checked and clean".
+  const anyChecked = results.some((r) => !r.skipped);
+  if (anyChecked && totalRemoved === 0 && results.every((r) => r.errors.length === 0)) {
+    out.push(ui.meta("no stale registrations found"));
+  }
   return out;
 }
 

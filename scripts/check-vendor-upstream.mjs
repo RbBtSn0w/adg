@@ -43,7 +43,7 @@ const scratch = mkdtempSync(join(tmpdir(), "adg-vendor-upstream-"));
 const checkout = join(scratch, "vendor", "skills");
 try {
   mkdirSync(join(scratch, "vendor"), { recursive: true });
-  run("git", ["clone", "--quiet", "--no-checkout", "https://github.com/vercel-labs/skills.git", checkout], root, 300_000, 2);
+  run("git", ["clone", "--quiet", "--no-checkout", "--depth", "1", "https://github.com/vercel-labs/skills.git", checkout], root, 300_000, 2);
   run("git", ["-C", checkout, "fetch", "--quiet", "--depth", "1", "origin", commit], root, 300_000, 2);
   run("git", ["-C", checkout, "checkout", "--quiet", "FETCH_HEAD"], root);
 

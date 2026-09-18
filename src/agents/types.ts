@@ -37,6 +37,30 @@ export function isAgentListFailure(result: AgentListResult): result is AgentList
   return result !== undefined && result !== null && !Array.isArray(result);
 }
 
+/** One ADG-owned registration an agent's CLI removed because its plugin directory is gone. */
+export interface StaleRegistration {
+  /** The agent-side identifier removed (e.g. a Claude/Codex marketplace name). */
+  name: string;
+  /** The plugin directory the registration pointed at, which no longer exists on disk. */
+  path: string;
+}
+
+/** Outcome of `pruneStale()`: what an agent's own registry no longer needed. */
+export interface AgentPruneResult {
+  agent: AgentId;
+  /**
+   * True when nothing was scanned: either the agent's CLI wasn't present, or
+   * the agent has no persistent external registry to prune at all (e.g.
+   * Antigravity's file-projection model, which never implements
+   * `pruneStale` — see that method's doc). Not itself a sign anything is
+   * wrong or fixable by installing something.
+   */
+  skipped: boolean;
+  removed: StaleRegistration[];
+  /** Diagnostics for entries recognized as stale but not removable (CLI rejected the removal, etc). */
+  errors: string[];
+}
+
 /**
  * The runtime-integration contract every agent implements. The pure manifest
  * transform stays in `src/adapters` and is *composed* via `adaptTarget` — agents
@@ -69,4 +93,16 @@ export interface Agent {
    * plugins simply omits it.
    */
   listInstalled?(ctx: AgentContext): AgentListResult;
+  /**
+   * Best-effort removal of this agent's own registrations (marketplaces, cached
+   * snapshots, …) that still point at a plugin directory ADG no longer has on
+   * disk — e.g. a deleted project, or a test sandbox that leaked into the real
+   * config (see `adg plugins prune`). Scans every registration, not just one
+   * `pluginsDir`, so it takes no `AgentContext`. Only ever touches entries this
+   * agent's naming convention marks as ADG-owned (`adg` / `adg-<hash>`, see
+   * `isAdgOwnedName`); never a marketplace ADG didn't create. Optional: an
+   * agent with no persistent external registry (e.g. Antigravity's
+   * file-projection model, which has nothing analogous to prune) omits it.
+   */
+  pruneStale?(): AgentPruneResult;
 }

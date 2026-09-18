@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           # Exercise the declared minimum plus the current three Node.js release
-          # lines. Windows remains a first-class compatibility target.
+          # lines. Ubuntu, macOS, and Windows are all first-class compatibility targets.
           - os: ubuntu-latest
             node-version: 22.18.0
           - os: ubuntu-latest
@@ -30,6 +30,10 @@ jobs:
             node-version: 25
           - os: ubuntu-latest
             node-version: 26
+          - os: macos-latest
+            node-version: 24
+          - os: macos-latest
+            node-version: 26
           - os: windows-latest
             node-version: 24
           - os: windows-latest
@@ -37,7 +41,7 @@ jobs:
           - os: windows-latest
             node-version: 26
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -46,6 +50,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run check:vendor-deps
       - run: npm run check:docs
+      - run: npm run check:test-isolation
       # Keep the shipped CLI's runtime dependencies clean. Dev-only tooling is
       # monitored by Dependabot and constrained with overrides when fixes exist.
       # Gate audit to the single canonical smoke runner with retry to prevent redundant
@@ -82,7 +87,7 @@ jobs:
       id-token: write # 某些 npm 发布验证需要
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Setup Node.js
@@ -155,7 +160,7 @@ jobs:
       # the (already successful) npm / GitHub release.
       - name: Create release bot token
         if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: release-bot
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
@@ -164,7 +169,7 @@ jobs:
           repositories: homebrew-tap
       - name: Checkout homebrew tap
         if: ${{ github.ref == 'refs/heads/main' && vars.RELEASE_BOT_APP_ID != '' }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RbBtSn0w/homebrew-tap
           token: ${{ steps.release-bot.outputs.token }}
@@ -209,7 +214,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0

@@ -23,6 +23,7 @@ const S_BAR_END = g("└", "—");
 const S_STEP_ACTIVE = g("◆", "*");
 const S_STEP_SUBMIT = g("◇", "o");
 const S_STEP_CANCEL = g("■", "x");
+const S_STEP_ERROR = g("▲", "!");
 const S_CHECK_ACTIVE = g("◻", "[•]");
 const S_CHECK_SELECTED = g("◼", "[+]");
 const S_CHECK_INACTIVE = g("◻", "[ ]");
@@ -81,6 +82,7 @@ export interface MultiselectSkillsOptions {
   /** Injection seams for tests; default to process.stdin/stdout. */
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
+  required?: boolean;
 }
 
 /** Resolves to the chosen values, or a cancel symbol (use `isCancel` to detect). */
@@ -90,24 +92,27 @@ export function multiselectSkills(opts: MultiselectSkillsOptions): Promise<strin
   const symbol = (state: string): string => {
     if (state === "submit") return pc.green(S_STEP_SUBMIT);
     if (state === "cancel") return pc.red(S_STEP_CANCEL);
+    if (state === "error") return pc.yellow(S_STEP_ERROR);
     return pc.cyan(S_STEP_ACTIVE);
   };
   const footer = () =>
     pc.dim(`space ${pc.gray("toggle")} · a ${pc.gray("all")} · d ${pc.gray(showDesc ? "hide" : "show")} descriptions`);
+
+  const required = opts.required ?? true;
 
   const prompt = new MultiSelectPrompt({
     input: opts.input,
     output: opts.output,
     options: opts.options,
     initialValues: opts.initialValues,
-    required: true,
-    validate(this: { required?: boolean }, value: unknown) {
-      if (this.required && Array.isArray(value) && value.length === 0) {
+    required,
+    validate(value: string[] | undefined) {
+      if (required && Array.isArray(value) && value.length === 0) {
         return "Please select at least one option.";
       }
       return undefined;
     },
-    render(this: { state: string; value?: string[]; cursor: number; options: SkillOption[] }) {
+    render(this: { state: string; value?: string[]; cursor: number; options: SkillOption[]; error?: string }) {
       const selected = this.value ?? [];
       const head = `${pc.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
       if (this.state === "submit" || this.state === "cancel") {
@@ -123,7 +128,11 @@ export function multiselectSkills(opts: MultiselectSkillsOptions): Promise<strin
         showDesc,
         loadDescription: opts.loadDescription,
       }).join(`\n${pc.cyan(S_BAR)}  `);
-      return `${head}${pc.cyan(S_BAR)}  ${rows}\n${pc.cyan(S_BAR)}  ${footer()}\n${pc.cyan(S_BAR_END)}\n`;
+      const errorBar =
+        this.state === "error" && this.error
+          ? `${pc.yellow(S_BAR_END)}  ${pc.yellow(this.error)}\n`
+          : `${pc.cyan(S_BAR_END)}\n`;
+      return `${head}${pc.cyan(S_BAR)}  ${rows}\n${pc.cyan(S_BAR)}  ${footer()}\n${errorBar}`;
     },
   });
 

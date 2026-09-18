@@ -4,11 +4,12 @@ import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
 import { formatColumns, abbrevHome, ellipsizeStart } from "../src/render/ui.ts";
-import { renderContents, renderPluginList, renderMarketplaceList, renderStatus } from "../src/render/plugins.ts";
+import { renderContents, renderPluginList, renderMarketplaceList, renderPrune, renderStatus } from "../src/render/plugins.ts";
 import { pluginsListJson, pluginsStatusJson } from "../src/render/json.ts";
 import type { ListedPlugin } from "../src/commands/list.ts";
 import type { MarketplaceGroup } from "../src/commands/marketplace.ts";
 import type { AgentStatus } from "../src/commands/status.ts";
+import type { AgentPruneResult } from "../src/agents/types.ts";
 
 // The render layer (extracted in TD-2) is pure data -> lines, so it is tested
 // here without spawning the CLI. picocolors enables ANSI codes when CI=true
@@ -73,7 +74,7 @@ test("renderPluginList emits a row plus a provenance line per plugin", () => {
   const lines = renderPluginList([listed("alpha", { skills: ["s1"] })], "/store");
   const text = lines.join("\n");
   assert.ok(text.includes("alpha@1.0.0"), "name@version shown");
-  assert.ok(text.includes("Agents:"), "agents column shown");
+  assert.ok(text.includes("Supports:"), "supports column shown");
   assert.ok(text.includes("[local]"), "provenance line shown");
   assert.ok(text.includes("skills: 1"), "component count shown");
 });
@@ -176,6 +177,34 @@ test("renderStatus shows disabled state and cleanup for unexpected activation", 
   assert.match(text, /disabled \(1\): alpha/);
   assert.match(text, /unexpectedly enabled \(1\): beta/);
   assert.match(text, /adg plugins sync --target codex beta/);
+});
+
+test("renderPrune does not claim a clean scan when every agent was only skipped", () => {
+  const results: AgentPruneResult[] = [
+    { agent: "claude", skipped: true, removed: [], errors: [] },
+    { agent: "codex", skipped: true, removed: [], errors: [] },
+  ];
+  const text = renderPrune(results).map(stripAnsi).join("\n");
+  assert.match(text, /skipped — nothing was scanned \(agent CLI unavailable or no registry to prune\)/);
+  assert.doesNotMatch(text, /no stale registrations found/);
+});
+
+test("renderPrune reports a clean scan only when at least one agent was actually checked", () => {
+  const results: AgentPruneResult[] = [
+    { agent: "claude", skipped: false, removed: [], errors: [] },
+    { agent: "antigravity", skipped: true, removed: [], errors: [] },
+  ];
+  const text = renderPrune(results).map(stripAnsi).join("\n");
+  assert.match(text, /no stale registrations found/);
+});
+
+test("renderPrune indents a removed entry like its sibling status lines", () => {
+  const results: AgentPruneResult[] = [
+    { agent: "claude", skipped: false, removed: [{ name: "adg-deadbeef", path: "/tmp/gone" }], errors: [] },
+  ];
+  const lines = renderPrune(results).map(stripAnsi);
+  const removedLine = lines.find((l) => l.includes("removed"));
+  assert.match(removedLine!, /^  removed /);
 });
 
 test("renderMarketplaceList groups by source and tags local sources", () => {

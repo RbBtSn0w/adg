@@ -130,7 +130,7 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
   list: {
     summary: "list installed plugins",
     synopsis: "adg plugins list",
-    blurb: "Each plugin shows a one-line summary of what it contains. Add --verbose\nto expand every component (skills, agents, commands, …) to its member names.",
+    blurb: "Each plugin shows what it contains and compatible agent runtimes (Supports).\nAdd --verbose to expand every component (skills, agents, commands, …) to its member names.\nFor active projection status in each agent, use `adg plugins status`.",
     flags: ["verbose", "json", ...SCOPE],
   },
   status: {
@@ -138,6 +138,18 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     synopsis: "adg plugins status [--target claude|codex|antigravity]",
     blurb: "Query each agent's CLI live and diff it against the store: what's in\nsync, missing (needs `link`/`sync`), or present in the agent only. Each drift\nrow carries the command that repairs it. Inspects the active scope (--global →\nuser, else project). Name-level only — run `sync` if unsure.",
     flags: ["target", "json", ...SCOPE],
+  },
+  prune: {
+    summary: "remove stale agent-side registrations for deleted plugin directories",
+    synopsis: "adg plugins prune [--target claude|codex|antigravity]",
+    blurb:
+      "Scans each agent's own marketplace/cache registry for ADG-owned entries\n" +
+      "(`adg` / `adg-<hash>`) whose plugin directory no longer exists on disk —\n" +
+      "a deleted project, or a test sandbox that leaked into the real agent config —\n" +
+      "and removes them via that agent's own CLI. Never touches a marketplace ADG\n" +
+      "didn't create, and never one whose directory still exists. Unscoped: checks\n" +
+      "every registration the agent knows about, not just the active project/global store.",
+    flags: ["target", "json"],
   },
   update: {
     summary: "pull upstream changes for installed plugins",
@@ -219,7 +231,7 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     summary: "unlink plugins from a runtime (store kept)",
     synopsis: "adg plugins unlink --target claude|codex|antigravity [name...]",
     positional: "[name...]  installed plugin names to unlink (default: all)",
-    blurb: "Disable the plugins in one agent without removing them from the store —\nthe per-agent inverse of `link`. To delete from the store and every agent\nat once, use `adg plugins remove`.",
+    blurb: "Disable the plugins in one agent without removing them from the store —\nthe per-agent inverse of `link`. Run `adg plugins status` to inspect runtime\nprojections. To delete from the store and every agent at once, use `adg plugins remove`.",
     flags: ["target", ...SCOPE],
     examples: [
       "adg plugins unlink --target antigravity asc   # drop asc from agy only",

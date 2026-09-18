@@ -3,6 +3,7 @@ import { agentsForComponents } from "../agents/index.ts";
 import { COMPONENT_TYPES, pluginState, type ComponentType, type PluginState } from "../types.ts";
 import type { ListedPlugin, PluginContents } from "../commands/list.ts";
 import type { AgentStatus } from "../commands/status.ts";
+import type { AgentPruneResult } from "../agents/types.ts";
 import type { AgentScope } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
 
@@ -32,6 +33,11 @@ export interface PluginsStatusJson {
   scope: AgentScope;
   targets: AdapterTarget[];
   statuses: AgentStatus[];
+}
+
+export interface PluginsPruneJson {
+  targets: AdapterTarget[];
+  results: AgentPruneResult[];
 }
 
 function normalizedContents(contents: PluginContents | undefined): PluginContents {
@@ -81,6 +87,11 @@ export function pluginsStatusJson(
   return { pluginsDir, scope, targets, statuses };
 }
 
-export function printJson(value: PluginsListJson | PluginsStatusJson): void {
+/** Stable machine-readable shape for `adg plugins prune --json`. */
+export function pluginsPruneJson(results: AgentPruneResult[], targets: AdapterTarget[]): PluginsPruneJson {
+  return { targets, results };
+}
+
+export function printJson(value: PluginsListJson | PluginsStatusJson | PluginsPruneJson): void {
   console.log(JSON.stringify(value, null, 2));
 }
