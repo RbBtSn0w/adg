@@ -1,3 +1,22 @@
+## [0.9.0](https://github.com/RbBtSn0w/adg/compare/0.8.0...0.9.0) (2026-09-18)
+
+### Added
+
+* **plugins:** add prune command to clean up stale agent registrations ([#111](https://github.com/RbBtSn0w/adg/issues/111)) ([d68af81](https://github.com/RbBtSn0w/adg/commit/d68af81d3de52e59198a4c1438404d308773b2ce))
+* **remote:** unify source update architecture with three-tier transport and streaming tarball ([#108](https://github.com/RbBtSn0w/adg/issues/108)) ([56b51f9](https://github.com/RbBtSn0w/adg/commit/56b51f97826cd23f25896ff08d264b61759315ca))
+
+### Fixed
+
+* **ci:** add self-healing and missing-branch guards to release train ([#104](https://github.com/RbBtSn0w/adg/issues/104)) ([43ac27d](https://github.com/RbBtSn0w/adg/commit/43ac27d6b1292b654055192a6f37ec93b148443b))
+* **ci:** remediate test concurrency, actions node 24 runtime, and upstream clone depth ([#105](https://github.com/RbBtSn0w/adg/issues/105)) ([afc2cb1](https://github.com/RbBtSn0w/adg/commit/afc2cb13ad476fe7d71765707909b3cda90e3a24))
+* **commands:** prevent TypeError during multiselect-skills validation on submit ([#109](https://github.com/RbBtSn0w/adg/issues/109)) ([01a7ef9](https://github.com/RbBtSn0w/adg/commit/01a7ef916de1218383da649bdf2920984bb0ac83))
+* disambiguate plugin compatibility from runtime projection in cli ([#110](https://github.com/RbBtSn0w/adg/issues/110)) ([8d1c28e](https://github.com/RbBtSn0w/adg/commit/8d1c28ee75e3810a6bcfd8240d169ec606d6fcab))
+* **telemetry:** adopt OTLP protobuf exporter for shared gateway compatibility ([#107](https://github.com/RbBtSn0w/adg/issues/107)) ([67a014c](https://github.com/RbBtSn0w/adg/commit/67a014c1e1ef37d2d5ec031bab96864e2f338c35))
+
+### Changed
+
+* remediate technical debt across build, test concurrency, and install modularity ([#106](https://github.com/RbBtSn0w/adg/issues/106)) ([69eb557](https://github.com/RbBtSn0w/adg/commit/69eb5571d04faed0bf065df2828b0cc2ce4bb04f))
+
 ## [0.9.0-beta.3](https://github.com/RbBtSn0w/adg/compare/0.9.0-beta.2...0.9.0-beta.3) (2026-09-17)
 
 ### Added
