@@ -10,8 +10,23 @@ import { toAntigravityManifest, writeAntigravityMcpConfig } from "../adapters/an
 import { writeAntigravityHooks } from "../adapters/antigravity-hooks.ts";
 import { applySlotAction, markOwned, observeSlot, reconcileSlot, type SlotDesire } from "../projection-slot.ts";
 import { skippedResult } from "./base.ts";
+import {
+  cleanupAntigravityMcp,
+  pruneStaleAntigravity,
+  reconcileAntigravityActivation,
+  reconcileAntigravityDeactivation,
+  syncAntigravityPluginConfig,
+} from "./antigravity-mcp-compat.ts";
 import { resolveSelectionDependencies, type AdgManifest, type ComponentType, type PluginSelection } from "../types.ts";
-import type { Agent, AgentContext, AgentSyncResult } from "./types.ts";
+import type { Agent, AgentContext, AgentPruneResult, AgentSyncResult } from "./types.ts";
+
+export {
+  cleanupAntigravityMcp,
+  pruneStaleAntigravity,
+  reconcileAntigravityActivation,
+  reconcileAntigravityDeactivation,
+  syncAntigravityPluginConfig,
+};
 
 /**
  * Antigravity (`agy`) agent — physical-directory model, no CLI.
@@ -274,7 +289,10 @@ export const antigravityAgent: Agent = {
         const real = pluginRealDir(ctx.pluginsDir, p);
         if (!real) continue;
         ensureAntigravityRoot(real.dir, real.selection);
-        if (exposeAt(scanDir, p, real.dir)) affected.push(p);
+        if (exposeAt(scanDir, p, real.dir)) {
+          reconcileAntigravityActivation(p);
+          affected.push(p);
+        }
       } catch (err) {
         console.error(`failed to enable "${p}" in Antigravity:`, err);
       }
@@ -290,6 +308,12 @@ export const antigravityAgent: Agent = {
     for (const p of ctx.plugins) {
       const entry = lock[p];
       const realDir = entry ? installedPluginDir(ctx.pluginsDir, p, entry.origin) : undefined;
+      const target = join(scanDir, p);
+      adoptLegacyExposure(target, p);
+      if ((!realDir || resolve(target) !== resolve(realDir)) && observeSlot(target).kind === "foreign") {
+        continue;
+      }
+      reconcileAntigravityDeactivation(p, scanDir, realDir);
       removeProjection(scanDir, p, realDir);
       affected.push(p);
     }
@@ -312,5 +336,12 @@ export const antigravityAgent: Agent = {
     const scanDir = antigravityScanDir(ctx);
     const names = Object.keys(readLock(lockPath(ctx.pluginsDir)).plugins);
     return names.filter((name) => existsSync(join(scanDir, name, ANTIGRAVITY_MANIFEST)));
+  },
+
+  pruneStale(): AgentPruneResult {
+    if (!antigravityAgent.available()) {
+      return { agent: ID, skipped: true, removed: [], errors: [] };
+    }
+    return pruneStaleAntigravity();
   },
 };

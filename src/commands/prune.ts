@@ -13,8 +13,7 @@ export interface PruneAgentsOptions {
  * `adg plugins prune` — ask every resolved agent to remove its own ADG-owned
  * registrations (marketplaces, cached snapshots, …) that still point at a
  * plugin directory ADG no longer has on disk. Read-only for agents that don't
- * implement `pruneStale` (e.g. Antigravity's file-projection model has nothing
- * analogous to prune), which report back `skipped: true`.
+ * implement `pruneStale` (which report back `skipped: true`).
  */
 export function pruneAgents(opts: PruneAgentsOptions = {}): AgentPruneResult[] {
   const agents = opts.agents ?? (opts.targets ? resolveAgents(opts.targets) : allAgents());
