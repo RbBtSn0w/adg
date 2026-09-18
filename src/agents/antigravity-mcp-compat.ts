@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { ANTIGRAVITY_MCP_CONFIG } from "../adapters/antigravity.ts";
 import { extractMcpServers, mcpConfigPath } from "../mcp.ts";
 import { findManifestFile, readManifest } from "../manifest.ts";
@@ -180,7 +180,7 @@ export function cleanupAntigravityMcp(
         if (entry.startsWith(".")) continue;
 
         const fullPath = join(mcpDir, entry);
-        if (!resolve(fullPath).startsWith(resolve(mcpDir) + "/")) continue;
+        if (!resolve(fullPath).startsWith(resolve(mcpDir) + sep)) continue;
 
         // Plugin-prefixed server (e.g. appscope_appscope, xcode_xcrun-mcp): uniquely owned
         if (entry.startsWith(prefix)) {
@@ -318,7 +318,7 @@ export function pruneStaleAntigravity(opts: PruneAntigravityOptions = {}): Agent
         if (entry.startsWith(".")) continue;
 
         const fullPath = join(mcpDir, entry);
-        if (!resolve(fullPath).startsWith(resolve(mcpDir) + "/")) continue;
+        if (!resolve(fullPath).startsWith(resolve(mcpDir) + sep)) continue;
 
         if (retainedServers.has(entry)) continue;
         if (retainedPluginNames.has(entry)) continue;
