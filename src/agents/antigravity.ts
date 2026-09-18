@@ -308,6 +308,11 @@ export const antigravityAgent: Agent = {
     for (const p of ctx.plugins) {
       const entry = lock[p];
       const realDir = entry ? installedPluginDir(ctx.pluginsDir, p, entry.origin) : undefined;
+      const target = join(scanDir, p);
+      adoptLegacyExposure(target, p);
+      if ((!realDir || resolve(target) !== resolve(realDir)) && observeSlot(target).kind === "foreign") {
+        continue;
+      }
       reconcileAntigravityDeactivation(p, scanDir, realDir);
       removeProjection(scanDir, p, realDir);
       affected.push(p);

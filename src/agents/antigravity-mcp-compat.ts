@@ -277,9 +277,8 @@ export function pruneStaleAntigravity(opts: PruneAntigravityOptions = {}): Agent
     }
   }
 
-  // 2. Whitelist: Servers and prefixes from all active plugins in global scanDir and optional projectPluginsDir.
+  // 2. Whitelist: Servers and plugin names from all active plugins in global scanDir and optional projectPluginsDir.
   const retainedPluginNames = new Set<string>();
-  const retainedPrefixes = new Set<string>();
 
   const scanDirs: string[] = [join(home, "config", "plugins")];
   if (opts.projectPluginsDir) {
@@ -298,7 +297,6 @@ export function pruneStaleAntigravity(opts: PruneAntigravityOptions = {}): Agent
         const entryDir = join(scanDir, entry);
         if (!exists(join(entryDir, ANTIGRAVITY_MANIFEST))) continue;
         retainedPluginNames.add(entry);
-        retainedPrefixes.add(`${entry}_`);
         for (const s of collectPluginServers(entryDir, exists, readFile)) {
           retainedServers.add(s);
           retainedServers.add(`${entry}_${s}`);
@@ -322,15 +320,6 @@ export function pruneStaleAntigravity(opts: PruneAntigravityOptions = {}): Agent
 
         if (retainedServers.has(entry)) continue;
         if (retainedPluginNames.has(entry)) continue;
-
-        let hasMatchingPrefix = false;
-        for (const p of retainedPrefixes) {
-          if (entry.startsWith(p)) {
-            hasMatchingPrefix = true;
-            break;
-          }
-        }
-        if (hasMatchingPrefix) continue;
 
         try {
           removeDir(fullPath);

@@ -5,11 +5,11 @@ import { tmpdir, homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { ADAPTERS, ADAPTER_TARGETS, ADAPTER_COMPONENTS, toAntigravityManifest } from "../src/adapters/index.ts";
-import { antigravityAgent, antigravityGlobalPluginsDir, ensureAntigravityRoot, pruneStaleAntigravity } from "../src/agents/antigravity.ts";
+import { antigravityAgent, antigravityGlobalPluginsDir, ensureAntigravityRoot } from "../src/agents/antigravity.ts";
 import { applySlotAction } from "../src/projection-slot.ts";
-import { writeLock } from "../src/lock.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
-import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { ADG_SCHEMA_VERSION, type LockEntry } from "../src/types.ts";
 
 /**
  * Antigravity (`agy`) is discovered by *scanning* directories — the directory is
@@ -29,9 +29,16 @@ function writePlugin(dir: string, manifest: Record<string, unknown>): void {
 function seedStore(store: string, name: string, manifest: Record<string, unknown>): string {
   const dir = join(store, name);
   writePlugin(dir, manifest);
+  let existing: Record<string, LockEntry> = {};
+  try {
+    existing = readLock(lockPath(store)).plugins;
+  } catch {
+    // lock file absent
+  }
   writeLock(lockPath(store), {
     version: 3,
     plugins: {
+      ...existing,
       [name]: {
         origin: { type: "local", path: `./${name}` },
         version: "1.0.0",
@@ -936,6 +943,47 @@ test("cleanupAntigravityMcp preserves bare server name shared with another activ
   }
 });
 
+test("deactivate skips foreign projection slots to preserve user-managed plugins", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-foreign-deact-"));
+  try {
+    withGemini((gemini) => {
+      const scanDir = join(gemini, "config", "plugins");
+      mkdirSync(scanDir, { recursive: true });
+
+      // User-managed foreign plugin (no .adg-owned marker, real directory)
+      const foreignDir = join(scanDir, "foreign-plugin");
+      mkdirSync(foreignDir, { recursive: true });
+      writeFileSync(join(foreignDir, "plugin.json"), JSON.stringify({ name: "foreign-plugin" }));
+
+      // Setup runtime MCP directory and config.json for this foreign plugin
+      mkdirSync(join(gemini, "antigravity", "mcp", "foreign-plugin"), { recursive: true });
+      mkdirSync(join(gemini, "config"), { recursive: true });
+      writeFileSync(
+        join(gemini, "config", "config.json"),
+        JSON.stringify({ plugins: { "foreign-plugin": { enabled: true } } }, null, 2),
+      );
+
+      // Attempt deactivate against foreign slot
+      const result = antigravityAgent.deactivate({
+        pluginsDir: store,
+        plugins: ["foreign-plugin"],
+        scope: "user",
+      });
+
+      // foreign-plugin should not be affected
+      assert.deepEqual(result.affected, []);
+
+      // Foreign directory, runtime MCP schema, and config.json enablement remain untouched
+      assert.ok(existsSync(foreignDir));
+      assert.ok(existsSync(join(gemini, "antigravity", "mcp", "foreign-plugin")));
+      const cfg = JSON.parse(readFileSync(join(gemini, "config", "config.json"), "utf8"));
+      assert.equal(cfg.plugins["foreign-plugin"].enabled, true);
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
 test("pruneStale sweeps orphaned runtime MCP tool directories across all markers and aligns config.json", () => {
   withGemini((gemini) => {
     // 1. Setup config.json with active and dead plugins
@@ -975,6 +1023,7 @@ test("pruneStale sweeps orphaned runtime MCP tool directories across all markers
     // 4. Setup runtime MCP directories
     mkdirSync(join(gemini, "antigravity", "mcp", "global-tool"), { recursive: true });
     mkdirSync(join(gemini, "antigravity", "mcp", "active-plugin_active-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity", "mcp", "active-plugin_old-srv"), { recursive: true });
     mkdirSync(join(gemini, "antigravity-cli", "mcp", "active-srv"), { recursive: true });
     mkdirSync(join(gemini, "antigravity-cli", "mcp", "orphaned-tool"), { recursive: true });
     mkdirSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin_dead-srv"), { recursive: true });
@@ -991,12 +1040,14 @@ test("pruneStale sweeps orphaned runtime MCP tool directories across all markers
     assert.ok(removedNames.includes("orphaned-tool"));
     assert.ok(removedNames.includes("dead-plugin_dead-srv"));
     assert.ok(removedNames.includes("dead-plugin"));
+    assert.ok(removedNames.includes("active-plugin_old-srv"));
 
     // 6. Verify filesystem state: kept vs removed
     assert.ok(existsSync(join(gemini, "antigravity", "mcp", "global-tool")));
     assert.ok(existsSync(join(gemini, "antigravity", "mcp", "active-plugin_active-srv")));
     assert.ok(existsSync(join(gemini, "antigravity-cli", "mcp", "active-srv")));
 
+    assert.ok(!existsSync(join(gemini, "antigravity", "mcp", "active-plugin_old-srv")));
     assert.ok(!existsSync(join(gemini, "antigravity-cli", "mcp", "orphaned-tool")));
     assert.ok(!existsSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin_dead-srv")));
     assert.ok(!existsSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin")));
