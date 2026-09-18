@@ -1,3 +1,9 @@
+## [0.9.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.9.0...0.9.1-beta.1) (2026-09-18)
+
+### Fixed
+
+* clean up Antigravity runtime MCP schemas on plugin deactivation and prune ([#114](https://github.com/RbBtSn0w/adg/issues/114)) ([2882da6](https://github.com/RbBtSn0w/adg/commit/2882da6a8bcc36b8957f4af8cc490fe604d82761)), closes [#TBD](https://github.com/RbBtSn0w/adg/issues/TBD)
+
 ## [0.9.0](https://github.com/RbBtSn0w/adg/compare/0.8.0...0.9.0) (2026-09-18)
 
 ### Added
