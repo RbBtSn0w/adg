@@ -1,3 +1,9 @@
+## [0.9.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.9.1-beta.1...0.9.1-beta.2) (2026-09-21)
+
+### Fixed
+
+* synthesize native manifests during remote cache recovery ([#115](https://github.com/RbBtSn0w/adg/issues/115)) ([b1f18c0](https://github.com/RbBtSn0w/adg/commit/b1f18c0269a5ae5a10c91abe1ad90e107d885ef2))
+
 ## [0.9.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.9.0...0.9.1-beta.1) (2026-09-18)
 
 ### Fixed
