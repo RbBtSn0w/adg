@@ -111,7 +111,8 @@ export function syncAntigravityPluginConfig(
       !Array.isArray(parsed.plugins)
     ) {
       const plugins = parsed.plugins as Record<string, { enabled?: boolean }>;
-      if (plugins[name] || !enabled) {
+      const isCurrentlyEnabled = plugins[name]?.enabled ?? false;
+      if (isCurrentlyEnabled !== enabled) {
         plugins[name] = { ...plugins[name], enabled };
         writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`);
       }

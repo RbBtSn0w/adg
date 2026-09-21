@@ -1,8 +1,11 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { adaptNativePlugins } from "./adapters/reverse.ts";
+import { resolveDefaultDsl } from "./default-dsl.ts";
+import { writeJson } from "./fsutil.ts";
 import { folderHash } from "./hash.ts";
-import { readManifest } from "./manifest.ts";
+import { ADG_MANIFEST_PATH, findManifestFile, readManifest } from "./manifest.ts";
 import { withPluginSourceCache } from "./materialize.ts";
 import { PROJECTION_DIRS, packageFilter } from "./package.ts";
 import { legacyPluginSourceCacheDir, pluginSourceCacheDir } from "./paths.ts";
@@ -44,6 +47,8 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     // Do not check out origin/ref: it is user update intent and can move. Fetch
     // only the exact commit persisted by the v4 lock instead.
     runGit(["-C", temp, "init"]);
+    runGit(["-C", temp, "config", "core.autocrlf", "false"]);
+    runGit(["-C", temp, "config", "core.eol", "lf"]);
     runGit(["-C", temp, "remote", "add", "origin", url]);
     // Bounded like every other network git call: an unbounded fetch is an
     // indefinite, output-free hang.
@@ -55,6 +60,19 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
       throw new Error(`locked source path escapes the repository for "${name}"`);
     }
     if (!existsSync(source)) throw new Error(`locked source path is missing for "${name}"`);
+    if (!findManifestFile(source)) {
+      adaptNativePlugins(source);
+      if (!findManifestFile(source) && entry.definition?.kind === "default-dsl/v1") {
+        const generated = resolveDefaultDsl(source, {
+          name: entry.definition.as ?? name,
+          description: entry.definition.description,
+        }, {
+          ...(entry.resolvedRevision ? { resolvedRevision: entry.resolvedRevision } : {}),
+          recordTelemetry: false,
+        });
+        writeJson(join(source, ADG_MANIFEST_PATH), generated.manifest);
+      }
+    }
     assertSourceHash(source, name, entry.sourceHash);
     const manifest = readManifest(source);
     return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => {

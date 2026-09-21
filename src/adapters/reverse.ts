@@ -1,8 +1,9 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../types.ts";
-import { validateManifest } from "../manifest.ts";
-import { toPosix } from "../fsutil.ts";
+import { ADG_MANIFEST_PATH, validateManifest } from "../manifest.ts";
+import { toPosix, writeJson } from "../fsutil.ts";
+import { scanNativePlugins } from "../sources.ts";
 
 export type NativeKind = "claude" | "codex";
 
@@ -99,4 +100,21 @@ function isStringArray(v: unknown): v is string[] {
 function toSkillPath(ref: string): string {
   const name = ref.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || ref;
   return `./skills/${name}`;
+}
+
+/**
+ * Reverse-adapt all native (Claude/Codex) manifests found under `root` into
+ * canonical `.agents/.plugin.json` manifests in place. Returns the list of
+ * converted plugin names.
+ */
+export function adaptNativePlugins(root: string): string[] {
+  const converted: string[] = [];
+  for (const native of scanNativePlugins(root)) {
+    if (native.kind === "adg") continue;
+    const raw = JSON.parse(readFileSync(native.manifestFile, "utf8"));
+    const manifest = fromNativeManifest(raw, native.kind, native.dir);
+    writeJson(join(native.dir, ADG_MANIFEST_PATH), manifest);
+    converted.push(manifest.name);
+  }
+  return converted;
 }

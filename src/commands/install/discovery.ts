@@ -1,11 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fromNativeManifest } from "../../adapters/reverse.ts";
-import { writeJson } from "../../fsutil.ts";
+import { adaptNativePlugins } from "../../adapters/reverse.ts";
 import { lockPath } from "../../paths.ts";
 import { readLock } from "../../lock.ts";
-import { ADG_MANIFEST_PATH } from "../../manifest.ts";
-import { scanNativePlugins, scanPlugins, type ParsedSource } from "../../sources.ts";
+import { scanPlugins, type ParsedSource } from "../../sources.ts";
 import type { PluginCandidate } from "../../deps.ts";
 import {
   COMPONENT_TYPES,
@@ -24,14 +20,7 @@ import type { AddOptions, PluginChoice } from "./types.ts";
  * whole source speaks ADG, so selection and install treat all plugins uniformly.
  */
 export function discoverPlugins(root: string): { candidates: Map<string, PluginCandidate>; converted: string[] } {
-  const converted: string[] = [];
-  for (const native of scanNativePlugins(root)) {
-    if (native.kind === "adg") continue;
-    const raw = JSON.parse(readFileSync(native.manifestFile, "utf8"));
-    const manifest = fromNativeManifest(raw, native.kind, native.dir);
-    writeJson(join(native.dir, ADG_MANIFEST_PATH), manifest);
-    converted.push(manifest.name);
-  }
+  const converted = adaptNativePlugins(root);
   return { candidates: scanPlugins(root), converted };
 }
 
