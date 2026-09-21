@@ -47,6 +47,8 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     // Do not check out origin/ref: it is user update intent and can move. Fetch
     // only the exact commit persisted by the v4 lock instead.
     runGit(["-C", temp, "init"]);
+    runGit(["-C", temp, "config", "core.autocrlf", "false"]);
+    runGit(["-C", temp, "config", "core.eol", "lf"]);
     runGit(["-C", temp, "remote", "add", "origin", url]);
     // Bounded like every other network git call: an unbounded fetch is an
     // indefinite, output-free hang.

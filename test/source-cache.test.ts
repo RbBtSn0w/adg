@@ -260,6 +260,8 @@ test("remote restore repopulates the system cache from an immutable revision of 
   }));
   writeFileSync(join(pluginDir, "skills", "test-skill", "SKILL.md"), "# Test Skill\n");
   execFileSync("git", ["init", repo]);
+  execFileSync("git", ["-C", repo, "config", "core.autocrlf", "false"]);
+  execFileSync("git", ["-C", repo, "config", "core.eol", "lf"]);
   execFileSync("git", ["-C", repo, "add", "."]);
   execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
   const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -310,6 +312,8 @@ test("remote restore repopulates the system cache from an immutable revision of 
   mkdirSync(join(repo, "skills", "default-skill"), { recursive: true });
   writeFileSync(join(repo, "skills", "default-skill", "SKILL.md"), "---\ndescription: Default skill description\n---\n# Default Skill\n");
   execFileSync("git", ["init", repo]);
+  execFileSync("git", ["-C", repo, "config", "core.autocrlf", "false"]);
+  execFileSync("git", ["-C", repo, "config", "core.eol", "lf"]);
   execFileSync("git", ["-C", repo, "add", "."]);
   execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
   const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
