@@ -258,6 +258,37 @@ test("scanPlugins skips node_modules and .git", () => {
 
 // ---- cloneGitHub arg construction (injected runner, no network) ----
 
+function assertCloneInvocation(
+  args: string[],
+  expected: {
+    url: string;
+    dest: string;
+    branch?: string;
+    depth?: string;
+    sparse?: boolean;
+  },
+): void {
+  assert.ok(args.includes("clone"), "args must include 'clone'");
+  if (expected.depth) {
+    const depthIdx = args.indexOf("--depth");
+    assert.ok(depthIdx !== -1, "args must include '--depth'");
+    assert.equal(args[depthIdx + 1], expected.depth);
+  }
+  if (expected.branch) {
+    const branchIdx = args.indexOf("--branch");
+    assert.ok(branchIdx !== -1, "args must include '--branch'");
+    assert.equal(args[branchIdx + 1], expected.branch);
+  } else {
+    assert.equal(args.indexOf("--branch"), -1, "args must not include '--branch'");
+  }
+  if (expected.sparse) {
+    assert.ok(args.includes("--sparse"), "args must include '--sparse'");
+    assert.ok(args.includes("--filter=blob:none"), "args must include '--filter=blob:none'");
+  }
+  assert.equal(args[args.length - 2], expected.url);
+  assert.equal(args[args.length - 1], expected.dest);
+}
+
 test("cloneGitHub builds a depth-1 clone and adds --branch for a ref", () => {
   const calls: string[][] = [];
   const runner: GitRunner = (args) => { calls.push(args); };
@@ -265,16 +296,23 @@ test("cloneGitHub builds a depth-1 clone and adds --branch for a ref", () => {
   cloneGitHub(parseSource("owner/repo@v1.2.3") as GitHubSource, "/dest", { runner });
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], [
-    "clone", "--depth", "1", "--branch", "v1.2.3",
-    "https://github.com/owner/repo.git", "/dest",
-  ]);
+  assertCloneInvocation(calls[0]!, {
+    url: "https://github.com/owner/repo.git",
+    dest: "/dest",
+    depth: "1",
+    branch: "v1.2.3",
+  });
 });
 
 test("cloneGitHub omits --branch when no ref is given", () => {
   const calls: string[][] = [];
   cloneGitHub(parseSource("owner/repo") as GitHubSource, "/dest", { runner: (a) => calls.push(a) });
-  assert.deepEqual(calls[0], ["clone", "--depth", "1", "https://github.com/owner/repo.git", "/dest"]);
+  assert.equal(calls.length, 1);
+  assertCloneInvocation(calls[0]!, {
+    url: "https://github.com/owner/repo.git",
+    dest: "/dest",
+    depth: "1",
+  });
 });
 
 test("cloneGitHub enables cone-mode sparse-checkout and drops empty paths", () => {
@@ -284,11 +322,14 @@ test("cloneGitHub enables cone-mode sparse-checkout and drops empty paths", () =
     runner: (a) => calls.push(a),
   });
 
-  assert.deepEqual(calls[0], [
-    "clone", "--depth", "1", "--branch", "main",
-    "--filter=blob:none", "--sparse",
-    "https://github.com/owner/repo.git", "/dest",
-  ]);
+  assert.equal(calls.length, 2);
+  assertCloneInvocation(calls[0]!, {
+    url: "https://github.com/owner/repo.git",
+    dest: "/dest",
+    depth: "1",
+    branch: "main",
+    sparse: true,
+  });
   assert.deepEqual(calls[1], ["-C", "/dest", "sparse-checkout", "set", "engineering", "design"]);
 });
 

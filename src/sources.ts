@@ -194,15 +194,27 @@ export function gitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Default global git configuration arguments ensuring cross-platform hash determinism.
+ * Prevents host autocrlf/eol conversions and filemode differences from corrupting
+ * snapshot payloads and folder hashes.
+ */
+export const DEFAULT_GIT_CONFIG_ARGS: readonly string[] = [
+  "-c", "core.autocrlf=false",
+  "-c", "core.eol=lf",
+  "-c", "core.filemode=false",
+];
+
 /** Run git under the shared CLI semantic-convention instrumentation. */
 export function runGit(args: string[], captureOutput = false, timeoutMs?: number): string | undefined {
   const tracer = getTracer();
   return tracer.startActiveSpan("git", { kind: SpanKind.CLIENT }, (span) => {
     try {
+      const fullArgs = [...DEFAULT_GIT_CONFIG_ARGS, ...args];
       span.setAttribute("process.executable.name", "git");
-      span.setAttribute("process.command_args", sanitizeArgs(["git", ...args]));
+      span.setAttribute("process.command_args", sanitizeArgs(["git", ...fullArgs]));
 
-      const output = execFileSync("git", args, {
+      const output = execFileSync("git", fullArgs, {
         ...(captureOutput
           ? { stdio: "pipe" as const, encoding: "utf8" as const }
           : { stdio: "ignore" as const }),
