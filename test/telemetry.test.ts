@@ -106,7 +106,7 @@ test("default trace endpoint follows the release channel and explicit configurat
 
 test("the checked-in package version routes to production", () => {
   // A stable-looking checked-in version must never route off production.
-  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
   assert.equal(releaseChannel(pkg.version), "production");
 });
 

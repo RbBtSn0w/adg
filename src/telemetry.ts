@@ -100,19 +100,17 @@ export function defaultTelemetryConfig(env: NodeJS.ProcessEnv, version: string =
   const explicitTraceEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
   const explicitBaseEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT;
   const defaultEndpoint = releaseChannel(version) === "development" ? DEVELOPMENT_TRACE_ENDPOINT : DEFAULT_TRACE_ENDPOINT;
+  const traceEndpoint =
+    explicitTraceEndpoint ??
+    (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : defaultEndpoint);
   return {
     enabled:
       env.OTEL_SDK_DISABLED?.toLowerCase() !== "true" &&
       !env.DISABLE_TELEMETRY &&
       !env.DO_NOT_TRACK &&
       !env.NODE_TEST_CONTEXT,
-    traceEndpoint:
-      explicitTraceEndpoint ??
-      (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : defaultEndpoint),
-    headers: gatewayHeaders(
-      explicitTraceEndpoint ??
-      (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : defaultEndpoint),
-    ),
+    traceEndpoint,
+    headers: gatewayHeaders(traceEndpoint),
     batch: {
       maxQueueSize: 256,
       maxExportBatchSize: 64,
