@@ -94,6 +94,24 @@ test("CI covers the minimum Node runtime and repository release gates", () => {
   assert.ok(pkg.scripts?.["check:vendor-upstream"]);
 });
 
+/**
+ * Test Intent
+ * Risk: CI and local test runs export synthetic failures to the production telemetry dataset.
+ * Why Automation: the default endpoint is production, so any caller that forgets to override it leaks silently.
+ * Why Existing Tests Insufficient: telemetry unit tests inject env explicitly and never exercise the runner or workflow.
+ * Chosen Layer: Integration Test - lock the workflow and test-runner endpoint declarations.
+ * Fragility Analysis: assert the exact non-production gateway origin, not YAML ordering.
+ * If Omitted: test-spawned CLI runs pollute production and can trip production alerts.
+ */
+test("CI and the test runner route synthetic telemetry to the development gateway", () => {
+  const development = "https://telemetry-gateway-development.hamiltonsnow.workers.dev/v1/traces";
+  const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const header = workflow.split("\njobs:", 1)[0]!;
+  assert.ok(header.includes(`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${development}`), "ci.yml must set the endpoint at workflow level");
+  const runner = readFileSync(resolve("scripts/run-tests.mjs"), "utf8");
+  assert.ok(runner.includes(development), "run-tests.mjs must default child telemetry to the development gateway");
+});
+
 test("workflows pin third-party actions to immutable commits", () => {
   for (const file of [
     ".github/workflows/ci.yml",
