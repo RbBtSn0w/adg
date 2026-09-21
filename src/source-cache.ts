@@ -59,7 +59,7 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
     }
     if (!existsSync(source)) throw new Error(`locked source path is missing for "${name}"`);
     if (!findManifestFile(source)) {
-      adaptNativePlugins(temp);
+      adaptNativePlugins(source);
       if (!findManifestFile(source) && entry.definition?.kind === "default-dsl/v1") {
         const generated = resolveDefaultDsl(source, {
           name: entry.definition.as ?? name,

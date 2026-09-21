@@ -29,12 +29,7 @@ function writePlugin(dir: string, manifest: Record<string, unknown>): void {
 function seedStore(store: string, name: string, manifest: Record<string, unknown>): string {
   const dir = join(store, name);
   writePlugin(dir, manifest);
-  let existing: Record<string, LockEntry> = {};
-  try {
-    existing = readLock(lockPath(store)).plugins;
-  } catch {
-    // lock file absent
-  }
+  const existing = readLock(lockPath(store)).plugins;
   writeLock(lockPath(store), {
     version: 3,
     plugins: {
