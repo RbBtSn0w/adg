@@ -1,7 +1,7 @@
 import { normalizePluginSource } from "../../normalizer.ts";
 import { lockPath } from "../../paths.ts";
 import { readLock } from "../../lock.ts";
-import { scanPlugins, type ParsedSource } from "../../sources.ts";
+import type { ParsedSource } from "../../sources.ts";
 import type { PluginCandidate } from "../../deps.ts";
 import {
   COMPONENT_TYPES,

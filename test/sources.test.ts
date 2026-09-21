@@ -14,7 +14,7 @@ import {
   prereleaseChannel,
 } from "../src/semver.ts";
 import { resolveInstallOrder, DependencyError, type PluginCandidate } from "../src/deps.ts";
-import { parseRemoteRevision, parseSource, cloneGitHub, gitEnv, scanPlugins, scanNativePlugins, GIT_CLONE_TIMEOUT_MS, GIT_REMOTE_PROBE_TIMEOUT_MS, type GitRunner, type GitHubSource } from "../src/sources.ts";
+import { parseRemoteRevision, parseSource, cloneGitHub, gitEnv, scanPlugins, scanNativePlugins, GIT_CLONE_TIMEOUT_MS, GIT_REMOTE_PROBE_TIMEOUT_MS, DEFAULT_GIT_CONFIG_ARGS, type GitRunner, type GitHubSource } from "../src/sources.ts";
 import { addPlugins } from "../src/commands/install.ts";
 import { ADG_SCHEMA_VERSION, type AdgManifest } from "../src/types.ts";
 
@@ -526,3 +526,10 @@ test("git timeouts bound a probe tightly and a clone generously", () => {
   assert.ok(GIT_REMOTE_PROBE_TIMEOUT_MS > 0 && GIT_REMOTE_PROBE_TIMEOUT_MS <= 60_000);
   assert.ok(GIT_CLONE_TIMEOUT_MS > GIT_REMOTE_PROBE_TIMEOUT_MS);
 });
+
+test("DEFAULT_GIT_CONFIG_ARGS focuses strictly on line-ending determinism without core.filemode", () => {
+  assert.ok(DEFAULT_GIT_CONFIG_ARGS.includes("core.autocrlf=false"));
+  assert.ok(DEFAULT_GIT_CONFIG_ARGS.includes("core.eol=lf"));
+  assert.equal(DEFAULT_GIT_CONFIG_ARGS.includes("core.filemode=false"), false);
+});
+

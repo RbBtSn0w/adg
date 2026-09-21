@@ -101,3 +101,51 @@ test("normalizer synthesizes Default DSL manifest when definition profile is pro
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("normalizer throws when Default DSL synthesis fails for an explicit default-dsl/v1 definition", () => {
+  const root = tmp();
+  try {
+    // Missing frontmatter description in SKILL.md causes probeDefaultDsl to throw
+    mkdirSync(join(root, "skills", "invalid-skill"), { recursive: true });
+    writeFileSync(join(root, "skills", "invalid-skill", "SKILL.md"), "# No Frontmatter\n");
+
+    assert.throws(() => {
+      normalizePluginSource(root, {
+        name: "invalid-dsl-plugin",
+        definition: {
+          kind: "default-dsl/v1",
+          root: ".",
+          as: "invalid-dsl-plugin",
+          description: "Invalid DSL",
+          fingerprint: "test-fp",
+        },
+        recordTelemetry: false,
+      });
+    }, /default skill requires SKILL\.md frontmatter with a description/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("normalizer throws when default-dsl/v1 definition lacks a plugin name", () => {
+  const root = tmp();
+  try {
+    mkdirSync(join(root, "skills", "valid-skill"), { recursive: true });
+    writeFileSync(join(root, "skills", "valid-skill", "SKILL.md"), "---\ndescription: valid\n---\n# Valid\n");
+
+    assert.throws(() => {
+      normalizePluginSource(root, {
+        definition: {
+          kind: "default-dsl/v1",
+          root: ".",
+          description: "Missing name",
+          fingerprint: "test-fp",
+        },
+        recordTelemetry: false,
+      });
+    }, /Default DSL plugin definition requires a plugin name/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

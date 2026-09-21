@@ -195,14 +195,13 @@ export function gitEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * Default global git configuration arguments ensuring cross-platform hash determinism.
- * Prevents host autocrlf/eol conversions and filemode differences from corrupting
- * snapshot payloads and folder hashes.
+ * Default global git configuration arguments ensuring cross-platform line-ending determinism.
+ * Prevents host autocrlf/eol conversions from mutating checkout bytes and corrupting
+ * folder content hashes.
  */
 export const DEFAULT_GIT_CONFIG_ARGS: readonly string[] = [
   "-c", "core.autocrlf=false",
   "-c", "core.eol=lf",
-  "-c", "core.filemode=false",
 ];
 
 /** Run git under the shared CLI semantic-convention instrumentation. */

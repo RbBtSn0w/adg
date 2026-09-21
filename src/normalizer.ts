@@ -66,27 +66,25 @@ export function normalizePluginSource(
 
   // 2. Synthesize Default DSL manifest only when the lock entry explicitly records
   // the plugin as having been installed via the Default DSL path.
-  const shouldSynthesizeDefaultDsl = options.definition?.kind === "default-dsl/v1";
-
-  if (shouldSynthesizeDefaultDsl && options.name) {
-    try {
-      const generated = resolveDefaultDsl(sourceDir, {
-        name: options.definition?.as ?? options.name,
-        description: options.definition?.description ?? options.name,
-      }, {
-        ...(options.resolvedRevision ? { resolvedRevision: options.resolvedRevision } : {}),
-        recordTelemetry: options.recordTelemetry ?? true,
-      });
-      writeJson(join(sourceDir, ADG_MANIFEST_PATH), generated.manifest);
-      return {
-        alreadyAdg: false,
-        adaptedPlugins: [],
-        synthesizedDefaultDsl: true,
-        candidates: scanPlugins(sourceDir),
-      };
-    } catch {
-      // Not a valid Default DSL source; fall through to return un-synthesized candidates
+  if (options.definition?.kind === "default-dsl/v1") {
+    const pluginName = options.definition.as ?? options.name;
+    if (!pluginName) {
+      throw new Error("Default DSL plugin definition requires a plugin name");
     }
+    const generated = resolveDefaultDsl(sourceDir, {
+      name: pluginName,
+      description: options.definition.description ?? pluginName,
+    }, {
+      ...(options.resolvedRevision ? { resolvedRevision: options.resolvedRevision } : {}),
+      recordTelemetry: options.recordTelemetry ?? true,
+    });
+    writeJson(join(sourceDir, ADG_MANIFEST_PATH), generated.manifest);
+    return {
+      alreadyAdg: false,
+      adaptedPlugins: [],
+      synthesizedDefaultDsl: true,
+      candidates: scanPlugins(sourceDir),
+    };
   }
 
   return {
