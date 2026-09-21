@@ -1,3 +1,9 @@
+## [0.9.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.9.1-beta.2...0.9.1-beta.3) (2026-09-21)
+
+### Fixed
+
+* harden plugin cache restoration against cross-platform git non-determinism ([#117](https://github.com/RbBtSn0w/adg/issues/117)) ([e9ab1bc](https://github.com/RbBtSn0w/adg/commit/e9ab1bcbf1f78cbb34d9db86d813ae2584f2f764))
+
 ## [0.9.1-beta.2](https://github.com/RbBtSn0w/adg/compare/0.9.1-beta.1...0.9.1-beta.2) (2026-09-21)
 
 ### Fixed
