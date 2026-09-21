@@ -1,3 +1,9 @@
+## [0.10.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.9.1-beta.3...0.10.0-beta.1) (2026-09-21)
+
+### Added
+
+* **telemetry:** default dev and preview builds to the development gateway ([#118](https://github.com/RbBtSn0w/adg/issues/118)) ([edc96cf](https://github.com/RbBtSn0w/adg/commit/edc96cfade4b6fa637c76b3c3bc45057141e9f0c))
+
 ## [0.9.1-beta.3](https://github.com/RbBtSn0w/adg/compare/0.9.1-beta.2...0.9.1-beta.3) (2026-09-21)
 
 ### Fixed
