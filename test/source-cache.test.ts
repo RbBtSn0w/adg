@@ -5,6 +5,10 @@ import { join, relative } from "node:path";
 import { test } from "node:test";
 import { context, INVALID_SPAN_CONTEXT, trace, type Attributes, type Context, type Span } from "@opentelemetry/api";
 import { installPlugin } from "../src/commands/install.ts";
+import { discoverPlugins } from "../src/commands/install/discovery.ts";
+import { resolveDefaultDsl } from "../src/default-dsl.ts";
+import { writeJson } from "../src/fsutil.ts";
+import { ADG_MANIFEST_PATH } from "../src/manifest.ts";
 import { resolvePluginSourceSnapshot } from "../src/source-cache.ts";
 import { legacyPluginSourceCacheDir, pluginSourceCacheDir } from "../src/paths.ts";
 import { readLock } from "../src/lock.ts";
@@ -225,3 +229,121 @@ test("remote restore reports a hash mismatch as its only recovery outcome", () =
   }]);
   rmSync(work, { recursive: true, force: true });
 });
+
+/*
+## Test Intent
+### Risk
+Remote plugins converted from native runtime manifests (Claude/Codex) hold no authored `.agents/.plugin.json` in upstream git revisions. If the system cache is missing, exact remote restoration fails to find an ADG manifest and breaks cache recovery or `adg plugins enable`.
+### Why Automation
+The failure occurs when cloning a remote git repository at an immutable revision that lacks an ADG manifest; unit tests of adapters do not exercise `restoreExactRemoteSnapshot`.
+### Why Existing Tests Insufficient
+Existing remote recovery tests only checked ADG-native plugins created via `initPlugin`.
+### Chosen Layer
+Integration Test - a local Git repository holding a Claude plugin verifies remote snapshot recovery end-to-end.
+### Fragility Analysis
+The test uses standard Git CLI and public cache recovery APIs, asserting only the restored cache location and recovery outcome.
+### If Omitted
+Users re-enabling or restoring native plugins after cache eviction will encounter `cannot restore at locked revision: Invalid ADG manifest`.
+*/
+test("remote restore repopulates the system cache from an immutable revision of a native plugin", () => {
+  const work = tmp();
+  const repo = join(work, "repo");
+  const store = join(work, "store");
+  const pluginDir = join(repo, "native-plugin");
+  mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+  mkdirSync(join(pluginDir, "skills", "test-skill"), { recursive: true });
+  writeFileSync(join(pluginDir, ".claude-plugin", "plugin.json"), JSON.stringify({
+    name: "native-plugin",
+    version: "1.0.0",
+    description: "A native Claude plugin",
+    skills: "./skills/",
+  }));
+  writeFileSync(join(pluginDir, "skills", "test-skill", "SKILL.md"), "# Test Skill\n");
+  execFileSync("git", ["init", repo]);
+  execFileSync("git", ["-C", repo, "add", "."]);
+  execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
+  const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+  const { candidates } = discoverPlugins(repo);
+  const candidate = candidates.get("native-plugin")!;
+  installPlugin({
+    source: candidate.dir,
+    pluginsDir: store,
+    origin: { type: "git", url: repo, path: "native-plugin" },
+    resolvedRevision: revision,
+  });
+
+  const entry = readLock(join(store, ".plugin-lock.json")).plugins["native-plugin"]!;
+  const cache = pluginSourceCacheDir(store, "native-plugin");
+  rmSync(cache, { recursive: true, force: true });
+
+  const events: RecordedEvent[] = [];
+  const restored = withEventSpan(eventSpan(events), () => resolvePluginSourceSnapshot(store, "native-plugin", entry));
+  assert.equal(restored, cache);
+  assert.ok(existsSync(cache));
+  assert.deepEqual(events.filter((event) => event.name === "adg.cache.recovery"), [{
+    name: "adg.cache.recovery",
+    attributes: { outcome: "restored_remote" },
+  }]);
+  rmSync(work, { recursive: true, force: true });
+});
+
+/*
+## Test Intent
+### Risk
+Default DSL plugins have no authored manifest in git repositories. If the cache is missing, exact remote restoration fails to find an ADG manifest and aborts.
+### Why Automation
+Default DSL recovery requires synthesizing the manifest from the locked definition during remote checkout.
+### Why Existing Tests Insufficient
+Existing tests only cover Default DSL during `addPlugins` and `marketplace upgrade`, not cache restoration via `restoreExactRemoteSnapshot`.
+### Chosen Layer
+Integration Test - a local Git repository holding only conventional skills directory verifies remote snapshot recovery.
+### Fragility Analysis
+Asserts public cache path and telemetry outcome.
+### If Omitted
+Restoring or enabling Default DSL plugins after cache eviction fails with missing manifest errors.
+*/
+test("remote restore repopulates the system cache from an immutable revision of a Default DSL plugin", () => {
+  const work = tmp();
+  const repo = join(work, "repo");
+  const store = join(work, "store");
+  mkdirSync(join(repo, "skills", "default-skill"), { recursive: true });
+  writeFileSync(join(repo, "skills", "default-skill", "SKILL.md"), "---\ndescription: Default skill description\n---\n# Default Skill\n");
+  execFileSync("git", ["init", repo]);
+  execFileSync("git", ["-C", repo, "add", "."]);
+  execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
+  const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+  const generated = resolveDefaultDsl(repo, { name: "default-plugin", description: "Default DSL plugin" }, { resolvedRevision: revision });
+  writeJson(join(repo, ADG_MANIFEST_PATH), generated.manifest);
+  installPlugin({
+    source: repo,
+    pluginsDir: store,
+    origin: { type: "git", url: repo, path: "." },
+    resolvedRevision: revision,
+  });
+
+  const lock = readLock(join(store, ".plugin-lock.json"));
+  lock.plugins["default-plugin"]!.definition = {
+    kind: "default-dsl/v1",
+    root: ".",
+    as: "default-plugin",
+    description: "Default DSL plugin",
+    fingerprint: generated.fingerprint,
+  };
+  const entry = lock.plugins["default-plugin"]!;
+  rmSync(join(repo, ADG_MANIFEST_PATH), { force: true });
+  const cache = pluginSourceCacheDir(store, "default-plugin");
+  rmSync(cache, { recursive: true, force: true });
+
+  const events: RecordedEvent[] = [];
+  const restored = withEventSpan(eventSpan(events), () => resolvePluginSourceSnapshot(store, "default-plugin", entry));
+  assert.equal(restored, cache);
+  assert.ok(existsSync(cache));
+  assert.deepEqual(events.filter((event) => event.name === "adg.cache.recovery"), [{
+    name: "adg.cache.recovery",
+    attributes: { outcome: "restored_remote" },
+  }]);
+  rmSync(work, { recursive: true, force: true });
+});
+
