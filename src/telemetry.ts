@@ -24,6 +24,26 @@ export function normalizeTraceEndpoint(endpoint: string): string {
 }
 
 const DEFAULT_TRACE_ENDPOINT = "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
+// Dev and PR-preview builds report here by default so pre-merge traffic never reaches
+// the production dataset. The client cannot declare an environment, so the endpoint
+// is the only isolation boundary.
+const DEVELOPMENT_TRACE_ENDPOINT = "https://telemetry-gateway-development.hamiltonsnow.workers.dev/v1/traces";
+const SEMVER_RE = /^v?\d+\.\d+\.\d+(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
+
+/**
+ * Classify a build as `development` or `production` from its semver version.
+ * Only a `dev` prerelease (`0.9.1-dev.pr115.<sha>`) or build metadata (`+local`)
+ * leaves production; published `beta`/`rc` builds are user-facing and stay on
+ * production. An unparseable version falls back to production so a parsing defect
+ * can never silently drop stable-release telemetry.
+ */
+export function releaseChannel(version: string): "production" | "development" {
+  const match = SEMVER_RE.exec(version);
+  if (!match) return "production";
+  const [, prerelease, build] = match;
+  const isDev = prerelease?.split(".")[0]?.toLowerCase() === "dev";
+  return isDev || build !== undefined ? "development" : "production";
+}
 const GATEWAY_ORIGINS = new Set([
   "https://telemetry-gateway-development.hamiltonsnow.workers.dev",
   "https://telemetry-gateway-staging.hamiltonsnow.workers.dev",
@@ -76,9 +96,10 @@ export function withoutAmbientOtlpHeaders<T>(operation: () => T): T {
   }
 }
 
-export function defaultTelemetryConfig(env: NodeJS.ProcessEnv): TelemetryConfig {
+export function defaultTelemetryConfig(env: NodeJS.ProcessEnv, version: string = serviceVersion()): TelemetryConfig {
   const explicitTraceEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
   const explicitBaseEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const defaultEndpoint = releaseChannel(version) === "development" ? DEVELOPMENT_TRACE_ENDPOINT : DEFAULT_TRACE_ENDPOINT;
   return {
     enabled:
       env.OTEL_SDK_DISABLED?.toLowerCase() !== "true" &&
@@ -87,10 +108,10 @@ export function defaultTelemetryConfig(env: NodeJS.ProcessEnv): TelemetryConfig 
       !env.NODE_TEST_CONTEXT,
     traceEndpoint:
       explicitTraceEndpoint ??
-      (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : DEFAULT_TRACE_ENDPOINT),
+      (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : defaultEndpoint),
     headers: gatewayHeaders(
       explicitTraceEndpoint ??
-      (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : DEFAULT_TRACE_ENDPOINT),
+      (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : defaultEndpoint),
     ),
     batch: {
       maxQueueSize: 256,
