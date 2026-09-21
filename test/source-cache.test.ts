@@ -13,7 +13,7 @@ import { resolvePluginSourceSnapshot } from "../src/source-cache.ts";
 import { legacyPluginSourceCacheDir, pluginSourceCacheDir } from "../src/paths.ts";
 import { readLock } from "../src/lock.ts";
 import { initPlugin } from "../src/commands/init.ts";
-import { tmp } from "./helpers.ts";
+import { initTestGitRepo, tmp } from "./helpers.ts";
 
 interface RecordedEvent {
   name: string;
@@ -199,9 +199,9 @@ test("remote restore reports a hash mismatch as its only recovery outcome", () =
   const repo = join(work, "repo");
   const store = join(work, "store");
   const { pluginDir } = initPlugin({ name: "remote-mismatch", dir: repo });
-  execFileSync("git", ["init", repo]);
+  initTestGitRepo(repo);
   execFileSync("git", ["-C", repo, "add", "."]);
-  execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
+  execFileSync("git", ["-C", repo, "commit", "-m", "initial"]);
   const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   installPlugin({ source: pluginDir, pluginsDir: store });
@@ -259,11 +259,9 @@ test("remote restore repopulates the system cache from an immutable revision of 
     skills: "./skills/",
   }));
   writeFileSync(join(pluginDir, "skills", "test-skill", "SKILL.md"), "# Test Skill\n");
-  execFileSync("git", ["init", repo]);
-  execFileSync("git", ["-C", repo, "config", "core.autocrlf", "false"]);
-  execFileSync("git", ["-C", repo, "config", "core.eol", "lf"]);
+  initTestGitRepo(repo);
   execFileSync("git", ["-C", repo, "add", "."]);
-  execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
+  execFileSync("git", ["-C", repo, "commit", "-m", "initial"]);
   const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   const { candidates } = discoverPlugins(repo);
@@ -311,11 +309,9 @@ test("remote restore repopulates the system cache from an immutable revision of 
   const store = join(work, "store");
   mkdirSync(join(repo, "skills", "default-skill"), { recursive: true });
   writeFileSync(join(repo, "skills", "default-skill", "SKILL.md"), "---\ndescription: Default skill description\n---\n# Default Skill\n");
-  execFileSync("git", ["init", repo]);
-  execFileSync("git", ["-C", repo, "config", "core.autocrlf", "false"]);
-  execFileSync("git", ["-C", repo, "config", "core.eol", "lf"]);
+  initTestGitRepo(repo);
   execFileSync("git", ["-C", repo, "add", "."]);
-  execFileSync("git", ["-C", repo, "-c", "user.name=ADG Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"]);
+  execFileSync("git", ["-C", repo, "commit", "-m", "initial"]);
   const revision = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   const generated = resolveDefaultDsl(repo, { name: "default-plugin", description: "Default DSL plugin" }, { resolvedRevision: revision });

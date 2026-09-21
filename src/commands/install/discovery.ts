@@ -1,7 +1,7 @@
-import { adaptNativePlugins } from "../../adapters/reverse.ts";
+import { normalizePluginSource } from "../../normalizer.ts";
 import { lockPath } from "../../paths.ts";
 import { readLock } from "../../lock.ts";
-import { scanPlugins, type ParsedSource } from "../../sources.ts";
+import type { ParsedSource } from "../../sources.ts";
 import type { PluginCandidate } from "../../deps.ts";
 import {
   COMPONENT_TYPES,
@@ -20,8 +20,8 @@ import type { AddOptions, PluginChoice } from "./types.ts";
  * whole source speaks ADG, so selection and install treat all plugins uniformly.
  */
 export function discoverPlugins(root: string): { candidates: Map<string, PluginCandidate>; converted: string[] } {
-  const converted = adaptNativePlugins(root);
-  return { candidates: scanPlugins(root), converted };
+  const normalized = normalizePluginSource(root);
+  return { candidates: normalized.candidates, converted: normalized.adaptedPlugins };
 }
 
 /** Resolve which discovered plugins to install from the selection options. */

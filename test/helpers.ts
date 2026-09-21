@@ -1,5 +1,6 @@
 // Shared fixtures for the unit suite. Not a *.test.ts file, so the test runner
 // imports it without treating it as a test module.
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -51,4 +52,17 @@ export function scaffoldSource(
   writeFileSync(join(dir, "test", "a.test.ts"), "// test\n");
   writeFileSync(join(dir, "package.json"), "{}\n");
   return { dir, manifest };
+}
+
+/**
+ * Initialize a deterministic Git repository fixture for cross-platform tests.
+ * Enforces LF endings and disables CRLF conversion regardless of host configuration.
+ */
+export function initTestGitRepo(dir: string): void {
+  execFileSync("git", ["init", dir]);
+  execFileSync("git", ["-C", dir, "config", "core.autocrlf", "false"]);
+  execFileSync("git", ["-C", dir, "config", "core.eol", "lf"]);
+  execFileSync("git", ["-C", dir, "config", "core.filemode", "false"]);
+  execFileSync("git", ["-C", dir, "config", "user.name", "ADG Test"]);
+  execFileSync("git", ["-C", dir, "config", "user.email", "test@example.invalid"]);
 }

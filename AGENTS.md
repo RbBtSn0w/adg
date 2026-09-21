@@ -17,6 +17,7 @@ standards-first adapter philosophy.
 - **Never push directly to `main` or `develop`.** Both are protected; all changes
   land via PR + review + passing CI.
 - Branch off `develop` for new work: `git switch develop && git pull && git switch -c <type>/<short-desc>`.
+- **Ensure clean base before branching**: Verify local `develop` is strictly updated with `origin/develop` and clean (`git status`). If your work requires an unmerged PR, follow explicit stack dependency rules (`pr-stacking-strategy`) rather than implicitly carrying unmerged commits in a single branch.
 - The CI check `Validate base branch` fails any PR whose base is not `develop`
   (the only exception is the release PR `develop → main`).
 
