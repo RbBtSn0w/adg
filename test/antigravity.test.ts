@@ -7,9 +7,9 @@ import { join, resolve } from "node:path";
 import { ADAPTERS, ADAPTER_TARGETS, ADAPTER_COMPONENTS, toAntigravityManifest } from "../src/adapters/index.ts";
 import { antigravityAgent, antigravityGlobalPluginsDir, ensureAntigravityRoot } from "../src/agents/antigravity.ts";
 import { applySlotAction } from "../src/projection-slot.ts";
-import { writeLock } from "../src/lock.ts";
+import { readLock, writeLock } from "../src/lock.ts";
 import { lockPath } from "../src/paths.ts";
-import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { ADG_SCHEMA_VERSION, type LockEntry } from "../src/types.ts";
 
 /**
  * Antigravity (`agy`) is discovered by *scanning* directories — the directory is
@@ -29,9 +29,11 @@ function writePlugin(dir: string, manifest: Record<string, unknown>): void {
 function seedStore(store: string, name: string, manifest: Record<string, unknown>): string {
   const dir = join(store, name);
   writePlugin(dir, manifest);
+  const existing = readLock(lockPath(store)).plugins;
   writeLock(lockPath(store), {
     version: 3,
     plugins: {
+      ...existing,
       [name]: {
         origin: { type: "local", path: `./${name}` },
         version: "1.0.0",
@@ -821,3 +823,286 @@ test("activate and listInstalled are no-ops when Antigravity is absent", () => {
     rmSync(store, { recursive: true, force: true });
   }
 });
+
+test("deactivate cleans up runtime MCP tool schemas and syncs config.json", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-mcp-cleanup-"));
+  try {
+    const dir = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "demo",
+      version: "1.0.0",
+      description: "Demo",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(
+      join(dir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "demo-srv": { command: "demo" } } }),
+    );
+
+    withGemini((gemini) => {
+      // Seed Antigravity markers and config
+      mkdirSync(join(gemini, "config"), { recursive: true });
+      writeFileSync(
+        join(gemini, "config", "config.json"),
+        JSON.stringify({ plugins: { demo: { enabled: true } } }, null, 2),
+      );
+      writeFileSync(
+        join(gemini, "config", "mcp_config.json"),
+        JSON.stringify({ mcpServers: { "global-srv": { command: "global" } } }),
+      );
+
+      // Simulate runtime MCP directories across markers
+      mkdirSync(join(gemini, "antigravity", "mcp", "demo_demo-srv"), { recursive: true });
+      mkdirSync(join(gemini, "antigravity", "mcp", "demo"), { recursive: true });
+      mkdirSync(join(gemini, "antigravity-cli", "mcp", "demo-srv"), { recursive: true });
+      mkdirSync(join(gemini, "antigravity-ide", "mcp", "global-srv"), { recursive: true });
+
+      // First test activate sets config.json enabled: true
+      writeFileSync(
+        join(gemini, "config", "config.json"),
+        JSON.stringify({ plugins: { demo: { enabled: false } } }, null, 2),
+      );
+      antigravityAgent.activate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+      const activeConfig = JSON.parse(readFileSync(join(gemini, "config", "config.json"), "utf8"));
+      assert.equal(activeConfig.plugins.demo.enabled, true);
+
+      // Now deactivate
+      antigravityAgent.deactivate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+
+      // Runtime MCP schemas for demo are cleaned up
+      assert.ok(!existsSync(join(gemini, "antigravity", "mcp", "demo_demo-srv")));
+      assert.ok(!existsSync(join(gemini, "antigravity", "mcp", "demo")));
+      assert.ok(!existsSync(join(gemini, "antigravity-cli", "mcp", "demo-srv")));
+
+      // Global server is preserved
+      assert.ok(existsSync(join(gemini, "antigravity-ide", "mcp", "global-srv")));
+
+      // config.json marks demo as disabled
+      const deactConfig = JSON.parse(readFileSync(join(gemini, "config", "config.json"), "utf8"));
+      assert.equal(deactConfig.plugins.demo.enabled, false);
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test("cleanupAntigravityMcp preserves bare server name shared with another active plugin", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-mcp-shared-"));
+  try {
+    const demoDir = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "demo",
+      version: "1.0.0",
+      description: "Demo",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(
+      join(demoDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "shared-srv": { command: "demo" } } }),
+    );
+
+    // Another plugin sharing the same bare server name
+    const otherDir = seedStore(store, "other", {
+      schemaVersion: ADG_SCHEMA_VERSION,
+      name: "other",
+      version: "1.0.0",
+      description: "Other",
+      mcpServers: "./.mcp.json",
+    });
+    writeFileSync(
+      join(otherDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "shared-srv": { command: "other" } } }),
+    );
+
+    withGemini((gemini) => {
+      // Activate both
+      antigravityAgent.activate({ pluginsDir: store, plugins: ["demo", "other"], scope: "project" });
+
+      // Create runtime schemas
+      mkdirSync(join(gemini, "antigravity", "mcp", "demo_shared-srv"), { recursive: true });
+      mkdirSync(join(gemini, "antigravity", "mcp", "other_shared-srv"), { recursive: true });
+      mkdirSync(join(gemini, "antigravity", "mcp", "shared-srv"), { recursive: true });
+
+      // Deactivate only demo
+      antigravityAgent.deactivate({ pluginsDir: store, plugins: ["demo"], scope: "project" });
+
+      // demo-prefixed schema is gone
+      assert.ok(!existsSync(join(gemini, "antigravity", "mcp", "demo_shared-srv")));
+      // other-prefixed schema remains
+      assert.ok(existsSync(join(gemini, "antigravity", "mcp", "other_shared-srv")));
+      // shared bare server remains because 'other' is still active in the scan dir
+      assert.ok(existsSync(join(gemini, "antigravity", "mcp", "shared-srv")));
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test("deactivate skips foreign projection slots to preserve user-managed plugins", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-foreign-deact-"));
+  try {
+    withGemini((gemini) => {
+      const scanDir = join(gemini, "config", "plugins");
+      mkdirSync(scanDir, { recursive: true });
+
+      // User-managed foreign plugin (no .adg-owned marker, real directory)
+      const foreignDir = join(scanDir, "foreign-plugin");
+      mkdirSync(foreignDir, { recursive: true });
+      writeFileSync(join(foreignDir, "plugin.json"), JSON.stringify({ name: "foreign-plugin" }));
+
+      // Setup runtime MCP directory and config.json for this foreign plugin
+      mkdirSync(join(gemini, "antigravity", "mcp", "foreign-plugin"), { recursive: true });
+      mkdirSync(join(gemini, "config"), { recursive: true });
+      writeFileSync(
+        join(gemini, "config", "config.json"),
+        JSON.stringify({ plugins: { "foreign-plugin": { enabled: true } } }, null, 2),
+      );
+
+      // Attempt deactivate against foreign slot
+      const result = antigravityAgent.deactivate({
+        pluginsDir: store,
+        plugins: ["foreign-plugin"],
+        scope: "user",
+      });
+
+      // foreign-plugin should not be affected
+      assert.deepEqual(result.affected, []);
+
+      // Foreign directory, runtime MCP schema, and config.json enablement remain untouched
+      assert.ok(existsSync(foreignDir));
+      assert.ok(existsSync(join(gemini, "antigravity", "mcp", "foreign-plugin")));
+      const cfg = JSON.parse(readFileSync(join(gemini, "config", "config.json"), "utf8"));
+      assert.equal(cfg.plugins["foreign-plugin"].enabled, true);
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test("pruneStale sweeps orphaned runtime MCP tool directories across all markers and aligns config.json", () => {
+  withGemini((gemini) => {
+    // 1. Setup config.json with active and dead plugins
+    mkdirSync(join(gemini, "config", "plugins"), { recursive: true });
+    writeFileSync(
+      join(gemini, "config", "config.json"),
+      JSON.stringify(
+        {
+          plugins: {
+            "active-plugin": { enabled: true },
+            "dead-plugin": { enabled: true },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    // 2. Setup global mcp_config.json
+    writeFileSync(
+      join(gemini, "config", "mcp_config.json"),
+      JSON.stringify({ mcpServers: { "global-tool": { command: "global" } } }),
+    );
+
+    // 3. Setup one active plugin in global scanDir
+    const activePluginDir = join(gemini, "config", "plugins", "active-plugin");
+    mkdirSync(activePluginDir, { recursive: true });
+    writeFileSync(
+      join(activePluginDir, "plugin.json"),
+      JSON.stringify({ name: "active-plugin" }),
+    );
+    writeFileSync(
+      join(activePluginDir, "mcp_config.json"),
+      JSON.stringify({ mcpServers: { "active-srv": { command: "active" } } }),
+    );
+
+    // 4. Setup runtime MCP directories
+    mkdirSync(join(gemini, "antigravity", "mcp", "global-tool"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity", "mcp", "active-plugin_active-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity", "mcp", "active-plugin_old-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity-cli", "mcp", "active-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity-cli", "mcp", "orphaned-tool"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin_dead-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin"), { recursive: true });
+
+    // 5. Run pruneStale via the agent contract
+    const result = antigravityAgent.pruneStale!();
+
+    assert.equal(result.agent, "antigravity");
+    assert.equal(result.skipped, false);
+    assert.equal(result.errors.length, 0);
+
+    const removedNames = result.removed.map((r) => r.name);
+    assert.ok(removedNames.includes("orphaned-tool"));
+    assert.ok(removedNames.includes("dead-plugin_dead-srv"));
+    assert.ok(removedNames.includes("dead-plugin"));
+    assert.ok(removedNames.includes("active-plugin_old-srv"));
+
+    // 6. Verify filesystem state: kept vs removed
+    assert.ok(existsSync(join(gemini, "antigravity", "mcp", "global-tool")));
+    assert.ok(existsSync(join(gemini, "antigravity", "mcp", "active-plugin_active-srv")));
+    assert.ok(existsSync(join(gemini, "antigravity-cli", "mcp", "active-srv")));
+
+    assert.ok(!existsSync(join(gemini, "antigravity", "mcp", "active-plugin_old-srv")));
+    assert.ok(!existsSync(join(gemini, "antigravity-cli", "mcp", "orphaned-tool")));
+    assert.ok(!existsSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin_dead-srv")));
+    assert.ok(!existsSync(join(gemini, "antigravity-ide", "mcp", "dead-plugin")));
+
+    // 7. Verify config.json alignment
+    const updatedConfig = JSON.parse(readFileSync(join(gemini, "config", "config.json"), "utf8"));
+    assert.equal(updatedConfig.plugins["active-plugin"].enabled, true);
+    assert.equal(updatedConfig.plugins["dead-plugin"].enabled, false);
+  });
+});
+
+test("pruneStale returns skipped: true when Antigravity is not present", () => {
+  const prev = process.env.GEMINI_HOME;
+  const nonAgy = mkdtempSync(join(tmpdir(), "non-agy-"));
+  process.env.GEMINI_HOME = nonAgy;
+  try {
+    const result = antigravityAgent.pruneStale!();
+    assert.deepEqual(result, {
+      agent: "antigravity",
+      skipped: true,
+      removed: [],
+      errors: [],
+    });
+  } finally {
+    if (prev === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prev;
+    rmSync(nonAgy, { recursive: true, force: true });
+  }
+});
+
+test("pruneStale preserves native non-ADG Antigravity plugins declaring mcp_config.json", () => {
+  withGemini((gemini) => {
+    mkdirSync(join(gemini, "config", "plugins", "native-plugin"), { recursive: true });
+    // Native plugin: only has plugin.json and mcp_config.json, no .agents/.plugin.json
+    writeFileSync(
+      join(gemini, "config", "plugins", "native-plugin", "plugin.json"),
+      JSON.stringify({ name: "native-plugin" }),
+    );
+    writeFileSync(
+      join(gemini, "config", "plugins", "native-plugin", "mcp_config.json"),
+      JSON.stringify({ mcpServers: { "native-srv": { command: "native" } } }),
+    );
+
+    // Setup runtime schema
+    mkdirSync(join(gemini, "antigravity", "mcp", "native-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity", "mcp", "native-plugin_native-srv"), { recursive: true });
+    mkdirSync(join(gemini, "antigravity", "mcp", "orphan-srv"), { recursive: true });
+
+    const result = antigravityAgent.pruneStale!();
+
+    assert.equal(result.skipped, false);
+    assert.equal(result.removed.length, 1);
+    assert.equal(result.removed[0]!.name, "orphan-srv");
+
+    // Native plugin schemas are safely preserved
+    assert.ok(existsSync(join(gemini, "antigravity", "mcp", "native-srv")));
+    assert.ok(existsSync(join(gemini, "antigravity", "mcp", "native-plugin_native-srv")));
+    assert.ok(!existsSync(join(gemini, "antigravity", "mcp", "orphan-srv")));
+  });
+});
+
+
+

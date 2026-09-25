@@ -49,11 +49,9 @@ export interface StaleRegistration {
 export interface AgentPruneResult {
   agent: AgentId;
   /**
-   * True when nothing was scanned: either the agent's CLI wasn't present, or
-   * the agent has no persistent external registry to prune at all (e.g.
-   * Antigravity's file-projection model, which never implements
-   * `pruneStale` — see that method's doc). Not itself a sign anything is
-   * wrong or fixable by installing something.
+   * True when nothing was scanned: either the agent's CLI/runtime wasn't present, or
+   * the agent has no persistent external registry or cache to prune at all.
+   * Not itself a sign anything is wrong or fixable by installing something.
    */
   skipped: boolean;
   removed: StaleRegistration[];
@@ -100,9 +98,9 @@ export interface Agent {
    * config (see `adg plugins prune`). Scans every registration, not just one
    * `pluginsDir`, so it takes no `AgentContext`. Only ever touches entries this
    * agent's naming convention marks as ADG-owned (`adg` / `adg-<hash>`, see
-   * `isAdgOwnedName`); never a marketplace ADG didn't create. Optional: an
-   * agent with no persistent external registry (e.g. Antigravity's
-   * file-projection model, which has nothing analogous to prune) omits it.
+   * `isAdgOwnedName`; for Antigravity, sweeps orphaned runtime MCP tool schema
+   * directories and aligns plugin enablement states). Optional: an agent with
+   * no persistent external registry or cache omits it.
    */
   pruneStale?(): AgentPruneResult;
 }

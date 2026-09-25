@@ -6,6 +6,7 @@ import { readManifest } from "./manifest.ts";
 import { withPluginSourceCache } from "./materialize.ts";
 import { PROJECTION_DIRS, packageFilter } from "./package.ts";
 import { legacyPluginSourceCacheDir, pluginSourceCacheDir } from "./paths.ts";
+import { normalizePluginSource } from "./normalizer.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
 import { runGit, GIT_CLONE_TIMEOUT_MS } from "./sources.ts";
 import type { LockEntry } from "./types.ts";
@@ -43,6 +44,8 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
   try {
     // Do not check out origin/ref: it is user update intent and can move. Fetch
     // only the exact commit persisted by the v4 lock instead.
+    // Note: core.autocrlf/core.eol are enforced globally by runGit's
+    // DEFAULT_GIT_CONFIG_ARGS; no per-repo config is needed here.
     runGit(["-C", temp, "init"]);
     runGit(["-C", temp, "remote", "add", "origin", url]);
     // Bounded like every other network git call: an unbounded fetch is an
@@ -55,6 +58,12 @@ function restoreExactRemoteSnapshot(pluginsDir: string, name: string, entry: Loc
       throw new Error(`locked source path escapes the repository for "${name}"`);
     }
     if (!existsSync(source)) throw new Error(`locked source path is missing for "${name}"`);
+    normalizePluginSource(source, {
+      name,
+      definition: entry.definition,
+      resolvedRevision: entry.resolvedRevision,
+      recordTelemetry: false,
+    });
     assertSourceHash(source, name, entry.sourceHash);
     const manifest = readManifest(source);
     return withPluginSourceCache(source, pluginSourceCacheDir(pluginsDir, name), manifest, (snapshot) => {

@@ -472,6 +472,14 @@ every positional value, including file paths, to `[VALUE]`. The literal
 argument values themselves — plugin names, sources, paths — are never
 included.
 
+Dev and PR-preview builds (a `-dev.*` prerelease or build metadata such as
+`+local`) send the same spans to the development gateway,
+`https://telemetry-gateway-development.hamiltonsnow.workers.dev/v1/traces`,
+so pre-merge traffic stays out of the production dataset. Published releases,
+including `beta` and `rc` prereleases, use the production gateway.
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT` still
+override either default.
+
 Opt out with any of:
 
 ```bash

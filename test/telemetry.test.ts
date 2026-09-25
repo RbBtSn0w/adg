@@ -17,6 +17,7 @@ import {
   ADG_SAFE_POSITIONALS,
   defaultTelemetryConfig,
   normalizeTraceEndpoint,
+  releaseChannel,
   recordTelemetryEvent,
   sanitizePath,
   sanitizeArgs,
@@ -57,6 +58,56 @@ test("default telemetry config uses the anonymous gateway profile and bounded ba
     exporterTimeoutMillis: 2500,
     shutdownTimeoutMillis: 3000,
   });
+});
+
+/**
+ * Test Intent
+ * Risk: dev and PR-preview builds report to the production telemetry dataset by default.
+ * Why Automation: the client cannot declare an environment, so the default endpoint is the only isolation.
+ * Why Existing Tests Insufficient: existing config tests never vary the build version.
+ * Chosen Layer: Unit Test - pure version-to-channel and config projection.
+ * Fragility Analysis: assert only the documented channel rule and endpoint origins.
+ * If Omitted: preview builds keep polluting production and can trip production alerts.
+ */
+test("release channel only routes dev prerelease and build-metadata versions off production", () => {
+  const cases: Array<[string, "production" | "development"]> = [
+    ["0.9.0", "production"],
+    ["0.9.1-beta.2", "production"],
+    ["1.0.0-rc.1", "production"],
+    ["0.9.1-dev.pr115.46d7c06", "development"],
+    ["0.9.1-DEV.3", "development"],
+    ["0.9.1+local.abc123", "development"],
+    ["v0.9.1-dev.1", "development"],
+    ["unknown", "production"],
+    ["", "production"],
+    ["not.a.version", "production"],
+  ];
+  for (const [version, expected] of cases) assert.equal(releaseChannel(version), expected, version);
+});
+
+test("default trace endpoint follows the release channel and explicit configuration still wins", () => {
+  const development = "https://telemetry-gateway-development.hamiltonsnow.workers.dev/v1/traces";
+  const production = "https://telemetry-gateway.hamiltonsnow.workers.dev/v1/traces";
+  const dev = defaultTelemetryConfig({}, "0.9.1-dev.pr115.46d7c06");
+  assert.equal(dev.traceEndpoint, development);
+  assert.deepEqual(dev.headers, { "otel-gateway-profile": "anonymous-client-v1" });
+  assert.equal(defaultTelemetryConfig({}, "0.9.1-beta.2").traceEndpoint, production);
+  assert.equal(defaultTelemetryConfig({}, "unknown").traceEndpoint, production);
+  assert.equal(
+    defaultTelemetryConfig({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://traces.example/custom" }, "0.9.1-dev.1").traceEndpoint,
+    "https://traces.example/custom",
+  );
+  assert.equal(
+    defaultTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry-gateway.hamiltonsnow.workers.dev" }, "0.9.1-dev.1")
+      .traceEndpoint,
+    production,
+  );
+});
+
+test("the checked-in package version routes to production", () => {
+  // A stable-looking checked-in version must never route off production.
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  assert.equal(releaseChannel(pkg.version), "production");
 });
 
 test("custom telemetry endpoint does not inherit the public profile header", () => {
