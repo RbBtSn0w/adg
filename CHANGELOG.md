@@ -1,3 +1,15 @@
+## [0.10.0](https://github.com/RbBtSn0w/adg/compare/0.9.0...0.10.0) (2026-09-25)
+
+### Added
+
+* **telemetry:** default dev and preview builds to the development gateway ([#118](https://github.com/RbBtSn0w/adg/issues/118)) ([edc96cf](https://github.com/RbBtSn0w/adg/commit/edc96cfade4b6fa637c76b3c3bc45057141e9f0c))
+
+### Fixed
+
+* clean up Antigravity runtime MCP schemas on plugin deactivation and prune ([#114](https://github.com/RbBtSn0w/adg/issues/114)) ([2882da6](https://github.com/RbBtSn0w/adg/commit/2882da6a8bcc36b8957f4af8cc490fe604d82761)), closes [#TBD](https://github.com/RbBtSn0w/adg/issues/TBD)
+* harden plugin cache restoration against cross-platform git non-determinism ([#117](https://github.com/RbBtSn0w/adg/issues/117)) ([e9ab1bc](https://github.com/RbBtSn0w/adg/commit/e9ab1bcbf1f78cbb34d9db86d813ae2584f2f764))
+* synthesize native manifests during remote cache recovery ([#115](https://github.com/RbBtSn0w/adg/issues/115)) ([b1f18c0](https://github.com/RbBtSn0w/adg/commit/b1f18c0269a5ae5a10c91abe1ad90e107d885ef2))
+
 ## [0.10.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.9.1-beta.3...0.10.0-beta.1) (2026-09-21)
 
 ### Added
