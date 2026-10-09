@@ -190,6 +190,13 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
       // fallback below; inherited GIT_SSH_COMMAND is removed from gitEnv.
       allowUnsafeSshCommand: true,
     },
+    // ADG patch: simple-git >=4 guards explicit GIT_* environment variables passed via .env()
+    allowEnvironment: [
+      'GIT_TERMINAL_PROMPT',
+      'GIT_ALLOW_PROTOCOL',
+      'GIT_LFS_SKIP_SMUDGE',
+      'GIT_SSH_COMMAND',
+    ],
     // ADG patch: env must be applied via `.env()`, not as a constructor option.
     // simple-git's factory only reads baseDir/maxConcurrentProcesses/trimmed from
     // the options object and silently drops `env`, so the GIT_TERMINAL_PROMPT /
