@@ -1,0 +1,44 @@
+name: Retarget Dependabot PRs
+
+# Dependabot Automated Security Updates (security advisory patches) default to
+# targeting the repository's default branch (`main`). Under our branching model,
+# all integration and dependencies must target `develop`.
+# This workflow automatically detects any Dependabot PR targeting `main` and
+# retargets its base branch to `develop`.
+#
+# NOTE: Uses `pull_request_target` so it can run securely on PR open/reopen
+# with permissions to retarget the PR. It does not check out PR code.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  retarget:
+    name: Retarget to develop
+    # Only run for dependabot
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint release-bot token
+        id: bot
+        if: ${{ vars.RELEASE_BOT_APP_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - name: Retarget PR to develop
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          echo "Retargeting Dependabot PR #${PR_NUMBER} from main to develop..."
+          gh pr edit "${PR_NUMBER}" --base develop
+          echo "Successfully retargeted PR #${PR_NUMBER} to develop."
