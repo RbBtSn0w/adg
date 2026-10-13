@@ -254,3 +254,16 @@ test("pruneStaleCodexMarketplaces treats a canonical store as stale when its man
   assert.deepEqual(outcome.removed, [{ name: "adg-deadbeef", path: "/tmp/proj-root" }]);
   assert.deepEqual(outcome.errors, []);
 });
+
+test("explicit-store discovery export failure returns false before invoking Codex", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const root = mkdtempSync(join(tmpdir(), "adg-export-failure-"));
+  try {
+    writeFileSync(join(root, "marketplace.json"), '{"name":"adg-test","plugins":[]}');
+    writeFileSync(join(root, ".agents"), "discovery directory is obstructed");
+    const warnings: string[] = [];
+    assert.equal(syncMarketplace(root, "adg-test", () => { assert.fail("Codex must not run after export failure"); }, (message) => warnings.push(message)), false);
+    assert.match(warnings[0]!, /failed to sync Codex marketplace/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

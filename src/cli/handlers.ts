@@ -16,7 +16,7 @@ import { selectPluginsInteractive } from "../commands/select-plugins.ts";
 import { selectTargetsInteractive } from "../commands/select-agents.ts";
 import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../commands/select-scope.ts";
 import { globalPluginsDir, projectPluginsDir, lockPath } from "../paths.ts";
-import { getAgent, type AgentScope } from "../agents/index.ts";
+import { getAgent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { ui } from "../render/ui.ts";
 import { createProgress, formatUpdateSummary } from "../render/progress.ts";
@@ -45,7 +45,7 @@ import {
   type PluginCommand,
 } from "./index.ts";
 import { handleCorePluginVerb } from "./core-plugin-handlers.ts";
-import { commandOutcome, type CommandOutcome } from "../command-outcome.ts";
+import { commandOutcome, mergeCommandOutcomes, agentCommandOutcome, type CommandOutcome } from "../command-outcome.ts";
 
 interface UpdateScopeTarget {
   dir: string;
@@ -57,11 +57,14 @@ interface UpdateScopeTarget {
 
 export function updateResultCounts(result: PluginUpdateResult): { succeeded: number; failed: number } {
   const failedRemote = result.remote.filter((source) => source.failed !== undefined).length;
+  // A failed plugin remains one unit even if several stages report diagnostics.
+  const runtimeFailures = new Set(result.agents.flatMap((agent) => (agent.failures ?? []).map((failure) =>
+    JSON.stringify([agent.agent, failure.plugin ?? null, failure.plugin ? null : failure.stage]))));
   return {
     succeeded:
       result.remote.length - failedRemote +
       result.local.results.length,
-    failed: failedRemote + result.local.missing.length,
+    failed: failedRemote + result.local.missing.length + runtimeFailures.size,
   };
 }
 
@@ -234,11 +237,14 @@ export async function runPlugins(rawVerb: string | undefined, rest: string[]): P
     return commandOutcome("success");
   }
   if (verb === "update") return handleUpdate(rest, cmd);
-  await runPluginsVerb(verb, rest, cmd);
-  return commandOutcome("success");
+  return await runPluginsVerb(verb, rest, cmd) ?? commandOutcome("success");
 }
 
-async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
+function runtimeOutcome(agents: AgentSyncResult[] = []): CommandOutcome {
+  return mergeCommandOutcomes(agents.map(agentCommandOutcome));
+}
+
+async function handleAdd(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
   const { values, positionals } = parseVerb("add", cmd.flags, rest);
   const spec = positionals[0];
   if (!spec) fail("plugins add requires a <plugin-dir | owner/repo[@ref] | github-url>");
@@ -289,21 +295,26 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<void> {
     for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
   }
   for (const line of renderAgentReport(agents, "enabled")) console.log(line);
+  return runtimeOutcome(agents);
 }
 
-async function handleLink(rest: string[], cmd: PluginCommand): Promise<void> {
+async function handleLink(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
   const { values, positionals } = parseVerb("link", cmd.flags, rest);
   const targets = resolveVerbTargets(values, "link");
   const sc = await resolveActionScope(values, "link");
   const names = positionals.length > 0 ? positionals : undefined;
+  const outcomes: CommandOutcome[] = [];
   for (const target of targets) {
     const res = linkPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
     for (const action of res.actions) {
-      console.log(`${ui.ok("linked")} ${ui.name(action.name)} ${ui.meta(`[${res.target}]`)}${action.linkedTo ? ui.meta(` -> ${action.linkedTo}`) : ""}`);
+      console.log(`${action.linkedTo ? ui.ok("linked") : ui.meta("projected")} ${ui.name(action.name)} ${ui.meta(`[${res.target}]`)}${action.linkedTo ? ui.meta(` -> ${action.linkedTo}`) : ""}`);
       for (const file of action.adapted) console.log(ui.meta(`  adapted: ${file}`));
     }
+    for (const failure of res.failures ?? []) console.error(`${target}: ${failure.stage}: ${failure.message}`);
+    outcomes.push(runtimeOutcome([{ agent: target, affected: res.actions.filter((action) => action.linkedTo).map((action) => action.name), skipped: Boolean(res.cliSkipped), failures: res.failures }]));
     if (res.cliSkipped) printCliUnavailableNote(target, `manifests were generated, but nothing was enabled in ${target}.`);
   }
+  return mergeCommandOutcomes(outcomes);
 }
 
 async function handleUnlink(rest: string[], cmd: PluginCommand): Promise<void> {
@@ -330,19 +341,23 @@ async function handleUnlink(rest: string[], cmd: PluginCommand): Promise<void> {
   }
 }
 
-async function handleSync(rest: string[], cmd: PluginCommand): Promise<void> {
+async function handleSync(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {
   const { values, positionals } = parseVerb("sync", cmd.flags, rest);
   const targets = resolveVerbTargets(values, "sync");
   const sc = await resolveActionScope(values, "sync");
   const names = positionals.length > 0 ? positionals : undefined;
+  const outcomes: CommandOutcome[] = [];
   for (const target of targets) {
     const res = syncPlugins({ pluginsDir: sc.pluginsDir, target, global: sc.global, names });
     for (const action of res.actions) {
       const tail = action.synced ? ui.meta(` -> ${res.target}`) : "";
-      console.log(`${ui.ok("synced")} ${ui.name(action.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
+      console.log(`${action.synced ? ui.ok("synced") : ui.meta("not synced")} ${ui.name(action.name)} ${ui.meta(`[${res.target}]`)}${tail}`);
     }
+    for (const failure of res.failures ?? []) console.error(`${target}: ${failure.stage}: ${failure.message}`);
+    outcomes.push(runtimeOutcome([{ agent: target, affected: res.actions.filter((action) => action.synced).map((action) => action.name), skipped: Boolean(res.cliSkipped), failures: res.failures }]));
     if (res.cliSkipped) printCliUnavailableNote(target, `manifests were regenerated, but nothing was re-synced in ${target}.`);
   }
+  return mergeCommandOutcomes(outcomes);
 }
 
 /**
@@ -366,6 +381,7 @@ async function runUpdateAcrossScopes(
         source: opts.source,
         all: values.all,
         activate: true,
+        repair: values.repair,
         agentScope: sc.agentScope,
         scope: { label: sc.label, globalDir: globalPluginsDir() },
         targets: opts.targets,
@@ -397,12 +413,11 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<Command
   return runUpdateAcrossScopes(values, { source: positionals[0] });
 }
 
-async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<void> {
+async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<CommandOutcome | void> {
   if (await handleCorePluginVerb(verb, rest, cmd)) return;
   switch (verb) {
     case "add": {
-      await handleAdd(rest, cmd);
-      return;
+      return handleAdd(rest, cmd);
     }
     case "import-skills": {
       const { values, positionals } = parseVerb(verb, cmd.flags, rest);
@@ -421,8 +436,7 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
       return;
     }
     case "link": {
-      await handleLink(rest, cmd);
-      return;
+      return handleLink(rest, cmd);
     }
     case "disable":
     case "enable": {
@@ -436,20 +450,15 @@ async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand):
         const changed = result.changed.includes(name);
         console.log(`${changed ? ui.ok(verb === "disable" ? "disabled" : "enabled") : ui.meta("already " + result.state)} ${ui.name(name)}`);
       }
-      for (const agent of result.agents) {
-        const display = getAgent(agent.agent)?.displayName ?? agent.agent;
-        if (agent.affected.length > 0) console.log(ui.meta(`  ${result.state} in ${display}: ${agent.affected.join(", ")}`));
-        else if (agent.skipped) console.log(ui.warn(`  ${agent.agent} unavailable — run \`adg plugins sync --target ${agent.agent} ${result.order.join(" ")}\` later`));
-      }
-      return;
+      for (const line of renderAgentReport(result.agents, result.state)) console.log(line);
+      return runtimeOutcome(result.agents);
     }
     case "unlink": {
       await handleUnlink(rest, cmd);
       return;
     }
     case "sync": {
-      await handleSync(rest, cmd);
-      return;
+      return handleSync(rest, cmd);
     }
     case "update":
       throw new Error("plugins update must be routed by runPlugins");

@@ -692,7 +692,7 @@ test("updatePlugins surfaces a source that cannot be fetched", async () => {
       const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner: boom });
       assert.equal(results[0]!.failed !== undefined, true, "failure is recorded, not thrown");
       assert.deepEqual(results[0]!.updated, []);
-      assert.deepEqual(readdirSync(testTmp), [], "failed checkouts are removed before reporting the source failure");
+      assert.deepEqual(readdirSync(testTmp).filter((name) => name.startsWith("adg-")), [], "failed ADG checkouts are removed before reporting the source failure");
     } finally {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[key];

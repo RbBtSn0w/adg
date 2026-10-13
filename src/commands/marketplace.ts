@@ -1,3 +1,5 @@
+import { repairCodex } from "./runtime-repair.ts";
+import { getAgent, resolveAgents, allAgents } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { gitRemoteRevision, type GitRunner } from "../sources.ts";
 import { cloneGitHub, gitRevision, parseGitHubSource } from "../sources.ts";
@@ -163,6 +165,10 @@ export function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[
       // If any pass ran, the agent was processed — matches addPlugins' merge so
       // a skipped local rescan can't mask a successful remote re-activation.
       existing.skipped = existing.skipped && r.skipped;
+      if (r.failures?.length) existing.failures = [...(existing.failures ?? []), ...r.failures];
+      for (const field of ["verified", "unverified", "preservedDisabled"] as const) {
+        if (r[field] !== undefined) existing[field] = [...new Set([...(existing[field] ?? []), ...r[field]!])];
+      }
     } else {
       merged.set(r.agent, { ...r, affected: [...r.affected] });
     }
@@ -185,6 +191,7 @@ export async function updatePlugins(
     gitRunner?: GitRunner;
     /** Re-activate the agents after updating (set by the CLI; off by default). */
     activate?: boolean;
+    repair?: boolean;
     /** Install scope for re-activation / local rescan. */
     agentScope?: AgentScope;
     /** Injection seam for tests; forwarded to the install + local-rescan steps. */
@@ -214,6 +221,14 @@ export async function updatePlugins(
     throw new Error(`source "${opts.source}" is local and cannot be re-synced; re-run \`adg plugins add\`.`);
   }
 
+  const repairAgent = opts.agents
+    ? opts.agents.find((agent) => agent.id === "codex") ?? null
+    : getAgent("codex");
+  const repairScope = opts.agentScope ?? "project";
+  const initial = opts.repair ? repairAgent?.inspectPlugins?.({ pluginsDir: opts.pluginsDir, plugins: [], scope: repairScope }) : undefined;
+  // Source materialization proceeds, but this mode owns every Codex mutation.
+  const updateAgents = opts.repair ? (opts.agents ?? resolveAgents(opts.targets)).filter((agent) => agent.id !== "codex") : opts.agents;
+  const removalAgents = opts.repair ? (opts.deactivationAgents ?? allAgents()).filter((agent) => agent.id !== "codex") : opts.deactivationAgents;
   const now = opts.now ?? new Date().toISOString();
   const remote: PluginUpdateSourceResult[] = [];
   const remoteAgents: AgentSyncResult[] = [];
@@ -290,8 +305,8 @@ export async function updatePlugins(
             ...(request.defaultDescription ? { defaultDescription: request.defaultDescription } : {}),
             activate: opts.activate,
             scope: opts.agentScope,
-            agents: opts.agents,
-            deactivationAgents: opts.deactivationAgents,
+            agents: updateAgents,
+            deactivationAgents: removalAgents,
             now,
             preparedSourceDir: checkout,
             preparedResolvedRevision: resolvedRevision,
@@ -335,12 +350,23 @@ export async function updatePlugins(
         only: localNames,
         resync: opts.activate,
         scope: opts.agentScope,
-        agents: opts.agents,
+        agents: updateAgents,
         ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
       })
     : { results: [], missing: [] };
 
-  const agents = mergeAgentResults([remoteAgents, local.agents ?? []]);
+  const repairNames = [...new Set([...remoteGroups.flatMap((group) => group.installed), ...remote.flatMap((source) => [...source.updated, ...source.unchanged]), ...localNames])];
+  const currentLock = readLock(lockPath(opts.pluginsDir));
+  const repairs = opts.repair ? [repairCodex({
+    pluginsDir: opts.pluginsDir,
+    plugins: repairNames.filter((name) => currentLock.plugins[name]),
+    scope: opts.agentScope ?? "project",
+  }, false, repairAgent, {
+    initial, observed: true,
+    changed: [...remote.flatMap((source) => source.updated), ...local.results.filter((plugin) => plugin.changed).map((plugin) => plugin.name)],
+    removed: repairNames.filter((name) => !currentLock.plugins[name]),
+  })] : [];
+  const agents = mergeAgentResults([remoteAgents, local.agents ?? [], repairs]);
   return { remote, local, agents };
 }
 

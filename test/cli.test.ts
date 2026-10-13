@@ -477,3 +477,12 @@ test("update result counts per-source failures instead of treating the scope as 
     { succeeded: 1, failed: 1 },
   );
 });
+
+test("update summary counts unique runtime failure units across repeated stages and records", () => {
+  const failure = { plugin: "demo", stage: "install" as const, errorType: "CLI_FAILURE", message: "failed" };
+  assert.deepEqual(updateResultCounts({ remote: [], local: { results: [], missing: [] }, agents: [
+    { agent: "codex", affected: [], skipped: false, failures: [failure, failure, { ...failure, stage: "verify" }, { ...failure, plugin: undefined, stage: "inspect" }] },
+    { agent: "codex", affected: [], skipped: false, failures: [failure] },
+    { agent: "claude", affected: [], skipped: false, failures: [failure] },
+  ] }), { succeeded: 0, failed: 3 });
+});

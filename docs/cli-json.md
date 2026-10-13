@@ -118,6 +118,9 @@ Field notes:
   store-disabled plugins absent from the runtime as intended;
   `unexpectedlyEnabled` contains disabled plugins still active in that runtime.
   `agentOnly` remains reserved for runtime plugins absent from the store.
+  Codex detailed queries additionally expose `runtimeMissing` and
+  `runtimeDisabled`, splitting the existing `missing` array without changing it.
+  Other agents may omit these optional fields.
   Content drift is not represented; use `adg plugins sync` when a full runtime
   refresh is required.
 

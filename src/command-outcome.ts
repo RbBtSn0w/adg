@@ -1,3 +1,5 @@
+import type { AgentSyncResult } from "./agents/types.ts";
+
 export type CommandOutcomeKind = "success" | "partial" | "failure" | "cancelled";
 export type ErrorCategory = "user" | "dependency" | "timeout" | "rate_limit" | "internal";
 
@@ -27,4 +29,10 @@ export function mergeCommandOutcomes(outcomes: readonly CommandOutcome[]): Comma
   );
   const category = outcomes.find((outcome) => outcome.errorCategory)?.errorCategory;
   return commandOutcome(partiallySuccessful ? "partial" : "failure", category);
+}
+
+/** Completed execution is partial progress even when verification is unavailable. */
+export function agentCommandOutcome(result: AgentSyncResult): CommandOutcome {
+  if (!result.failures?.length) return commandOutcome("success");
+  return commandOutcome(result.affected.length ? "partial" : "failure", "dependency");
 }
