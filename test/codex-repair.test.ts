@@ -235,3 +235,9 @@ test("failed verification renders an unverified installation rather than enabled
   assert.match(lines, /recovery unverified/);
   assert.doesNotMatch(lines, /enabled in/);
 });
+
+test("agent failure reports use the display name consistently", async () => {
+  const { renderAgentReport } = await import("../src/render/plugins.ts");
+  const lines = renderAgentReport([{ agent: "codex", affected: [], skipped: false, failures: [{ stage: "inspect", errorType: "STATE_UNAVAILABLE", message: "query failed" }] }], "enabled").join("\n");
+  assert.match(lines, /Codex: inspect: query failed/);
+});

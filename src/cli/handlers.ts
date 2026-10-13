@@ -45,7 +45,7 @@ import {
   type PluginCommand,
 } from "./index.ts";
 import { handleCorePluginVerb } from "./core-plugin-handlers.ts";
-import { commandOutcome, mergeCommandOutcomes, type CommandOutcome } from "../command-outcome.ts";
+import { commandOutcome, mergeCommandOutcomes, agentCommandOutcome, type CommandOutcome } from "../command-outcome.ts";
 
 interface UpdateScopeTarget {
   dir: string;
@@ -57,11 +57,14 @@ interface UpdateScopeTarget {
 
 export function updateResultCounts(result: PluginUpdateResult): { succeeded: number; failed: number } {
   const failedRemote = result.remote.filter((source) => source.failed !== undefined).length;
+  // A failed plugin remains one unit even if several stages report diagnostics.
+  const runtimeFailures = new Set(result.agents.flatMap((agent) => (agent.failures ?? []).map((failure) =>
+    JSON.stringify([agent.agent, failure.plugin ?? null, failure.plugin ? null : failure.stage]))));
   return {
     succeeded:
       result.remote.length - failedRemote +
       result.local.results.length,
-    failed: failedRemote + result.local.missing.length + result.agents.reduce((count, agent) => count + (agent.failures?.length ?? 0), 0),
+    failed: failedRemote + result.local.missing.length + runtimeFailures.size,
   };
 }
 
@@ -238,9 +241,7 @@ export async function runPlugins(rawVerb: string | undefined, rest: string[]): P
 }
 
 function runtimeOutcome(agents: AgentSyncResult[] = []): CommandOutcome {
-  return mergeCommandOutcomes(agents.map((agent) => agent.failures?.length
-    ? commandOutcome((agent.verified ?? agent.affected).length ? "partial" : "failure", "dependency")
-    : commandOutcome("success")));
+  return mergeCommandOutcomes(agents.map(agentCommandOutcome));
 }
 
 async function handleAdd(rest: string[], cmd: PluginCommand): Promise<CommandOutcome> {

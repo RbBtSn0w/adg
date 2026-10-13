@@ -39,7 +39,7 @@ export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: s
   const out: string[] = [];
   for (const r of agents ?? []) {
     const name = getAgent(r.agent)?.displayName ?? r.agent;
-    for (const failure of r.failures ?? []) out.push(ui.err(`${r.agent}: ${failure.stage}${failure.plugin ? ` ${failure.plugin}` : ""}: ${failure.message}`));
+    for (const failure of r.failures ?? []) out.push(ui.err(`${name}: ${failure.stage}${failure.plugin ? ` ${failure.plugin}` : ""}: ${failure.message}`));
     const completed = r.verified ?? r.affected;
     if (completed.length > 0) out.push(`${ui.ok(verb)} in ${ui.name(name)}: ${completed.join(", ")}`);
     if (r.unverified?.length) out.push(ui.warn(`installed, recovery unverified in ${name}: ${r.unverified.join(", ")}`));
