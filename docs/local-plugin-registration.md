@@ -95,9 +95,9 @@ For project installs, the Claude entry uses `scope: "project"` and records a
 
 ## Other Runtimes
 
-Codex reads the ADG marketplace export directly from `~/.agents/plugins`, but
-`link --target codex` is still the supported way to regenerate projections and
-ensure the runtime sees the latest store state.
+Codex discovers ADG's marketplace, but loads plugins only after runtime
+registration through its CLI. Use `link --target codex` for registration and
+`sync --target codex` for a complete refresh.
 
 Antigravity imports from ADG's generated `.antigravity-plugin/` projection.
 Use `link --target antigravity` for first registration and `sync --target
@@ -142,3 +142,46 @@ runtime projections, and activates the plugin in each compatible runtime.
 `unlink --target <runtime>` is different: it is a temporary per-runtime override
 and does not change store state. A later `sync` restores the store's enabled or
 disabled state. `remove` deletes the payload and catalog entry entirely.
+
+## Codex Registration Recovery
+
+`adg plugins status --target codex --global --json` preserves the existing
+`missing` field and adds `runtimeMissing` (not installed) and `runtimeDisabled`
+(installed but disabled). Queries do not rewrite the catalog or Codex config.
+Query failures mean unknown state, not an empty installation.
+
+Use `adg plugins enable <name> --global` to explicitly restore an enabled plugin,
+including a missing registration or runtime disablement. Healthy registrations
+are not reinstalled. `adg plugins update --global --repair` updates sources and
+then repairs missing Codex registrations using the existing local snapshots;
+it preserves runtime-disabled plugins even when their source changes. Enabled
+plugins whose contents changed are refreshed through the same verified execution
+plan. Ordinary `update` does not repair an
+intentional `unlink`. `sync` explicitly reconciles the complete desired state.
+
+Repair honors stored component selections and dependencies. Installation and
+verification failures are reported individually; partial failure exits nonzero
+without rolling back successful installations. Other runtimes retain their
+existing behavior. CLI diagnostics are local output, not telemetry payloads.
+
+### Official Account Switch Investigation
+
+The relationship between official Codex account switching and registration
+loss is unconfirmed. Capture scoped plugin status before switching, immediately
+after switching, after restarting and opening a new conversation, and after
+explicit repair. Compare only ADG plugin/marketplace settings and cache presence;
+keep any config backup private and redact paths in shared evidence. Never collect
+`auth.json`, credentials, account identifiers, or raw config in telemetry.
+Registration recovery does not guarantee that an existing desktop conversation
+refreshes its skills; verify discovery in a new conversation.
+
+In repair mode, Codex state is observed before source updates. Other runtimes
+retain their normal update behavior; Codex writes are deferred until a scoped
+plan is ready. An unavailable snapshot allows source materialization but blocks
+Codex installation, refresh, and cleanup, producing a nonzero result.
+
+Dependencies are processed first. A dependency outside the selected scope is
+checked, not automatically installed; unavailable or failed dependencies block
+their dependents while independent plugins continue. Explicit `enable` includes
+its dependency closure. Execution success and post-operation verification are
+reported separately: an unverified installation is never displayed as enabled.

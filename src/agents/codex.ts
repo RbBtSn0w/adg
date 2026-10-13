@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { SpanKind } from "@opentelemetry/api";
@@ -58,14 +58,21 @@ export function syncMarketplace(
   marketplace: string,
   runner: typeof run = run,
   warn: (message: string) => void = console.warn,
-): void {
+): boolean {
   const root = codexMarketplaceRoot(pluginsDir);
+  // Explicit stores need the same supported discovery layout as canonical stores.
+  if (root === pluginsDir && existsSync(marketplacePath(pluginsDir))) {
+    const exportDir = join(root, ".agents", "plugins");
+    mkdirSync(exportDir, { recursive: true });
+    writeFileSync(join(exportDir, "marketplace.json"), readFileSync(marketplacePath(pluginsDir)));
+  }
   const add = runner(["plugin", "marketplace", "add", root]);
-  if (add.ok) return;
+  if (add.ok) return true;
   const upgraded = runner(["plugin", "marketplace", "upgrade", marketplace]);
   if (!upgraded.ok) {
     warn(`failed to sync Codex marketplace (${marketplace}): ${upgraded.out.trim() || add.out.trim() || "codex plugin marketplace sync failed without an error message"}`);
   }
+  return upgraded.ok;
 }
 
 /**
@@ -254,23 +261,30 @@ export const codexAgent: Agent = {
   activate(ctx: AgentContext): AgentSyncResult {
     const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!available()) return skippedResult("codex");
-    syncMarketplace(ctx.pluginsDir, mp);
+    let diagnostic = "";
+    if (!syncMarketplace(ctx.pluginsDir, mp, run, (message) => { diagnostic = message; })) return { agent: "codex", affected: [], skipped: false, failures: [{ stage: "marketplace", errorType: "MARKETPLACE_SYNC_FAILED", message: diagnostic || "Codex marketplace registration failed; plugin installation was not attempted." }] };
     const affected: string[] = [];
+    const failures: NonNullable<AgentSyncResult["failures"]> = [];
     for (const p of ctx.plugins) {
-      if (run(["plugin", "add", `${p}@${mp}`]).ok) affected.push(p);
+      const result = run(["plugin", "add", `${p}@${mp}`]);
+      if (result.ok) affected.push(p);
+      else failures.push({ plugin: p, stage: "install", errorType: "CLI_FAILURE", message: result.out.trim() || "Codex installation failed." });
     }
     if (ctx.reconcileLegacyAliases && affected.length > 0) reconcileLegacyAliases(ctx.pluginsDir, mp, affected);
-    return { agent: "codex", affected, skipped: false };
+    return { agent: "codex", affected, skipped: false, ...(failures.length ? { failures } : {}) };
   },
 
   deactivate(ctx: AgentContext): AgentSyncResult {
     const mp = writeCodexMarketplaceName(ctx.pluginsDir);
     if (!available()) return skippedResult("codex");
     const affected: string[] = [];
+    const failures: NonNullable<AgentSyncResult["failures"]> = [];
     for (const p of ctx.plugins) {
-      if (run(["plugin", "remove", `${p}@${mp}`]).ok) affected.push(p);
+      const result = run(["plugin", "remove", `${p}@${mp}`]);
+      if (result.ok) affected.push(p);
+      else failures.push({ plugin: p, stage: "remove", errorType: "CLI_FAILURE", message: result.out.trim() || "Codex removal failed." });
     }
-    return { agent: "codex", affected, skipped: false };
+    return { agent: "codex", affected, skipped: false, ...(failures.length ? { failures } : {}) };
   },
 
   // `codex plugin add` stages into `.remote-plugin-install-staging` and swaps the
@@ -281,12 +295,26 @@ export const codexAgent: Agent = {
     return codexAgent.activate(ctx);
   },
 
+  inspectPlugins(ctx) {
+    if (!available()) return undefined;
+    const marketplace = codexMarketplaceName(ctx.pluginsDir);
+    return getTracer().startActiveSpan("adg.codex.inspect_plugins", (span) => {
+      try {
+        const result = run(["plugin", "list", "--available", "--marketplace", marketplace, "--json"]);
+        if (!result.ok) return codexListFailure(result.out);
+        const records = parseCodexInspection(result.out, marketplace);
+        recordTelemetryEvent("adg.codex.inspect_plugins", { "inspection.valid": records !== undefined, "inspection.record_count": records?.length ?? 0 }, span);
+        return records ?? codexUnrecognizedListFailure(result.out);
+      } finally { span.end(); }
+    });
+  },
+
   // Query Codex's live plugin state for `adg plugins status`, scoped to our
   // generated marketplace. `available()` gates the query so an absent CLI is a
   // quiet `undefined` ("unknown").
   listInstalled(ctx: AgentContext): AgentListResult {
     if (!available()) return undefined;
-    const mp = writeCodexMarketplaceName(ctx.pluginsDir);
+    const mp = codexMarketplaceName(ctx.pluginsDir);
     if (!mp) return undefined; // no generated marketplace → can't scope the query
     const jsonRes = run(["plugin", "list", "--json"]);
     if (jsonRes.ok) {
@@ -371,4 +399,21 @@ export function parseCodexPluginList(out: string, marketplace: string): string[]
     }
   }
   return names;
+}
+
+/** Reject malformed snapshots instead of interpreting them as missing registrations. */
+export function parseCodexInspection(out: string, marketplace: string): import("./types.ts").AgentPluginRecord[] | undefined {
+  try {
+    const parsed = JSON.parse(out);
+    if (!Array.isArray(parsed?.installed) || !Array.isArray(parsed?.available)) return undefined;
+    const records = new Map<string, import("./types.ts").AgentPluginRecord>();
+    for (const record of [...parsed.installed, ...parsed.available]) {
+      if (!record || typeof record !== "object") return undefined;
+      if (record.marketplaceName !== marketplace) continue;
+      if (typeof record.name !== "string" || record.pluginId !== `${record.name}@${marketplace}` || typeof record.installed !== "boolean" || typeof record.enabled !== "boolean" || (record.enabled && !record.installed)) return undefined;
+      if (records.has(record.name)) return undefined;
+      records.set(record.name, { id: record.pluginId, name: record.name, installed: record.installed, enabled: record.enabled });
+    }
+    return [...records.values()];
+  } catch { return undefined; }
 }

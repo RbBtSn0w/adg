@@ -48,6 +48,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   as: { type: "string", hint: "<name>", help: "installed identity for a manifest-free structural source" },
   prefix: { type: "string", hint: "<p>", help: "prefix imported skill names" },
   verbose: { type: "boolean", short: "v", help: "expand each component to its member names" },
+  repair: { type: "boolean", help: "repair missing Codex registrations after updating; preserve runtime-disabled plugins" },
   json: { type: "boolean", help: "print stable machine-readable JSON" },
 };
 
@@ -77,6 +78,7 @@ export type ParsedValues = {
   verbose?: boolean;
   only?: string;
   json?: boolean;
+  repair?: boolean;
 };
 
 // Scope flags recur on almost every command; name the group once.
@@ -162,8 +164,9 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
       "rescanned in place. In a terminal, it asks whether to update project, global,\n" +
       "or both; pass a scope flag to skip the prompt.\n\n" +
       "This is the plugins-domain twin of `adg skills update`.",
-    flags: ["all", ...SCOPE],
+    flags: ["all", "repair", ...SCOPE],
     examples: [
+      "adg plugins update --global --repair    # explicitly restore missing Codex registrations",
       "adg plugins update                      # guided: project / global / both",
       "adg plugins update --global             # every global source",
       "adg plugins update owner/repo           # just one source",

@@ -39,7 +39,11 @@ export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: s
   const out: string[] = [];
   for (const r of agents ?? []) {
     const name = getAgent(r.agent)?.displayName ?? r.agent;
-    if (r.affected.length > 0) out.push(`${ui.ok(verb)} in ${ui.name(name)}: ${r.affected.join(", ")}`);
+    for (const failure of r.failures ?? []) out.push(ui.err(`${r.agent}: ${failure.stage}${failure.plugin ? ` ${failure.plugin}` : ""}: ${failure.message}`));
+    const completed = r.verified ?? r.affected;
+    if (completed.length > 0) out.push(`${ui.ok(verb)} in ${ui.name(name)}: ${completed.join(", ")}`);
+    if (r.unverified?.length) out.push(ui.warn(`installed, recovery unverified in ${name}: ${r.unverified.join(", ")}`));
+    if (r.preservedDisabled?.length) out.push(ui.meta(`runtime disabled, preserved in ${name}: ${r.preservedDisabled.join(", ")}; use enable or sync to activate`));
     else if (r.skipped)
       out.push(
         ui.warn(
@@ -170,6 +174,8 @@ export function renderStatus(statuses: AgentStatus[]): string[] {
       out.push(ui.warn(`  missing (${s.missing.length}): ${s.missing.join(", ")}`));
       out.push(ui.meta(`     → adg plugins sync --target ${s.id} ${s.missing.join(" ")}`));
     }
+    if (s.runtimeMissing?.length) out.push(ui.warn(`  registration missing: ${s.runtimeMissing.join(", ")}`));
+    if (s.runtimeDisabled?.length) out.push(ui.meta(`  runtime disabled (preserved by update --repair): ${s.runtimeDisabled.join(", ")}`));
     if (s.agentOnly.length > 0) {
       out.push(ui.warn(`  in agent only (${s.agentOnly.length}): ${s.agentOnly.join(", ")}`));
       out.push(ui.meta(`     → if ADG-managed, adg plugins unlink --target ${s.id} <name>  (else ignore)`));

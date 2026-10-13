@@ -39,7 +39,9 @@ formatting or the interactive UI implementation.
 An ADG-only green suite can ship a catalog that still renders fallback text in
 Codex.
 */
-test("Codex sandbox receives picker metadata from adg link", () => {
+const codexAvailable = spawnSync("codex", ["plugin", "--help"], { stdio: "ignore" }).status === 0;
+
+test("Codex sandbox receives picker metadata from adg link", { skip: !codexAvailable }, () => {
   const root = mkdtempSync(join(tmpdir(), "adg-codex-description-"));
   const previousCacheHome = process.env.ADG_CACHE_HOME;
   try {
@@ -85,6 +87,40 @@ test("Codex sandbox receives picker metadata from adg link", () => {
 
     const cached = JSON.parse(readFileSync(join(codexHome, "plugins", "cache", "adg", "demo", "1.0.0", ".codex-plugin", "plugin.json"), "utf8"));
     assert.deepEqual(cached.interface, { shortDescription: "Visible sandbox description." });
+
+    const configFile = join(codexHome, "config.toml");
+    writeFileSync(configFile, readFileSync(configFile, "utf8") + '\n[desktop]\ntheme = "dark"\n');
+    const beforeStatus = readFileSync(configFile, "utf8");
+    const beforeCatalog = readFileSync(marketplaceFile, "utf8");
+    const cli = (args) => spawnAdg(args, {
+      isolationRoot: join(root, "other-agent-homes"),
+      env: { ADG_PLUGINS_HOME: store, CODEX_HOME: codexHome, DISABLE_TELEMETRY: "1" },
+    }).result;
+    const status = cli(["plugins", "status", "--target", "codex", "--global", "--json"]);
+    assert.equal(status.status, 0, status.stderr);
+    assert.deepEqual(JSON.parse(status.stdout).statuses[0].runtimeMissing, []);
+    assert.equal(readFileSync(configFile, "utf8"), beforeStatus);
+    assert.equal(readFileSync(marketplaceFile, "utf8"), beforeCatalog);
+
+    run("codex", ["plugin", "remove", "demo@adg"], env);
+    const enable = cli(["plugins", "enable", "demo", "--global"]);
+    assert.equal(enable.status, 0, enable.stderr || enable.stdout);
+    const inspect = () => JSON.parse(spawnSync("codex", ["plugin", "list", "--available", "--marketplace", "adg", "--json"], { env, encoding: "utf8" }).stdout);
+    assert.equal(inspect().installed[0].enabled, true);
+    const healthyConfig = readFileSync(configFile, "utf8");
+    assert.equal(cli(["plugins", "enable", "demo", "--global"]).status, 0);
+    assert.equal(readFileSync(configFile, "utf8"), healthyConfig);
+
+    writeFileSync(configFile, healthyConfig.replace('[plugins."demo@adg"]\nenabled = true', '[plugins."demo@adg"]\nenabled = false'));
+    assert.equal(inspect().installed[0].enabled, false);
+    assert.equal(cli(["plugins", "update", "--global", "--repair"]).status, 0);
+    assert.equal(inspect().installed[0].enabled, false);
+    run("codex", ["plugin", "remove", "demo@adg"], env);
+    const repair = cli(["plugins", "update", "--global", "--repair"]);
+    assert.equal(repair.status, 0, repair.stderr || repair.stdout);
+    assert.equal(inspect().installed[0].enabled, true);
+    assert.match(readFileSync(configFile, "utf8"), /theme = "dark"/);
+
   } finally {
     if (previousCacheHome === undefined) delete process.env.ADG_CACHE_HOME;
     else process.env.ADG_CACHE_HOME = previousCacheHome;

@@ -1,3 +1,4 @@
+import { runtimeDifference } from "./runtime-repair.ts";
 import { existsSync } from "node:fs";
 import { listPlugins } from "./list.ts";
 import { allAgents, isAgentListFailure, resolveAgents, type Agent, type AgentScope } from "../agents/index.ts";
@@ -27,6 +28,8 @@ export interface AgentStatus {
   recoveryCommand?: string;
   /** In the store and enabled in the agent. */
   inSync: string[];
+  runtimeMissing?: string[];
+  runtimeDisabled?: string[];
   /** In the store but not enabled in the agent → needs `link`/`sync`. */
   missing: string[];
   /** Enabled in the agent but absent from the store → possible orphan → `unlink`. */
@@ -61,7 +64,10 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
   const hasProjectLock = existsSync(lockPath(opts.pluginsDir));
 
   return agents.map((a) => {
-    const installed = a.listInstalled?.({ pluginsDir: opts.pluginsDir, plugins: [], scope: opts.scope });
+    const ctx = { pluginsDir: opts.pluginsDir, plugins: [], scope: opts.scope };
+    const inspection = a.inspectPlugins?.(ctx);
+    const details = Array.isArray(inspection) ? runtimeDifference(enabled, inspection) : undefined;
+    const installed = a.inspectPlugins ? (Array.isArray(inspection) ? inspection.filter((record) => record.installed && record.enabled).map((record) => record.name) : inspection) : a.listInstalled?.(ctx);
     if (installed === undefined) {
       return { id: a.id, displayName: a.displayName, queryable: false, inSync: [], missing: [], agentOnly: [], disabled: [], unexpectedlyEnabled: [] };
     }
@@ -92,6 +98,7 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
       id: a.id,
       displayName: a.displayName,
       queryable: true,
+      ...details,
       inSync: enabled.filter((n) => agentSet.has(n)),
       missing: enabled.filter((n) => !agentSet.has(n)),
       agentOnly,

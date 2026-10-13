@@ -1,3 +1,5 @@
+import { dependencyOrder } from "./dependency-order.ts";
+import { repairCodex } from "./runtime-repair.ts";
 import { listPlugins } from "./list.ts";
 import { agentsForComponents, resolveAgents, type Agent, type AgentScope, type AgentSyncResult } from "../agents/index.ts";
 import { lockPath } from "../paths.ts";
@@ -36,21 +38,6 @@ function enabledDependents(lock: PluginLock, names: Set<string>): string[] {
     .sort();
 }
 
-function enableOrder(lock: PluginLock, roots: string[]): string[] {
-  const order: string[] = [];
-  const seen = new Set<string>();
-  const visit = (name: string): void => {
-    if (seen.has(name)) return;
-    seen.add(name);
-    const entry = lock.plugins[name];
-    if (!entry) throw new Error(`missing installed dependency: ${name}`);
-    for (const dependency of Object.keys(entry.dependencies ?? {}).sort()) visit(dependency);
-    order.push(name);
-  };
-  for (const root of roots) visit(root);
-  return order;
-}
-
 function pluginAgentIds(plugins: ReturnType<typeof listPlugins>, name: string): Set<string> {
   const plugin = plugins.find((item) => item.name === name);
   const types = Object.entries(plugin?.contents ?? {})
@@ -76,7 +63,7 @@ export function disablePlugins(opts: PluginStateOptions): PluginStateChangeResul
 
 export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult {
   const { lock, names } = selectedLock(opts);
-  const order = enableOrder(lock, names);
+  const order = dependencyOrder(lock, names);
   const changed = order.filter((name) => pluginState(lock.plugins[name]!) !== "enabled");
   for (const name of changed) {
     const entry = lock.plugins[name]!;
@@ -95,6 +82,7 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
   for (const name of order) updatedLock.plugins[name]!.state = "enabled";
   if (changed.length > 0) writeLock(lockPath(opts.pluginsDir), updatedLock);
   const agents = (opts.agents ?? resolveAgents()).map((agent) => {
+    if (agent.id === "codex" && agent.inspectPlugins) return repairCodex({ pluginsDir: opts.pluginsDir, plugins: order, scope: opts.scope }, true, agent);
     const compatible = changed.filter((name) => pluginAgentIds(plugins, name).has(agent.id));
     if (compatible.length === 0) return { agent: agent.id, affected: [], skipped: false };
     return agent.activate({ pluginsDir: opts.pluginsDir, plugins: compatible, scope: opts.scope });
