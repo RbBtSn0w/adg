@@ -62,9 +62,14 @@ export function syncMarketplace(
   const root = codexMarketplaceRoot(pluginsDir);
   // Explicit stores need the same supported discovery layout as canonical stores.
   if (root === pluginsDir && existsSync(marketplacePath(pluginsDir))) {
-    const exportDir = join(root, ".agents", "plugins");
-    mkdirSync(exportDir, { recursive: true });
-    writeFileSync(join(exportDir, "marketplace.json"), readFileSync(marketplacePath(pluginsDir)));
+    try {
+      const exportDir = join(root, ".agents", "plugins");
+      mkdirSync(exportDir, { recursive: true });
+      writeFileSync(join(exportDir, "marketplace.json"), readFileSync(marketplacePath(pluginsDir)));
+    } catch (error) {
+      warn(`failed to sync Codex marketplace (${marketplace}): ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
   }
   const add = runner(["plugin", "marketplace", "add", root]);
   if (add.ok) return true;
