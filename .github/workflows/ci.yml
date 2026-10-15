@@ -94,6 +94,9 @@ jobs:
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+      - name: Warn when release-bot token minting fails
+        if: ${{ steps.bot.outcome == 'failure' }}
+        run: echo "::warning::Release-bot token minting failed; using secrets.GITHUB_TOKEN fallback. Pushes to protected branches requiring the release-bot identity will be rejected."
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
