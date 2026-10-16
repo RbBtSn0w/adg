@@ -89,6 +89,8 @@ test("CI covers the minimum Node runtime and repository release gates", () => {
   assert.match(workflow, /npm install -g npm@11\.21\.0/);
   assert.match(workflow, /pr-dev-release:/);
   assert.match(workflow, /--tag next/);
+  assert.match(workflow, /Mint release-bot token/);
+  assert.match(workflow, /token:\s*\$\{\{\s*steps\.bot\.outputs\.token\s*\|\|\s*secrets\.GITHUB_TOKEN\s*\}\}/);
   assert.ok(pkg.scripts?.["check:docs"]);
   assert.ok(pkg.scripts?.["check:package-smoke"]);
   assert.ok(pkg.scripts?.["check:vendor-upstream"]);
