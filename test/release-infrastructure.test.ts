@@ -112,15 +112,25 @@ test("workflows pin third-party actions to immutable commits", () => {
 
 test("dependabot targets develop and groups dependencies to avoid PR surges", () => {
   const dependabot = readFileSync(resolve(".github/dependabot.yml"), "utf8");
-  assert.match(dependabot, /target-branch:\s*["']?develop["']?/);
-  assert.match(dependabot, /groups:/);
+  assert.match(dependabot, /package-ecosystem:\s*["']?npm["']?/);
+  assert.match(dependabot, /package-ecosystem:\s*["']?github-actions["']?/);
+  assert.match(dependabot, /open-pull-requests-limit:\s*5/);
+  assert.match(dependabot, /day:\s*["']?wednesday["']?/);
+
+  const targetMatches = [...dependabot.matchAll(/target-branch:\s*["']?develop["']?/g)];
+  assert.equal(targetMatches.length, 2, "both npm and github-actions ecosystems must target develop");
+
   assert.match(dependabot, /opentelemetry:/);
   assert.match(dependabot, /semantic-release:/);
+  assert.match(dependabot, /types:/);
+  assert.match(dependabot, /dependencies:/);
   assert.match(dependabot, /actions:/);
 
   const retarget = readFileSync(resolve(".github/workflows/retarget-dependabot.yml"), "utf8");
   assert.match(retarget, /types:\s*\[opened,\s*reopened,\s*edited\]/);
   assert.match(retarget, /workflow_dispatch:/);
+  assert.match(retarget, /if:\s*github\.event_name\s*==\s*['"]workflow_dispatch['"]\s*\|\|\s*github\.event\.pull_request\.user\.login\s*==\s*['"]dependabot\[bot\]['"]/);
+  assert.match(retarget, /--app\s+dependabot/);
 });
 
 test("PR target validation uses each stack member's own refs", () => {

@@ -20,6 +20,7 @@ permissions:
 jobs:
   retarget:
     name: Retarget to develop
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Mint release-bot token
@@ -37,21 +38,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-          PR_USER: ${{ github.event.pull_request.user.login || '' }}
         run: |
           set -euo pipefail
 
           if [ "${EVENT_NAME}" = "pull_request_target" ]; then
-            if [ "${PR_USER}" != "dependabot[bot]" ]; then
-              echo "PR #${PR_NUMBER} was opened/edited by ${PR_USER}, not dependabot; skipping."
-              exit 0
-            fi
             echo "Retargeting Dependabot PR #${PR_NUMBER} from main to develop..."
             gh pr edit "${PR_NUMBER}" --base develop
             echo "Successfully retargeted PR #${PR_NUMBER} to develop."
           elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-            echo "Scanning for any open Dependabot PRs targeting main..."
-            prs="$(gh pr list --base main --state open --json number,author --jq '.[] | select(.author.login == "app/dependabot" or .author.login == "dependabot[bot]") | .number')"
+            echo "Scanning for open Dependabot PRs targeting main..."
+            prs="$(gh pr list --base main --state open --app dependabot --limit 100 --json number --jq '.[].number')"
             if [ -z "${prs}" ]; then
               echo "No open Dependabot PRs targeting main found."
               exit 0
