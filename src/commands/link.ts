@@ -31,6 +31,7 @@ export interface LinkResult {
   actions: LinkAction[];
   /** True when the target agent's CLI was missing (manifests written, nothing enabled). */
   cliSkipped?: boolean;
+  failures?: import("../agents/types.ts").AgentOperationFailure[];
 }
 
 /**
@@ -63,5 +64,5 @@ export function linkPlugins(opts: LinkOptions): LinkResult {
     ...(opts.target === "codex" ? { reconcileLegacyAliases: true } : {}),
   });
   for (const a of actions) if (res.affected.includes(a.name)) a.linkedTo = agent.displayName;
-  return { target: opts.target, actions, cliSkipped: res.skipped };
+  return { target: opts.target, actions, cliSkipped: res.skipped, ...(res.failures?.length ? { failures: res.failures } : {}) };
 }

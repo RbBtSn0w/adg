@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { commandOutcome, mergeCommandOutcomes } from "../src/command-outcome.ts";
+import { commandOutcome, mergeCommandOutcomes, agentCommandOutcome } from "../src/command-outcome.ts";
 
 test("merging mixed scope results produces a partial non-zero outcome", () => {
   const outcome = mergeCommandOutcomes([
@@ -45,4 +45,13 @@ test("an existing partial outcome remains partial when merged", () => {
       errorCategory: "dependency",
     },
   );
+});
+
+test("executed but unverified registration is partial; no executed work is failure", () => {
+  const failures = [{ stage: "verify" as const, errorType: "STATE_UNAVAILABLE", message: "not verified" }];
+  assert.deepEqual(agentCommandOutcome({ agent: "codex", affected: ["demo"], verified: [], unverified: ["demo"], skipped: false, failures }), {
+    kind: "partial", exitCode: 1, errorCategory: "dependency",
+  });
+  assert.equal(agentCommandOutcome({ agent: "codex", affected: [], verified: [], skipped: false, failures }).kind, "failure");
+  assert.equal(agentCommandOutcome({ agent: "codex", affected: [], skipped: false }).kind, "success");
 });

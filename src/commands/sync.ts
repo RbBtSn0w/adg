@@ -1,3 +1,4 @@
+import { verifyRegistrations } from "./runtime-repair.ts";
 import { adaptedFilesForTarget, rematerializeInstalled, selectInstalled } from "./projection.ts";
 import { getAgent, type Agent } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
@@ -40,6 +41,7 @@ export interface SyncResult {
   actions: SyncAction[];
   /** True when the target agent's CLI was missing (manifests regenerated, nothing re-synced). */
   cliSkipped?: boolean;
+  failures?: import("../agents/types.ts").AgentOperationFailure[];
 }
 
 /** Regenerate manifests for the selected plugins, then refresh them in the agent. */
@@ -67,6 +69,15 @@ export function syncPlugins(opts: SyncOptions): SyncResult {
       ...(opts.target === "codex" ? { reconcileLegacyAliases: true } : {}),
     })] : []),
   ];
-  for (const action of actions) if (parts.some((part) => part.affected.includes(action.name))) action.synced = true;
-  return { target: opts.target, actions, cliSkipped: parts.length > 0 && parts.every((part) => part.skipped) };
+  if (opts.target === "codex" && agent.inspectPlugins && enabled.length && !parts.every((part) => part.skipped)) {
+    const snapshot = agent.inspectPlugins({ pluginsDir: opts.pluginsDir, plugins: enabled.map((plugin) => plugin.name), scope });
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]!;
+      const enabledNames = new Set(enabled.map((plugin) => plugin.name));
+      const checked = verifyRegistrations({ ...part, affected: part.affected.filter((name) => enabledNames.has(name)) }, snapshot);
+      parts[index] = { ...checked, affected: part.affected };
+    }
+  }
+  for (const action of actions) if (parts.some((part) => part.affected.includes(action.name)) && !parts.some((part) => part.failures?.some((failure) => failure.plugin === action.name))) action.synced = true;
+  return { target: opts.target, actions, cliSkipped: parts.length > 0 && parts.every((part) => part.skipped), ...(parts.some((part) => part.failures?.length) ? { failures: parts.flatMap((part) => part.failures ?? []) } : {}) };
 }

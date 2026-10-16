@@ -22,7 +22,28 @@ export interface AgentSyncResult {
   affected: string[];
   /** True when the agent's CLI wasn't present, so the op was skipped (never a hard failure). */
   skipped: boolean;
+  failures?: AgentOperationFailure[];
+  /** Present only when the command performed post-operation verification. */
+  verified?: string[];
+  unverified?: string[];
+  preservedDisabled?: string[];
 }
+
+export interface AgentOperationFailure {
+  plugin?: string;
+  stage: "inspect" | "marketplace" | "install" | "remove" | "verify";
+  errorType: string;
+  message: string;
+}
+
+export interface AgentPluginRecord {
+  id: string;
+  name: string;
+  installed: boolean;
+  enabled: boolean;
+}
+
+export type AgentInspectionResult = AgentPluginRecord[] | AgentListFailure | undefined;
 
 /** A live plugin query reached the agent CLI, but the CLI rejected the query. */
 export interface AgentListFailure {
@@ -91,6 +112,8 @@ export interface Agent {
    * plugins simply omits it.
    */
   listInstalled?(ctx: AgentContext): AgentListResult;
+  /** Detailed, read-only state; absence means this capability is unsupported. */
+  inspectPlugins?(ctx: AgentContext): AgentInspectionResult;
   /**
    * Best-effort removal of this agent's own registrations (marketplaces, cached
    * snapshots, …) that still point at a plugin directory ADG no longer has on

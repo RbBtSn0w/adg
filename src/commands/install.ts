@@ -121,7 +121,7 @@ function activateInstalled(
     if (activateNames.length > 0) parts.push(agent.activate(ctxFor(activateNames)));
     if (refreshNames.length > 0) parts.push(agent.refresh(ctxFor(refreshNames)));
     return parts.reduce<AgentSyncResult>(
-      (acc, result) => ({ agent: result.agent, affected: [...acc.affected, ...result.affected], skipped: acc.skipped && result.skipped }),
+      (acc, result) => ({ agent: result.agent, affected: [...acc.affected, ...result.affected], skipped: acc.skipped && result.skipped, ...((acc.failures?.length || result.failures?.length) ? { failures: [...(acc.failures ?? []), ...(result.failures ?? [])] } : {}) }),
       { agent: agent.id, affected: [], skipped: true },
     );
   });
