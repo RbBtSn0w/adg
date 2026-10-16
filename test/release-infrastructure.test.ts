@@ -101,12 +101,26 @@ test("workflows pin third-party actions to immutable commits", () => {
     ".github/workflows/ci.yml",
     ".github/workflows/sync-main-to-develop.yml",
     ".github/workflows/scheduled-release-pr.yml",
+    ".github/workflows/retarget-dependabot.yml",
   ]) {
     const workflow = readFileSync(resolve(file), "utf8");
     const refs = [...workflow.matchAll(/^\s*uses:\s*[^\s@]+@([^\s#]+)/gm)].map((match) => match[1]!);
     assert.ok(refs.length > 0, `${file} should use at least one action`);
     for (const ref of refs) assert.match(ref, /^[0-9a-f]{40}$/, `${file} contains a mutable action ref: ${ref}`);
   }
+});
+
+test("dependabot targets develop and groups dependencies to avoid PR surges", () => {
+  const dependabot = readFileSync(resolve(".github/dependabot.yml"), "utf8");
+  assert.match(dependabot, /target-branch:\s*["']?develop["']?/);
+  assert.match(dependabot, /groups:/);
+  assert.match(dependabot, /opentelemetry:/);
+  assert.match(dependabot, /semantic-release:/);
+  assert.match(dependabot, /actions:/);
+
+  const retarget = readFileSync(resolve(".github/workflows/retarget-dependabot.yml"), "utf8");
+  assert.match(retarget, /types:\s*\[opened,\s*reopened,\s*edited\]/);
+  assert.match(retarget, /workflow_dispatch:/);
 });
 
 test("PR target validation uses each stack member's own refs", () => {

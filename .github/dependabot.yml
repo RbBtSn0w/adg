@@ -4,16 +4,43 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "wednesday"
     target-branch: "develop"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
+      semantic-release:
+        patterns:
+          - "semantic-release"
+          - "@semantic-release/*"
+          - "conventional-changelog-conventionalcommits"
+      types:
+        patterns:
+          - "@types/*"
+      dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@opentelemetry/*"
+          - "semantic-release"
+          - "@semantic-release/*"
+          - "conventional-changelog-conventionalcommits"
+          - "@types/*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "wednesday"
     target-branch: "develop"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      actions:
+        patterns:
+          - "actions/*"
