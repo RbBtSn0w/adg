@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import YAML from "yaml";
 
 /**
  * Test Intent
@@ -111,26 +112,59 @@ test("workflows pin third-party actions to immutable commits", () => {
 });
 
 test("dependabot targets develop and groups dependencies to avoid PR surges", () => {
-  const dependabot = readFileSync(resolve(".github/dependabot.yml"), "utf8");
-  assert.match(dependabot, /package-ecosystem:\s*["']?npm["']?/);
-  assert.match(dependabot, /package-ecosystem:\s*["']?github-actions["']?/);
-  assert.match(dependabot, /open-pull-requests-limit:\s*5/);
-  assert.match(dependabot, /day:\s*["']?wednesday["']?/);
+  const dependabotRaw = readFileSync(resolve(".github/dependabot.yml"), "utf8");
+  const dependabot = YAML.parse(dependabotRaw) as {
+    updates: Array<{
+      "package-ecosystem": string;
+      "target-branch": string;
+      "open-pull-requests-limit": number;
+      schedule: { interval: string; day?: string };
+      groups?: Record<string, { patterns: string[] }>;
+    }>;
+  };
 
-  const targetMatches = [...dependabot.matchAll(/target-branch:\s*["']?develop["']?/g)];
-  assert.equal(targetMatches.length, 2, "both npm and github-actions ecosystems must target develop");
+  assert.equal(dependabot.updates.length, 2);
 
-  assert.match(dependabot, /opentelemetry:/);
-  assert.match(dependabot, /semantic-release:/);
-  assert.match(dependabot, /types:/);
-  assert.match(dependabot, /dependencies:/);
-  assert.match(dependabot, /actions:/);
+  const npm = dependabot.updates.find((u) => u["package-ecosystem"] === "npm");
+  assert.ok(npm, "npm ecosystem entry exists");
+  assert.equal(npm["target-branch"], "develop");
+  assert.equal(npm["open-pull-requests-limit"], 5);
+  assert.equal(npm.schedule.interval, "weekly");
+  assert.equal(npm.schedule.day, "wednesday");
+  assert.ok(npm.groups?.opentelemetry);
+  assert.ok(npm.groups?.["semantic-release"]);
+  assert.ok(npm.groups?.types);
+  assert.ok(npm.groups?.dependencies);
 
-  const retarget = readFileSync(resolve(".github/workflows/retarget-dependabot.yml"), "utf8");
-  assert.match(retarget, /types:\s*\[opened,\s*reopened,\s*edited\]/);
-  assert.match(retarget, /workflow_dispatch:/);
-  assert.match(retarget, /if:\s*github\.event_name\s*==\s*['"]workflow_dispatch['"]\s*\|\|\s*github\.event\.pull_request\.user\.login\s*==\s*['"]dependabot\[bot\]['"]/);
-  assert.match(retarget, /--app\s+dependabot/);
+  const actions = dependabot.updates.find((u) => u["package-ecosystem"] === "github-actions");
+  assert.ok(actions, "github-actions ecosystem entry exists");
+  assert.equal(actions["target-branch"], "develop");
+  assert.equal(actions["open-pull-requests-limit"], 5);
+  assert.equal(actions.schedule.interval, "weekly");
+  assert.equal(actions.schedule.day, "wednesday");
+  assert.ok(actions.groups?.actions);
+
+  const retargetRaw = readFileSync(resolve(".github/workflows/retarget-dependabot.yml"), "utf8");
+  const retarget = YAML.parse(retargetRaw) as {
+    on: { pull_request_target?: { types: string[]; branches: string[] }; workflow_dispatch?: unknown };
+    jobs: {
+      retarget: {
+        if: string;
+        steps: Array<{ name: string; run?: string }>;
+      };
+    };
+  };
+
+  assert.deepEqual(retarget.on.pull_request_target?.types, ["opened", "reopened", "edited"]);
+  assert.deepEqual(retarget.on.pull_request_target?.branches, ["main"]);
+  assert.ok(retarget.on.workflow_dispatch !== undefined);
+  assert.match(
+    retarget.jobs.retarget.if,
+    /github\.event_name\s*==\s*['"]workflow_dispatch['"]\s*\|\|\s*github\.event\.pull_request\.user\.login\s*==\s*['"]dependabot\[bot\]['"]/,
+  );
+  const retargetStep = retarget.jobs.retarget.steps.find((s) => s.name === "Retarget PR to develop");
+  assert.ok(retargetStep?.run);
+  assert.match(retargetStep.run, /--app\s+dependabot/);
 });
 
 test("PR target validation uses each stack member's own refs", () => {
