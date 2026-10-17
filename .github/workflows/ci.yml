@@ -86,9 +86,21 @@ jobs:
       packages: write
       id-token: write # 某些 npm 发布验证需要
     steps:
+      - name: Mint release-bot token
+        id: bot
+        if: ${{ vars.RELEASE_BOT_APP_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+      - name: Warn when release-bot token minting fails
+        if: ${{ steps.bot.outcome == 'failure' }}
+        run: echo "::warning::Release-bot token minting failed; using secrets.GITHUB_TOKEN fallback. Pushes to protected branches requiring the release-bot identity will be rejected."
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          token: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -113,7 +125,7 @@ jobs:
       - name: Semantic Release
         id: semantic
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
         run: npx semantic-release@25
       - name: Dual Publish to GitHub Packages
         env:
@@ -126,7 +138,7 @@ jobs:
         if: ${{ github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           new="$(node -p 'require("./package.json").version')"
           prev="${{ steps.preversion.outputs.version }}"
