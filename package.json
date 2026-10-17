@@ -71,7 +71,7 @@
     "@types/node": "^26.6.5",
     "conventional-changelog-conventionalcommits": "^8.0.0",
     "semantic-release": "^25.0.5",
-    "typescript": "^5.6.0"
+    "typescript": "^7.0.2"
   },
   "comment:overrides": "Security floors for transitive development tooling: keep npm on a patched 11.x release, pin transitive packages to patch security advisories (handlebars, postcss-selector-parser, http-cache-semantics, brace-expansion, ip-address), and pin transitive undici/js-yaml branches to their patched versions.",
   "overrides": {
