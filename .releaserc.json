@@ -25,12 +25,12 @@
             { "type": "perf", "section": "Changed" },
             { "type": "refactor", "section": "Changed" },
             { "type": "revert", "section": "Fixed" },
-            { "type": "docs", "section": "Changed", "hidden": false },
-            { "type": "chore", "hidden": true },
-            { "type": "style", "hidden": true },
-            { "type": "test", "hidden": true },
-            { "type": "build", "hidden": true },
-            { "type": "ci", "hidden": true }
+            { "type": "docs", "section": "Changed" },
+            { "type": "chore", "effect": "hidden" },
+            { "type": "style", "effect": "hidden" },
+            { "type": "test", "effect": "hidden" },
+            { "type": "build", "effect": "hidden" },
+            { "type": "ci", "effect": "hidden" }
           ]
         }
       }
