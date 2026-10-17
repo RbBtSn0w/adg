@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import YAML from "yaml";
 
 /**
  * Test Intent
@@ -101,12 +102,69 @@ test("workflows pin third-party actions to immutable commits", () => {
     ".github/workflows/ci.yml",
     ".github/workflows/sync-main-to-develop.yml",
     ".github/workflows/scheduled-release-pr.yml",
+    ".github/workflows/retarget-dependabot.yml",
   ]) {
     const workflow = readFileSync(resolve(file), "utf8");
     const refs = [...workflow.matchAll(/^\s*uses:\s*[^\s@]+@([^\s#]+)/gm)].map((match) => match[1]!);
     assert.ok(refs.length > 0, `${file} should use at least one action`);
     for (const ref of refs) assert.match(ref, /^[0-9a-f]{40}$/, `${file} contains a mutable action ref: ${ref}`);
   }
+});
+
+test("dependabot targets develop and groups dependencies to avoid PR surges", () => {
+  const dependabotRaw = readFileSync(resolve(".github/dependabot.yml"), "utf8");
+  const dependabot = YAML.parse(dependabotRaw) as {
+    updates: Array<{
+      "package-ecosystem": string;
+      "target-branch": string;
+      "open-pull-requests-limit": number;
+      schedule: { interval: string; day?: string };
+      groups?: Record<string, { patterns: string[] }>;
+    }>;
+  };
+
+  assert.equal(dependabot.updates.length, 2);
+
+  const npm = dependabot.updates.find((u) => u["package-ecosystem"] === "npm");
+  assert.ok(npm, "npm ecosystem entry exists");
+  assert.equal(npm["target-branch"], "develop");
+  assert.equal(npm["open-pull-requests-limit"], 5);
+  assert.equal(npm.schedule.interval, "weekly");
+  assert.equal(npm.schedule.day, "wednesday");
+  assert.ok(npm.groups?.opentelemetry);
+  assert.ok(npm.groups?.["semantic-release"]);
+  assert.ok(npm.groups?.types);
+  assert.ok(npm.groups?.dependencies);
+
+  const actions = dependabot.updates.find((u) => u["package-ecosystem"] === "github-actions");
+  assert.ok(actions, "github-actions ecosystem entry exists");
+  assert.equal(actions["target-branch"], "develop");
+  assert.equal(actions["open-pull-requests-limit"], 5);
+  assert.equal(actions.schedule.interval, "weekly");
+  assert.equal(actions.schedule.day, "wednesday");
+  assert.ok(actions.groups?.actions);
+
+  const retargetRaw = readFileSync(resolve(".github/workflows/retarget-dependabot.yml"), "utf8");
+  const retarget = YAML.parse(retargetRaw) as {
+    on: { pull_request_target?: { types: string[]; branches: string[] }; workflow_dispatch?: unknown };
+    jobs: {
+      retarget: {
+        if: string;
+        steps: Array<{ name: string; run?: string }>;
+      };
+    };
+  };
+
+  assert.deepEqual(retarget.on.pull_request_target?.types, ["opened", "reopened", "edited"]);
+  assert.deepEqual(retarget.on.pull_request_target?.branches, ["main"]);
+  assert.ok(retarget.on.workflow_dispatch !== undefined);
+  assert.match(
+    retarget.jobs.retarget.if,
+    /github\.event_name\s*==\s*['"]workflow_dispatch['"]\s*\|\|\s*github\.event\.pull_request\.user\.login\s*==\s*['"]dependabot\[bot\]['"]/,
+  );
+  const retargetStep = retarget.jobs.retarget.steps.find((s) => s.name === "Retarget PR to develop");
+  assert.ok(retargetStep?.run);
+  assert.match(retargetStep.run, /--app\s+dependabot/);
 });
 
 test("PR target validation uses each stack member's own refs", () => {

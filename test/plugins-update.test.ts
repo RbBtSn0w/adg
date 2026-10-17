@@ -700,7 +700,7 @@ test("updatePlugins surfaces a source that cannot be fetched", async () => {
       }
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 

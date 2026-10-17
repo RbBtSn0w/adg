@@ -6,12 +6,13 @@ name: Retarget Dependabot PRs
 # This workflow automatically detects any Dependabot PR targeting `main` and
 # retargets its base branch to `develop`.
 #
-# NOTE: Uses `pull_request_target` so it can run securely on PR open/reopen
+# NOTE: Uses `pull_request_target` so it can run securely on PR open/reopen/edited
 # with permissions to retarget the PR. It does not check out PR code.
 on:
   pull_request_target:
-    types: [opened, reopened]
+    types: [opened, reopened, edited]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   pull-requests: write
@@ -19,8 +20,7 @@ permissions:
 jobs:
   retarget:
     name: Retarget to develop
-    # Only run for dependabot
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Mint release-bot token
@@ -36,9 +36,25 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
-          echo "Retargeting Dependabot PR #${PR_NUMBER} from main to develop..."
-          gh pr edit "${PR_NUMBER}" --base develop
-          echo "Successfully retargeted PR #${PR_NUMBER} to develop."
+
+          if [ "${EVENT_NAME}" = "pull_request_target" ]; then
+            echo "Retargeting Dependabot PR #${PR_NUMBER} from main to develop..."
+            gh pr edit "${PR_NUMBER}" --base develop
+            echo "Successfully retargeted PR #${PR_NUMBER} to develop."
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "Scanning for open Dependabot PRs targeting main..."
+            prs="$(gh pr list --base main --state open --app dependabot --limit 100 --json number --jq '.[].number')"
+            if [ -z "${prs}" ]; then
+              echo "No open Dependabot PRs targeting main found."
+              exit 0
+            fi
+            for pr in ${prs}; do
+              echo "Retargeting PR #${pr} to develop..."
+              gh pr edit "${pr}" --base develop
+            done
+            echo "Successfully retargeted open Dependabot PRs."
+          fi
