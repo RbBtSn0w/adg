@@ -1,3 +1,10 @@
+## [0.10.1](https://github.com/RbBtSn0w/adg/compare/0.10.0...0.10.1) (2026-10-17)
+
+### Fixed
+
+* **ci:** mint and use release-bot token in release job to satisfy branch protection ([#139](https://github.com/RbBtSn0w/adg/issues/139)) ([1860c14](https://github.com/RbBtSn0w/adg/commit/1860c14054f75ea3aa251f73bf1a6c858138cd17))
+* **codex:** diagnose and explicitly repair plugin registrations ([#126](https://github.com/RbBtSn0w/adg/issues/126)) ([f053776](https://github.com/RbBtSn0w/adg/commit/f0537761638f52f62716c3734a8ba7109bf2180d))
+
 ## [0.10.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.10.0...0.10.1-beta.1) (2026-10-17)
 
 ### Fixed
