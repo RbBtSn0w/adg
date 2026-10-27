@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Spawn the real `bin/adg.ts` CLI with every agent's config home forced into a
@@ -27,7 +28,7 @@ import { join } from "node:path";
  * generated manifest crosses into that agent's actual cache) passes that one
  * override explicitly via `env` — every other agent stays isolated.
  */
-export function spawnAdg(args, { env = {}, isolationRoot } = {}) {
+export function spawnAdg(args, { env = {}, isolationRoot, cwd, timeout } = {}) {
   const root = isolationRoot ?? mkdtempSync(join(tmpdir(), "adg-test-isolation-"));
   const defaultHomes = {
     CLAUDE_CONFIG_DIR: join(root, "claude-home"),
@@ -42,6 +43,7 @@ export function spawnAdg(args, { env = {}, isolationRoot } = {}) {
     if (!(key in env)) mkdirSync(dir, { recursive: true });
   }
   const isolatedEnv = { ...process.env, ...defaultHomes, ...env };
-  const result = spawnSync(process.execPath, ["bin/adg.ts", ...args], { env: isolatedEnv, encoding: "utf8" });
+  const entry = fileURLToPath(new URL("../bin/adg.ts", import.meta.url));
+  const result = spawnSync(process.execPath, [entry, ...args], { env: isolatedEnv, encoding: "utf8", cwd, timeout });
   return { result, root };
 }

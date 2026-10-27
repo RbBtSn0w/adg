@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from 'child_process';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
@@ -6,7 +6,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
 import { readSkillLock, writeSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
-import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
+import { computeSkillFolderHash, computeSingleFileSkillHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
 import {
   formatSourceInput,
   buildUpdateInstallSource,
@@ -17,6 +17,12 @@ import {
 import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree } from './blob.ts';
+import {
+  resolveSkillLocations,
+  type DiscoveredSkillLocation,
+  type SkillLocationResolution,
+  type SkillLocationResolutionOptions,
+} from './skill-relocation.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
@@ -75,6 +81,19 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[38;5;102m';
 const TEXT = '\x1b[38;5;145m';
+
+// ADG patch: source progress overwrites one line on a TTY and stays plain in logs.
+function writeSourceStatus(source: string): void {
+  if (process.stdout.isTTY) {
+    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K`);
+  } else {
+    process.stdout.write(`Checking skills from source: ${source}\n`);
+  }
+}
+
+function clearSourceStatus(): void {
+  if (process.stdout.isTTY) process.stdout.write('\r\x1b[K');
+}
 
 // ============================================
 // Scope Detection and Prompt
@@ -304,6 +323,7 @@ export async function promptDeletions(
   isGlobal: boolean,
   options: UpdateCheckOptions
 ): Promise<void> {
+  clearSourceStatus();
   if (deletedSkills.length === 0) return;
 
   console.log();
@@ -339,16 +359,29 @@ export async function checkAndPromptForDeletions(
   lockSkills: Record<string, { skillPath?: string }>,
   isGlobal: boolean,
   options: UpdateCheckOptions,
-  discoveredPaths: string[]
-): Promise<string[]> {
-  const deletedSkills = allLockedForSource.filter((name) => {
-    const entry = lockSkills[name];
-    if (!entry?.skillPath) return false;
-    return !discoveredPaths.includes(entry.skillPath);
-  });
+  discovered: DiscoveredSkillLocation[],
+  locationOptions: SkillLocationResolutionOptions = {}
+): Promise<SkillLocationResolution> {
+  const resolution = resolveSkillLocations(
+    allLockedForSource,
+    lockSkills,
+    discovered,
+    locationOptions
+  );
 
-  await promptDeletions(source, deletedSkills, isGlobal, options);
-  return deletedSkills;
+  if (resolution.ambiguousSkills.length > 0) {
+    clearSourceStatus();
+    console.log();
+    console.log(
+      `${DIM}Warning:${RESET} Multiple current paths match these skills from ${DIM}${source}${RESET}; skipping them rather than deleting or migrating the wrong skill:`
+    );
+    for (const name of resolution.ambiguousSkills) {
+      console.log(`  ${DIM}•${RESET} ${sanitizeMetadata(name)}`);
+    }
+  }
+
+  await promptDeletions(source, resolution.deletedSkills, isGlobal, options);
+  return resolution;
 }
 
 export interface WellKnownUpdateItem {
@@ -448,9 +481,10 @@ export async function processWellKnownUpdates(
   let changed = false;
 
   for (const [baseUrl, items] of groups) {
-    process.stdout.write(`\r${DIM}Checking skills from source: ${baseUrl}${RESET}\x1b[K\n`);
+    writeSourceStatus(baseUrl);
 
     const result = await checkWellKnownForUpdates(baseUrl, items);
+    clearSourceStatus();
 
     if (result.status === 'error') {
       console.log(`  ${DIM}✗ Failed to check skills from ${baseUrl}${RESET}`);
@@ -473,6 +507,7 @@ export async function processWellKnownUpdates(
     const cliEntry = SELF_CLI_ENTRY;
     if (!existsSync(cliEntry)) {
       failCount += result.changedSkills.length;
+      recordSelfCliEntrypointMissing();
       console.log(`  ${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
       continue;
     }
@@ -601,7 +636,7 @@ export async function updateGlobalSkills(
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
-    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
+    writeSourceStatus(source);
 
     try {
       const isGitHubSource = firstEntry.sourceType === 'github';
@@ -618,76 +653,83 @@ export async function updateGlobalSkills(
             .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
             .map(([name, _]) => name);
 
-          const deletedSkills = await checkAndPromptForDeletions(
-            source,
-            allLockedForSource,
-            lock.skills,
-            true,
-            options,
-            discoveredPaths
+          const hasMissingLockedPath = allLockedForSource.some(
+            (name) =>
+              lock.skills[name]?.skillPath &&
+              !discoveredPaths.includes(lock.skills[name]!.skillPath!)
           );
 
-          const deletedSkillSet = new Set(deletedSkills);
-
-          for (const { name: skillName, entry } of itemsForSource) {
-            if (deletedSkillSet.has(skillName)) continue;
-
-            const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
-            // Older lockfiles stored a SHA-256 content hash. Only normalize that
-            // legacy shape; arbitrary values must still be compared and updated.
-            if (latestHash && /^[0-9a-f]{64}$/i.test(entry.skillFolderHash)) {
-              entry.skillFolderHash = latestHash;
-              healed = true;
-              continue;
+          if (!hasMissingLockedPath) {
+            for (const { name: skillName, entry } of itemsForSource) {
+              const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+              // ADG patch: heal legacy SHA-256 locks without reporting a false update.
+              if (latestHash && /^[0-9a-f]{64}$/i.test(entry.skillFolderHash)) {
+                entry.skillFolderHash = latestHash;
+                healed = true;
+                continue;
+              }
+              if (latestHash && latestHash !== entry.skillFolderHash) {
+                updates.push({ name: skillName, source, entry });
+              }
             }
-            if (latestHash && latestHash !== entry.skillFolderHash) {
-              updates.push({ name: skillName, source, entry });
-            }
+
+            continue;
           }
 
-          continue;
+          clearSourceStatus();
+          console.log(`  ${DIM}Skill paths changed; resolving via Git clone${RESET}`);
+        } else {
+          clearSourceStatus();
+          console.log(`  ${DIM}GitHub API unavailable; checking via Git clone${RESET}`);
         }
-
-        console.log(`  ${DIM}GitHub API unavailable; checking via Git clone${RESET}`);
       }
 
       tempDir = await cloneRepo(sourceUrl, firstEntry.ref);
-      const discoveredPaths = (await discoverSkills(tempDir, undefined, { fullDepth: true })).map(
-        (skill) => {
-          return join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/');
-        }
-      );
+      const discovered = await discoverSkills(tempDir, undefined, {
+        fullDepth: true,
+        includeDuplicateNames: true,
+      });
+      const discoveredLocations = discovered.map((skill) => ({
+        name: skill.name,
+        skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
+      }));
 
       const allLockedForSource = Object.entries(lock.skills)
         .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
         .map(([name, _]) => name);
 
-      const deletedSkills = await checkAndPromptForDeletions(
+      const resolution = await checkAndPromptForDeletions(
         source,
         allLockedForSource,
         lock.skills,
         true,
         options,
-        discoveredPaths
+        discoveredLocations,
+        // Path-addressable sources reinstall only the locked directory, so a
+        // same-name mirror elsewhere in the repo is not ambiguous. Generic Git
+        // sources reinstall from the whole repo and remain fail-closed.
+        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
       );
 
-      const deletedSkillSet = new Set(deletedSkills);
+      const deletedSkillSet = new Set(resolution.deletedSkills);
 
       for (const { name: skillName, entry } of itemsForSource) {
         if (deletedSkillSet.has(skillName)) continue;
 
-        const skillPath = entry.skillPath!;
-        if (!discoveredPaths.includes(skillPath)) continue;
+        const skillPath = resolution.resolvedPaths.get(skillName);
+        if (!skillPath) continue;
 
         const usesGitTreeHash = isGitHubSource && /^[0-9a-f]{40}$/i.test(entry.skillFolderHash);
         const latestHash = usesGitTreeHash
           ? await getGitTreeHash(tempDir, skillPath)
           : await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
-        if (latestHash && latestHash !== entry.skillFolderHash) {
-          updates.push({ name: skillName, source, entry });
+        const relocated = skillPath !== entry.skillPath;
+        if (relocated || (latestHash && latestHash !== entry.skillFolderHash)) {
+          updates.push({ name: skillName, source, entry: { ...entry, skillPath } });
         }
       }
     } catch (error) {
+      clearSourceStatus();
       console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
       failedSources.push(source);
     } finally {
@@ -696,7 +738,7 @@ export async function updateGlobalSkills(
   }
 
   if (checkable.length > 0) {
-    process.stdout.write('\r\x1b[K');
+    clearSourceStatus();
   }
 
   if (healed) {
@@ -708,6 +750,8 @@ export async function updateGlobalSkills(
   }
 
   const checkedCount = checkable.length + skipped.length + wellKnownCount;
+  // ADG patch: a successful update must not hide another source's check failure.
+  failCount += failedSources.length;
 
   if (checkable.length === 0 && skipped.length === 0 && wellKnownCount === 0) {
     if (!options.skills) {
@@ -719,7 +763,7 @@ export async function updateGlobalSkills(
   if (checkable.length === 0 && skipped.length === 0) {
     if (failedSources.length > 0) {
       console.log(`${DIM}Some skill sources could not be verified.${RESET}`);
-      return { successCount, failCount: failCount + failedSources.length, checkedCount };
+      return { successCount, failCount, checkedCount };
     }
     if (!wkChanged) {
       console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
@@ -735,7 +779,7 @@ export async function updateGlobalSkills(
   if (updates.length === 0) {
     if (failedSources.length > 0) {
       console.log(`${DIM}Some skill sources could not be verified.${RESET}`);
-      return { successCount, failCount: failCount + failedSources.length, checkedCount };
+      return { successCount, failCount, checkedCount };
     }
     if (!wkChanged) {
       console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
@@ -761,6 +805,7 @@ export async function updateGlobalSkills(
     const cliEntry = SELF_CLI_ENTRY;
     if (!existsSync(cliEntry)) {
       failCount++;
+      recordSelfCliEntrypointMissing();
       console.log(
         `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
       );
@@ -876,7 +921,7 @@ export async function updateProjectSkills(
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
+  console.log(`${TEXT}Checking ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
   console.log();
 
   const { successCount: wkSuccessCount, failCount: wkFailCount } = await processWellKnownUpdates(
@@ -899,9 +944,11 @@ export async function updateProjectSkills(
   }
 
   const localLock = await readLocalLock();
-    const cliEntry = SELF_CLI_ENTRY;
+  const cliEntry = SELF_CLI_ENTRY;
+  let upToDateCount = 0;
 
   if (updatable.length > 0 && !existsSync(cliEntry)) {
+    recordSelfCliEntrypointMissing();
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
     return {
       successCount,
@@ -922,6 +969,8 @@ export async function updateProjectSkills(
 
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
+    let resolvedPaths: Map<string, string> | null = null;
+    const latestHashes = new Map<string, string>();
 
     if (cloneSource === null) {
       failCount += skillsForSource.length;
@@ -933,21 +982,41 @@ export async function updateProjectSkills(
 
     try {
       tempDir = await cloneRepo(cloneSource, ref);
-      const discovered = await discoverSkills(tempDir, undefined, { fullDepth: true });
-
-      const discoveredPaths = discovered.map((s) => {
-        const relPath = relative(tempDir!, s.path);
-        return join(relPath, 'SKILL.md').split(sep).join('/');
+      const discovered = await discoverSkills(tempDir, undefined, {
+        fullDepth: true,
+        includeDuplicateNames: true,
       });
 
-      deletedSkills = await checkAndPromptForDeletions(
+      const discoveredLocations = discovered.map((skill) => ({
+        name: skill.name,
+        skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
+      }));
+
+      const resolution = await checkAndPromptForDeletions(
         source,
         allLockedForSource,
         localLock.skills,
         false,
         options,
-        discoveredPaths
+        discoveredLocations,
+        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
       );
+      deletedSkills = resolution.deletedSkills;
+      resolvedPaths = resolution.resolvedPaths;
+
+      // Hash each remaining skill in the clone the same way `add` records
+      // computedHash, so unchanged skills are not reinstalled.
+      for (const [name, skillPath] of resolution.resolvedPaths) {
+        try {
+          // ADG patch: root skills install only SKILL.md, so use that same hash boundary.
+          const hash = skillPath === 'SKILL.md'
+            ? computeSingleFileSkillHash(readFileSync(join(tempDir, skillPath), 'utf8'))
+            : await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
+          if (hash) latestHashes.set(name, hash);
+        } catch {
+          // Unknown hash: fall through to reinstalling the skill.
+        }
+      }
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
     } finally {
@@ -956,12 +1025,28 @@ export async function updateProjectSkills(
       }
     }
 
+    if (resolvedPaths === null) {
+      failCount += skillsForSource.length;
+      continue;
+    }
+
     const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
+      const resolvedPath = resolvedPaths?.get(skill.name);
+      if (resolvedPaths && !resolvedPath) {
+        continue;
+      }
+      const entry = resolvedPath ? { ...skill.entry, skillPath: resolvedPath } : skill.entry;
+      const relocated = entry.skillPath !== skill.entry.skillPath;
+      const latestHash = latestHashes.get(skill.name);
+      if (!relocated && latestHash && latestHash === skill.entry.computedHash) {
+        upToDateCount++;
+        continue;
+      }
       console.log(`${TEXT}Updating ${safeName}…${RESET}`);
-      const installUrl = buildLocalUpdateSource(skill.entry);
+      const installUrl = buildLocalUpdateSource(entry);
       if (!installUrl) {
         failCount++;
         console.log(
@@ -975,7 +1060,7 @@ export async function updateProjectSkills(
       const subagentArgs = skill.entry.subagents?.length
         ? ['--subagent', ...skill.entry.subagents.map((s) => (s === '' ? 'root' : s))]
         : [];
-      const fullDepthArgs = shouldUseFullDepthForUpdate(skill.entry) ? ['--full-depth'] : [];
+      const fullDepthArgs = shouldUseFullDepthForUpdate(entry) ? ['--full-depth'] : [];
 
       const result = runUpdateChild(
         selfCliArgv(cliEntry, [
@@ -991,7 +1076,7 @@ export async function updateProjectSkills(
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
-          env: getUpdateChildEnv(skill.entry.sourceType),
+          env: getUpdateChildEnv(entry.sourceType),
           // Never spawn through a shell — same reasoning as updateGlobalSkills:
           // execPath is absolute (no shell resolution needed) and installUrl/ref
           // come from the lock file, so a shell would allow command injection on
@@ -1007,6 +1092,14 @@ export async function updateProjectSkills(
         failCount++;
         console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
       }
+    }
+  }
+
+  if (upToDateCount > 0) {
+    if (upToDateCount === updatable.length && wkSuccessCount === 0 && wkFailCount === 0) {
+      console.log(`${TEXT}✓ All project skills are up to date${RESET}`);
+    } else {
+      console.log(`${DIM}${upToDateCount} project skill(s) already up to date${RESET}`);
     }
   }
 

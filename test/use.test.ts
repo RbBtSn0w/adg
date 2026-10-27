@@ -76,6 +76,11 @@ test("parseUseOptions: unsupported agent reports the supported set", () => {
   assert.ok(msg.includes("codex"));
 });
 
+test("parseUseOptions: Pi remains installable but cannot be launched through use", () => {
+  const { errors } = parseUseOptions(["owner/repo", "--agent", "pi"]);
+  assert.ok(errors.some((error) => error.includes("Unsupported agents")));
+});
+
 test("parseUseOptions: '*' is rejected", () => {
   const { errors } = parseUseOptions(["owner/repo", "--agent", "*"]);
   assert.ok(errors.some((e) => e.includes("does not support '*'")));

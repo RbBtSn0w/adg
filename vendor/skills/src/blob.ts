@@ -104,11 +104,6 @@ export function resetRepoTreeAuthState(): void {
 interface BranchFetchResult {
   tree: RepoTree | null;
   rateLimited: boolean;
-  /**
-   * ADG patch: the unauthenticated request got 401/403/404 — a private or
-   * access-controlled repo looks identical to "not found" to an anonymous
-   * caller, so a token may unlock it. Distinct from `rateLimited`.
-   */
   authMayHelp: boolean;
 }
 
@@ -150,12 +145,10 @@ async function fetchTreeBranch(
     // GitHub signals rate-limit with 403 + X-RateLimit-Remaining: 0.
     const rateLimited =
       response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0';
-    // ADG patch: a 401/403/404 from an UNauthenticated request may just mean the
-    // repo is private — retry with a token before giving up. GitHub returns 404
-    // (not 403) for private repos to anonymous callers to avoid leaking existence.
-    const authMayHelp =
-      !rateLimited &&
-      (response.status === 401 || response.status === 403 || response.status === 404);
+    // A private repo answers 401/404 to an anonymous request (GitHub hides its
+    // existence); a token may turn that into a 200. See issue #1318.
+    // ADG patch: permission-denied responses can also require authentication.
+    const authMayHelp = response.status === 401 || response.status === 403 || response.status === 404;
     return { tree: null, rateLimited, authMayHelp };
   } catch {
     return { tree: null, rateLimited: false, authMayHelp: false };
@@ -194,14 +187,20 @@ async function fetchTreeWithGitHubCli(
             windowsHide: true,
             env: { ...process.env, GH_PROMPT_DISABLED: '1' },
           },
-          (error, output) => (error ? reject(error) : resolve(output))
+          (error, output) => {
+            if (error) reject(error);
+            else resolve(output);
+          }
         );
       });
-      const data = JSON.parse(stdout) as { sha?: unknown; tree?: unknown };
+      const data = JSON.parse(stdout) as {
+        sha?: unknown;
+        tree?: unknown;
+      };
       if (typeof data.sha !== 'string' || !Array.isArray(data.tree)) continue;
       return { sha: data.sha, branch, tree: data.tree as TreeEntry[] };
     } catch {
-      // Try the next branch, then let the caller fall back to git clone.
+      // Try the next candidate branch, then let the caller fall back to clone.
     }
   }
   return null;
@@ -225,11 +224,13 @@ async function fetchTreeWithAvailableAuth(
  * Tries branches in order: ref (if specified), then main, then master.
  *
  * Authentication is lazy: by default the call goes out unauthenticated,
- * which is enough for the vast majority of users (60 req/hr per IP).
- * Only if GitHub responds with a rate-limit 403 do we ask the optional
- * `getToken` callback for a token and retry. This avoids invoking
- * `gh auth token` on every install, which corporate endpoint security
- * tools flag as suspicious credential extraction. See issue #523.
+ * which is enough for the vast majority of users (60 req/hr per IP). We only
+ * retry with available authentication when the unauthenticated attempt fails
+ * in a way credentials can fix: a rate-limit 403, or the 401/404 a private repo
+ * returns to anonymous requests. Explicit environment tokens are tried first;
+ * then `gh api` uses GitHub CLI authentication without exporting its stored
+ * credential. ADG also retries a permission-denied 403 when an auth resolver
+ * is supplied. See issues #523 and #1318.
  */
 export async function fetchRepoTree(
   ownerRepo: string,
@@ -256,23 +257,18 @@ export async function fetchRepoTree(
       rateLimited = true;
       break;
     }
-    // ADG patch: remember a possible-private signal, but keep trying the other
-    // candidate branches unauthenticated first (the repo may just lack `main`).
     if (result.authMayHelp) {
+      // ADG patch: exhaust anonymous branch candidates before requesting a token.
       authMayHelp = true;
-      break;
     }
   }
 
-  // ADG patch: fall back to an authenticated retry on EITHER a rate limit or a
-  // private/forbidden response. Upstream only retried on rate limit, so private
-  // repos never used the token and always failed.
-  if ((!rateLimited && !authMayHelp) || (!getToken && getGitHubHost() === 'github.com')) {
-    return null;
-  }
+  if (!(rateLimited || authMayHelp) || (!getToken && getGitHubHost() === 'github.com')) return null;
 
-  // Only a rate limit is a process-wide condition worth short-circuiting later.
+  // Remember an IP-level rate limit so later calls skip the unauth pass.
+  // A private-repo 404 is per-repo, not per-IP, so it must not set this flag.
   if (rateLimited) _rateLimitedThisSession = true;
+
   return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
 }
 
@@ -318,21 +314,28 @@ const PRIORITY_PREFIXES = [
   '.codex/skills/',
   '.commandcode/skills/',
   '.continue/skills/',
+  '.factory/skills/',
   '.github/skills/',
   '.goose/skills/',
+  '.grok/skills/',
   '.iflow/skills/',
   '.junie/skills/',
+  '.kilo/skills/',
   '.kilocode/skills/',
+  '.kimchi/skills/',
   '.kiro/skills/',
+  '.minimax/skills/',
   '.mux/skills/',
   '.neovate/skills/',
   '.opencode/skills/',
   '.openhands/skills/',
   '.pi/skills/',
+  '.posit/assistant/skills/',
   '.qoder/skills/',
   '.roo/skills/',
   '.trae/skills/',
   '.windsurf/skills/',
+  '.zcode/skills/',
   '.zencoder/skills/',
 ];
 
@@ -356,7 +359,7 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
   if (filtered.length === 0) return [];
 
   // Check priority directories first (same order as discoverSkills).
-  // Non-root prefixes also accept depth-2 paths so the blob fast path stays
+  // Non-root prefixes also accept paths up to depth 3 so the blob fast path stays
   // in sync with the on-disk walk's catalog-layout discovery.
   const priorityResults: string[] = [];
   const seen = new Set<string>();
@@ -393,19 +396,24 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
         continue;
       }
 
-      // SKILL.md two levels deep under a known container prefix
-      // (e.g., "skills/<category>/<skill>/SKILL.md"). Skip if the parent
-      // child dir already has its own SKILL.md (no descent past), or if
+      // SKILL.md two or three levels deep under a known container prefix
+      // (e.g., "skills/<category>/<category>/<skill>/SKILL.md"). Skip if an
+      // ancestor dir already has its own SKILL.md (no descent past), or if
       // any path segment is an ignored directory.
+      const skillDirs = parts.slice(0, -1);
+      const hasAncestorSkill = skillDirs.slice(0, -1).some((_, index) => {
+        const ancestorPath = skillDirs.slice(0, index + 1).join('/');
+        return lowerSkillMdSet.has(`${fullPrefix}${ancestorPath}/SKILL.md`.toLowerCase());
+      });
       if (
         isContainer &&
-        parts.length === 3 &&
-        parts[2]!.toLowerCase() === 'skill.md' &&
-        !SKIP_DIRS.has(parts[0]!) &&
-        !SKIP_DIRS.has(parts[1]!)
+        parts.length >= 3 &&
+        parts.length <= DEFAULT_SKILL_CONTAINER_DEPTH + 1 &&
+        parts.at(-1)!.toLowerCase() === 'skill.md' &&
+        skillDirs.every((part) => !SKIP_DIRS.has(part)) &&
+        !hasAncestorSkill
       ) {
-        const parentSkillMd = `${fullPrefix}${parts[0]}/SKILL.md`.toLowerCase();
-        if (!lowerSkillMdSet.has(parentSkillMd) && !seen.has(skillMd)) {
+        if (!seen.has(skillMd)) {
           priorityResults.push(skillMd);
           seen.add(skillMd);
         }
@@ -486,6 +494,44 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
   return hash.digest('hex');
 }
 
+function getSkillFolderPath(skillMdPath: string): string {
+  const pathLower = skillMdPath.toLowerCase();
+  if (pathLower.endsWith('/skill.md')) return skillMdPath.slice(0, -9);
+  if (pathLower === 'skill.md') return '';
+  return skillMdPath.slice(0, -(1 + 'SKILL.md'.length));
+}
+
+// Keep these exclusions aligned with copyDirectory() in installer.ts. Cached
+// snapshots do not need files that the normal clone installer intentionally
+// omits, but every other repository blob in a nested skill must be present.
+const SNAPSHOT_EXCLUDED_FILES = new Set(['metadata.json']);
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
+
+function isInstallableSnapshotPath(path: string): boolean {
+  const parts = path.split('/');
+  const fileName = parts.at(-1);
+  if (!fileName || SNAPSHOT_EXCLUDED_FILES.has(fileName)) return false;
+  return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
+}
+
+function hasCompleteNestedSnapshot(
+  tree: RepoTree,
+  skillMdPath: string,
+  files: SkillSnapshotFile[]
+): boolean {
+  const folderPath = getSkillFolderPath(skillMdPath);
+  if (!folderPath) return true;
+
+  const folderPrefix = `${folderPath}/`;
+  const snapshotPaths = new Set(files.map((file) => file.path));
+
+  return tree.tree.every((entry) => {
+    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
+    const relativePath = entry.path.slice(folderPrefix.length);
+    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  });
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -499,7 +545,8 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
  * (the caller should fall back to git clone).
  *
  * @param ownerRepo - e.g., "vercel-labs/agent-skills"
- * @param options - subpath, skillFilter, ref, token
+ * @param options - subpath, skillFilter, ref, token. An explicit ref bypasses
+ *   this ref-agnostic snapshot path and returns null for the caller's git fallback.
  */
 export async function tryBlobInstall(
   ownerRepo: string,
@@ -511,6 +558,12 @@ export async function tryBlobInstall(
     includeInternal?: boolean;
   } = {}
 ): Promise<BlobInstallResult | null> {
+  // Snapshot downloads are keyed only by owner, repository, and skill slug. They
+  // are not bound to the requested ref, so using this path for an explicit ref
+  // could install different bytes than the tree and frontmatter resolved below.
+  // Return null to use the caller's existing git clone fallback instead.
+  if (options.ref !== undefined) return null;
+
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
   if (!tree) return null;
@@ -605,15 +658,18 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
+  // A successful response can still be incomplete (for example, when the
+  // snapshot service cannot represent a binary supporting file). In that case
+  // use the existing clone path instead of silently installing a partial skill.
+  const allComplete = downloads.every(({ skill, download }) =>
+    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
+  );
+  if (!allComplete) return null;
+
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
-    const mdPathLower = skill.mdPath.toLowerCase();
-    const folderPath = mdPathLower.endsWith('/skill.md')
-      ? skill.mdPath.slice(0, -9)
-      : mdPathLower === 'skill.md'
-        ? ''
-        : skill.mdPath.slice(0, -(1 + 'SKILL.md'.length));
+    const folderPath = getSkillFolderPath(skill.mdPath);
 
     // A root-level SKILL.md means the repository root is a skill entrypoint,
     // not that the entire repository is installable skill payload. Some cached

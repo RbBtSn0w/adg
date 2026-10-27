@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.5.23",
+  "version": "1.7.4",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "bin",
+    "docs",
     "README.md",
     "ThirdPartyNoticeText.txt"
   ],
@@ -64,6 +65,7 @@
     "eve",
     "firebender",
     "forgecode",
+    "fx",
     "gemini-cli",
     "github-copilot",
     "goose",
@@ -97,6 +99,7 @@
     "reasonix",
     "rovodev",
     "roo",
+    "sarvam-code",
     "tabnine-cli",
     "terramind",
     "tinycloud",

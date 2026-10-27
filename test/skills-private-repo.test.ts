@@ -36,7 +36,7 @@ const notFound = {
   json: async () => ({}),
 };
 
-test("private repo: anonymous 404 triggers an authenticated retry that succeeds", async () => {
+for (const status of [401, 403, 404]) test(`private repo: anonymous ${status} triggers an authenticated retry that succeeds`, async () => {
   let sawAuthHeader = false;
   await withFetch(
     async (_url, init) => {
@@ -45,13 +45,28 @@ test("private repo: anonymous 404 triggers an authenticated retry that succeeds"
         sawAuthHeader = true;
         return okTree; // token unlocks the private repo
       }
-      return notFound; // anonymous request can't see it
+      return { ...notFound, status }; // anonymous request can't see it
     },
     async () => {
       const tree = await fetchRepoTree("owner/private", "main", () => "ghp_testtoken");
       assert.ok(tree, "expected a tree once authenticated");
       assert.equal(tree!.sha, "deadbeef");
       assert.ok(sawAuthHeader, "expected the retry to send an Authorization header");
+    },
+  );
+});
+
+test("anonymous branch fallback finishes before consulting credentials", async () => {
+  let tokenCalls = 0;
+  await withFetch(
+    async (url) => url.includes("/master?") ? okTree : notFound,
+    async () => {
+      const tree = await fetchRepoTree("owner/public", undefined, () => {
+        tokenCalls++;
+        return "fixture-token";
+      });
+      assert.equal(tree?.sha, "deadbeef");
+      assert.equal(tokenCalls, 0);
     },
   );
 });
