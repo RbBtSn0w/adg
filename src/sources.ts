@@ -216,7 +216,9 @@ export function runGit(args: string[], captureOutput = false, timeoutMs?: number
       const output = execFileSync("git", fullArgs, {
         ...(captureOutput
           ? { stdio: "pipe" as const, encoding: "utf8" as const }
-          : { stdio: "ignore" as const }),
+          // Retain Git's failure reason for the CLI report while discarding
+          // unused stdout (which can exceed maxBuffer on large repositories).
+          : { stdio: ["ignore", "ignore", "pipe"] as ["ignore", "ignore", "pipe"] }),
         env: gitEnv(),
         ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
       });
