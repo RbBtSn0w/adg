@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,7 +11,7 @@ import type { Agent } from "../src/agents/index.ts";
 import { updatePlugins } from "../src/commands/marketplace.ts";
 import type { UpdatePhase } from "../src/render/progress.ts";
 import { readLock, writeLock } from "../src/lock.ts";
-import { lockPath } from "../src/paths.ts";
+import { installedPluginDir, lockPath } from "../src/paths.ts";
 
 /** A fake codex agent that records every activate() call it receives. */
 function recordingAgent(id: string, calls: { id: string; plugins: string[] }[]): Agent {
@@ -577,6 +577,35 @@ test("updatePlugins removes a plugin deleted upstream from the same source", asy
     assert.deepEqual(results[0]!.deleted, ["finance"]);
     assert.deepEqual(results[0]!.unchanged, ["sales"]);
     assert.deepEqual(lockNames(pluginsDir), ["sales"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("updatePlugins refreshes remaining skills after a skill is deleted upstream", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    for (const name of ["retired", "retained"]) {
+      mkdirSync(join(remote, "sales", "skills", name), { recursive: true });
+      writeFileSync(join(remote, "sales", "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: Example skill\n---\nOriginal instructions\n`);
+    }
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+
+    const installedSkills = join(installedPluginDir(pluginsDir, "sales", readLock(lockPath(pluginsDir)).plugins.sales!.origin), "skills");
+    assert.equal(existsSync(join(installedSkills, "retired", "SKILL.md")), true);
+    rmSync(join(remote, "sales", "skills", "retired"), { recursive: true });
+    const updatedSkill = "---\nname: retained\ndescription: Example skill\n---\nUpdated instructions\n";
+    writeFileSync(join(remote, "sales", "skills", "retained", "SKILL.md"), updatedSkill);
+
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.deepEqual(result.remote[0]!.updated, ["sales"]);
+    assert.equal(existsSync(join(installedSkills, "retired")), false);
+    assert.equal(readFileSync(join(installedSkills, "retained", "SKILL.md"), "utf8"), updatedSkill);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
