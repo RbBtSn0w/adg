@@ -32,7 +32,8 @@ test("cloneRepo installs the requested commit while ignoring inherited Git hooks
 
     clonedDir = await cloneRepo(pathToFileURL(sourceDir).href, pinned);
 
-    assert.equal(await readFile(join(clonedDir, "SKILL.md"), "utf8"), "# Pinned version\n");
+    const contents = await readFile(join(clonedDir, "SKILL.md"), "utf8");
+    assert.equal(contents.replaceAll("\r\n", "\n"), "# Pinned version\n");
     assert.equal(execFileSync("git", ["-C", clonedDir, "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).trim(), pinned);
