@@ -1,3 +1,9 @@
+## [0.11.1](https://github.com/RbBtSn0w/adg/compare/0.11.0...0.11.1) (2026-10-30)
+
+### Fixed
+
+* **codex:** handle plugin list warnings and native state ([#167](https://github.com/RbBtSn0w/adg/issues/167)) ([9025479](https://github.com/RbBtSn0w/adg/commit/90254796a12f86759c6ea9f3839721f76ded3cc3))
+
 ## [0.11.1-beta.1](https://github.com/RbBtSn0w/adg/compare/0.11.0...0.11.1-beta.1) (2026-10-30)
 
 ### Fixed
