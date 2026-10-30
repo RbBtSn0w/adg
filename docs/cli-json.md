@@ -121,6 +121,15 @@ Field notes:
   Codex detailed queries additionally expose `runtimeMissing` and
   `runtimeDisabled`, splitting the existing `missing` array without changing it.
   Other agents may omit these optional fields.
+  Detailed queries also expose `runtimePlugins`: scoped native records with
+  `id`, `name`, `installed`, `enabled`, and optional `version`. A version on an
+  installed record describes the native registration; a version on an available,
+  uninstalled record describes the catalog. Missing or null native versions are
+  omitted rather than guessed. These records do not prove which version an
+  existing session has loaded. An older installed-only response is supported;
+  an omitted `available` list does not imply additional installed plugins.
+  JSON is parsed from stdout; successful CLI warnings on stderr do not make a
+  valid snapshot unknown. Malformed or contradictory state remains a query error.
   Content drift is not represented; use `adg plugins sync` when a full runtime
   refresh is required.
 
