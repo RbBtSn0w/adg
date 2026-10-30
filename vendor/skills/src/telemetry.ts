@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getTracer as getAdgTracer, shutdownTelemetry } from "../../../src/telemetry.ts";
 
-const AUDIT_URL = "https://add-skill.vercel.sh/audit";
+const AUDIT_URL = "https://www.skills.sh/tele/audit";
 
 interface InstallTelemetryData {
   event: "install";

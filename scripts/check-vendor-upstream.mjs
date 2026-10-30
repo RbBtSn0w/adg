@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -73,36 +73,57 @@ try {
     process.platform === "win32" ? "junction" : "dir",
   );
 
-  // These upstream assertions intentionally conflict with documented ADG
-  // patches and are replaced by root focused tests: authenticated 403/404
-  // fallback, hardened git execution, and ADG's narrowed `skills use` agents.
-  const excluded = [
-    // ADG intentionally diverges from upstream in these areas: bounded
-    // frontmatter/agent semantics, canonical path and lock behavior, custom
-    // prompts, subprocess/telemetry wiring, and the vendored update entrypoint.
-    "src/add.test.ts",
-    "src/cli.test.ts",
-    "src/git.test.ts",
-    "src/list.test.ts",
-    "src/remove.test.ts",
-    "src/skill-lock.test.ts",
-    "src/test-utils.test.ts",
-    "src/use.test.ts",
-    "tests/blob-root-skill.test.ts",
-    "tests/blob-fetch-tree-auth.test.ts",
-    "tests/dist.test.ts",
-    "tests/git-transport-allowlist.test.ts",
-    "tests/grok-agent.test.ts",
-    "tests/kimchi-agent.test.ts",
-    "tests/minimax-code-agent.test.ts",
-    "tests/nested-container-discovery.test.ts",
-    "tests/posit-assistant-agent.test.ts",
-    "tests/private-repo-add-security.test.ts",
-    "tests/root-level-disk-install.test.ts",
-    "tests/root-level-lock-hash.test.ts",
-    "tests/skill-matching.test.ts",
+  // Adapt fixture assumptions to ADG without dropping their behavior assertions.
+  // Exact occurrence counts make upstream fixture drift fail for review.
+  function adaptTest(file, from, to, count = 1) {
+    const path = join(checkout, file);
+    const source = readFileSync(path, "utf8");
+    const actual = source.split(from).length - 1;
+    if (actual !== count) throw new Error(`vendor-upstream: ${file} fixture drift (expected ${count}, got ${actual})`);
+    writeFileSync(path, source.replaceAll(from, to));
+  }
+  for (const [file, count] of [["src/add.test.ts", 1], ["src/list.test.ts", 1], ["src/remove.test.ts", 2]]) {
+    adaptTest(file, "'.local', 'state', 'skills'", "'.local', 'state', '.agents'", count);
+  }
+  adaptTest("src/cli.test.ts", "expect(output).not.toContain('OpenClaw community skills')", "expect(output).toContain('OpenClaw community skills')");
+  adaptTest("src/use.test.ts", "Invalid agents: not-an-agent", "Unsupported agents for skills use --agent: not-an-agent");
+  // ADG consumes one value per --agent, preserving a following source token.
+  // Multiple agents are expressed with repeated flags and must still fail.
+  adaptTest("src/use.test.ts", "const multiple = parseUseOptions(['source', '--agent', 'claude-code', 'codex']);", "const multiple = parseUseOptions(['source', '--agent', 'claude-code', '--agent', 'codex']);");
+  adaptTest("src/git.test.ts", "default: simpleGitMock,", "simpleGit: simpleGitMock,");
+  // Real execFile carries a custom promisifier that returns { stdout, stderr }.
+  // Its upstream vi.fn mock omits that API, which ADG's wrapper uses.
+  adaptTest("src/git.test.ts", "const execFileMock = vi.hoisted(() => vi.fn());", `const execFileMock = vi.hoisted(() => {
+    const fn = vi.fn();
+    Object.defineProperty(fn, Symbol.for('nodejs.util.promisify.custom'), {
+      value: (...args: unknown[]) => new Promise((resolve, reject) => {
+        fn(...args, (error: unknown, stdout: string, stderr: string) =>
+          error ? reject(error) : resolve({ stdout, stderr }));
+      }),
+    });
+    return fn;
+  });`);
+
+  // Only the upstream bundler artifact is inapplicable: ADG builds and installs
+  // its own artifact in check:package-smoke. All other files run in full.
+  const excludedFiles = ["tests/dist.test.ts"];
+  // Every name is exact (suite + assertion). See PROVENANCE.md for replacement
+  // root coverage. Do not widen these into suite or file exclusions.
+  const excludedTestNames = [
+    "git clone fallbacks allows the hard-coded LFS filter overrides required for clone",
+    "getGitHubToken does not extract credentials from external tools",
+    "fetchRepoTree lazy auth fallback does not invoke the token resolver on a non-rate-limit 403",
+    "Pi agent support accepts pi as a valid --agent for skills use",
+    "private repository installs installs from another Git host and preserves opted-in non-GitHub telemetry",
+    "root-level disk install (issue #1603) installs the full directory (scripts/ + references/) for a root-level SKILL.md repo",
+    "root-level lock hash covers the whole directory (issue #1603) changing a supporting file (scripts/) changes the computed lock hash",
+    "direct telemetry endpoints sends event and audit requests directly to skills.sh with their query data",
+    "direct telemetry endpoints honors DO_NOT_TRACK for both endpoints",
+    "direct telemetry endpoints honors DISABLE_TELEMETRY for both endpoints",
   ];
-  run("npx", [...pnpm, "exec", "vitest", "run", "--testTimeout=15000", ...excluded.flatMap((file) => ["--exclude", file])], checkout);
+  const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const testNamePattern = `^(?!(?:${excludedTestNames.map(escapeRegex).join("|")})$)`;
+  run("npx", [...pnpm, "exec", "vitest", "run", "--testTimeout=15000", "--testNamePattern", testNamePattern, ...excludedFiles.flatMap((file) => ["--exclude", file])], checkout);
   console.log(`vendor-upstream: local vendored source passed upstream tests at ${commit.slice(0, 12)}. OK`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });

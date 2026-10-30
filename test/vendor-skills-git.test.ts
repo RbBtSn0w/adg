@@ -4,8 +4,46 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 
 import { cleanupTempDir, cloneRepo } from "../vendor/skills/src/git.ts";
+
+test("cloneRepo installs the requested commit while ignoring inherited Git hooks", async () => {
+  const sourceDir = await mkdtemp(join(tmpdir(), "adg-git-pinned-"));
+  let clonedDir: string | undefined;
+  const previousAskPass = process.env.GIT_ASKPASS;
+  const git = (args: string[]) => execFileSync("git", ["-C", sourceDir, ...args], {
+    encoding: "utf8",
+  }).trim();
+  const commit = () => {
+    git(["add", "SKILL.md"]);
+    git(["-c", "user.name=ADG Test", "-c", "user.email=adg@example.invalid",
+      "commit", "--quiet", "-m", "test: update fixture"]);
+    return git(["rev-parse", "HEAD"]);
+  };
+
+  try {
+    git(["init", "--quiet"]);
+    await writeFile(join(sourceDir, "SKILL.md"), "# Pinned version\n");
+    const pinned = commit();
+    await writeFile(join(sourceDir, "SKILL.md"), "# Latest version\n");
+    commit();
+    process.env.GIT_ASKPASS = "/nonexistent/adg-askpass";
+
+    clonedDir = await cloneRepo(pathToFileURL(sourceDir).href, pinned);
+
+    const contents = await readFile(join(clonedDir, "SKILL.md"), "utf8");
+    assert.equal(contents.replaceAll("\r\n", "\n"), "# Pinned version\n");
+    assert.equal(execFileSync("git", ["-C", clonedDir, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim(), pinned);
+  } finally {
+    if (previousAskPass === undefined) delete process.env.GIT_ASKPASS;
+    else process.env.GIT_ASKPASS = previousAskPass;
+    if (clonedDir) await cleanupTempDir(clonedDir);
+    await rm(sourceDir, { recursive: true, force: true });
+  }
+});
 
 /**
  * Test Intent

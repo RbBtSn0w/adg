@@ -358,6 +358,15 @@ of [vercel-labs/skills](https://github.com/vercel-labs/skills) under
 [vendor/skills/](vendor/skills/) — `adg skills` forwards all args to it. Run
 `adg skills --help` for its full usage.
 
+The vendored baseline is v1.7.4. `add --json` emits a single machine-readable
+result; Git sources accept a full commit SHA as a ref. `experimental_sync`
+(alias `sync`) reads dependency and workspace skills, links them to installed
+packages by default, and cleans up skills it owns when their dependency stops
+shipping them. Use `--dry-run` to preview, `--copy` for copies, `--no-cleanup`
+to retain old skills, or `--no-remote` to skip Git sources from package `skills`
+fields. Existing ADG path, authentication, and telemetry patches are tracked in
+[the vendoring history](vendor/skills/PROVENANCE.md).
+
 > **License.** Upstream `skills` is **MIT** (declared in its README and
 > `package.json`). The vendored copy retains a reconstructed
 > [LICENSE](vendor/skills/LICENSE) (MIT + attribution) and the upstream

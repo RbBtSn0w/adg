@@ -467,6 +467,21 @@ test("git runner throws on failure", () => {
   }
 });
 
+test("git runner includes stderr in non-capturing clone failures", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-git-failure-"));
+  try {
+    assert.throws(() => defaultGitRunner(["clone", join(root, "missing"), join(root, "checkout")]), (error: any) => {
+      assert.equal(error.status, 128);
+      const diagnostic = String(error.stderr ?? "").trim();
+      assert.ok(diagnostic.length > 0, "Git's actual failure reason must be retained");
+      assert.ok(error.message.includes(diagnostic), "the update report must include the Git diagnostic");
+      return true;
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 /*
 ## Test Intent
 ### Risk
