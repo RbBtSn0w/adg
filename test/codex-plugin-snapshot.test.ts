@@ -51,6 +51,19 @@ test("malformed Codex state is unknown rather than an empty successful query", (
   assert.deepEqual(parseCodexInspection('{"installed":[],"available":[]}', "adg"), []);
 });
 
+test("Codex snapshots reject installation flags that contradict their containing array", () => {
+  for (const snapshot of [
+    { installed: [record("bad", false, false)] },
+    { installed: [record("bad", false, false)], available: [] },
+    { installed: [], available: [record("bad", true, false)] },
+    { installed: [], available: [record("bad", true, true)] },
+  ]) {
+    const out = JSON.stringify(snapshot);
+    assert.equal(parseCodexInspection(out, "adg"), undefined);
+    assert.equal(parseCodexPluginListJson(out, "adg"), undefined);
+  }
+});
+
 test("CLI capture preserves JSON stdout independently from stderr diagnostics", () => {
   const cli = makeCli("node", { probeArgs: [] });
   const result = cli.run(["-e", 'process.stdout.write("{}");process.stderr.write("warning")']);

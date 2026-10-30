@@ -398,14 +398,17 @@ export function parseCodexInspection(out: string, marketplace: string): import("
     const available = parsed.available === undefined ? [] : parsed.available;
     if (!Array.isArray(available)) return undefined;
     const records = new Map<string, import("./types.ts").AgentPluginRecord>();
-    for (const record of [...parsed.installed, ...available]) {
-      if (!record || typeof record !== "object" || Array.isArray(record) || typeof record.marketplaceName !== "string") return undefined;
-      if (record.marketplaceName !== marketplace) continue;
-      if (typeof record.name !== "string" || !record.name.trim() || record.pluginId !== `${record.name}@${marketplace}` || typeof record.installed !== "boolean" || typeof record.enabled !== "boolean" || (record.enabled && !record.installed)) return undefined;
-      if (record.version != null && (typeof record.version !== "string" || !record.version.trim())) return undefined;
-      if (records.has(record.name)) return undefined;
-      records.set(record.name, { id: record.pluginId, name: record.name, installed: record.installed, enabled: record.enabled,
-        ...(typeof record.version === "string" ? { version: record.version } : {}) });
+    for (const [entries, installed] of [[parsed.installed, true], [available, false]] as const) {
+      for (const record of entries) {
+        if (!record || typeof record !== "object" || Array.isArray(record) || typeof record.marketplaceName !== "string") return undefined;
+        if (record.marketplaceName !== marketplace) continue;
+        if (record.installed !== installed) return undefined;
+        if (typeof record.name !== "string" || !record.name.trim() || record.pluginId !== `${record.name}@${marketplace}` || typeof record.installed !== "boolean" || typeof record.enabled !== "boolean" || (record.enabled && !record.installed)) return undefined;
+        if (record.version != null && (typeof record.version !== "string" || !record.version.trim())) return undefined;
+        if (records.has(record.name)) return undefined;
+        records.set(record.name, { id: record.pluginId, name: record.name, installed: record.installed, enabled: record.enabled,
+          ...(typeof record.version === "string" ? { version: record.version } : {}) });
+      }
     }
     return [...records.values()];
   } catch { return undefined; }
