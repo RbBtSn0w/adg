@@ -12,6 +12,8 @@ import { updatePlugins } from "../src/commands/marketplace.ts";
 import type { UpdatePhase } from "../src/render/progress.ts";
 import { readLock, writeLock } from "../src/lock.ts";
 import { installedPluginDir, lockPath } from "../src/paths.ts";
+import { renderUpdateReport } from "../src/render/plugins.ts";
+import { agentCommandOutcome } from "../src/command-outcome.ts";
 
 /** A fake codex agent that records every activate() call it receives. */
 function recordingAgent(id: string, calls: { id: string; plugins: string[] }[]): Agent {
@@ -82,6 +84,135 @@ function fakeClone(remote: string): GitRunner {
 }
 
 const lockNames = (pluginsDir: string) => Object.keys(readLock(lockPath(pluginsDir)).plugins).sort();
+
+test("updatePlugins distinguishes lockstep release versions from component changes", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    const pluginsDir = join(root, "pdir");
+    for (const name of ["sales", "finance"]) {
+      initPlugin({ name, dir: remote });
+      const skill = join(remote, name, "skills", "demo");
+      mkdirSync(skill, { recursive: true });
+      writeFileSync(join(skill, "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nOriginal\n");
+    }
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner, agents: [] });
+    for (const name of ["sales", "finance"]) {
+      const path = join(remote, name, ".agents", ".plugin.json");
+      const manifest = JSON.parse(readFileSync(path, "utf8"));
+      manifest.version = "2.0.0";
+      writeFileSync(path, JSON.stringify(manifest));
+    }
+    writeFileSync(join(remote, "sales", "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill\n---\nUpdated\n");
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner,
+      revisionResolver: () => "r2", activate: true, agents: [recordingAgent("codex", calls)] });
+    assert.equal(result.remote[0]!.failed, undefined);
+    const changes = result.remote[0]!.changes!;
+    assert.equal(changes.find((change) => change.name === "finance")?.version, true);
+    assert.equal(changes.find((change) => change.name === "finance")?.content, false);
+    assert.equal(changes.find((change) => change.name === "sales")?.content, true);
+    assert.deepEqual(calls.flatMap((call) => call.plugins).sort(), ["finance", "sales"]);
+    const lines = renderUpdateReport(result).join("\n");
+    assert.match(lines, /version only.*finance/);
+    assert.match(lines, /content\/configuration.*sales/);
+    assert.doesNotMatch(lines, /runtime.*synced/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins checkpoints unchanged monorepo members to avoid a second clone", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales", "finance"]);
+    const pluginsDir = join(root, "pdir");
+    let clones = 0;
+    const gitRunner: GitRunner = (args) => { clones++; cpSync(remote, args.at(-1)!, { recursive: true }); };
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+    const initial = readLock(lockPath(pluginsDir));
+    for (const entry of Object.values(initial.plugins)) entry.resolvedRevision = "r1";
+    writeLock(lockPath(pluginsDir), initial);
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    const options = { pluginsDir, gitRunner, agents: [], revisionResolver: () => "r2" };
+    clones = 0;
+    await updatePlugins(options);
+    assert.equal(clones, 1);
+    const after = readLock(lockPath(pluginsDir));
+    assert.equal(after.plugins.finance!.resolvedRevision, "r2");
+    assert.equal(after.plugins.finance!.updatedAt, initial.plugins.finance!.updatedAt);
+    await updatePlugins(options);
+    assert.equal(clones, 1, "the second check must use the verified repository checkpoint");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins keeps source version updates distinct from runtime sync failures", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["sales"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+    writeNativeMarket(remote, ["sales"], "2.0.0");
+    const agent = recordingAgent("codex", []);
+    agent.refresh = () => ({ agent: "codex", affected: [], skipped: false,
+      failures: [{ plugin: "sales", stage: "install", errorType: "test_failure", message: "refresh failed" }] });
+    const result = await updatePlugins({ pluginsDir, gitRunner, agents: [agent], activate: true, revisionResolver: () => "r2" });
+    assert.equal(readLock(lockPath(pluginsDir)).plugins.sales!.version, "2.0.0");
+    assert.equal(result.remote[0]!.changes?.[0]?.version, true);
+    assert.deepEqual(result.agents[0]!.affected, []);
+    assert.equal(result.agents[0]!.failures?.[0]?.message, "refresh failed");
+    assert.equal(agentCommandOutcome(result.agents[0]!).exitCode, 1);
+    assert.doesNotMatch(renderUpdateReport(result).join("\n"), /runtime.*synced|runtime.*updated/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins refreshes disabled local source files without enabling a runtime", async () => {
+  const root = scratch();
+  try {
+    const source = initPlugin({ name: "sales", dir: join(root, "source") }).pluginDir;
+    const pluginsDir = join(root, "pdir");
+    await addPlugins({ spec: source, pluginsDir, targets: ["codex"], agents: [] });
+    const lock = readLock(lockPath(pluginsDir));
+    lock.plugins.sales!.state = "disabled";
+    writeLock(lockPath(pluginsDir), lock);
+    writeFileSync(join(source, "skills/getting-started/SKILL.md"), "---\nname: getting-started\ndescription: Local skill\n---\nUpdated\n");
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], activate: true,
+      agents: [recordingAgent("codex", calls)] });
+    assert.equal(result.local.results[0]!.changes?.content, true);
+    assert.equal(result.local.results[0]!.changed, true);
+    assert.deepEqual(calls, []);
+    assert.equal(readLock(lockPath(pluginsDir)).plugins.sales!.state, "disabled");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins retains unselected source changes without unnecessary runtime refresh", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    const source = initPlugin({ name: "sales", dir: remote }).pluginDir;
+    const unselected = join(source, "skills", "unselected");
+    mkdirSync(unselected, { recursive: true });
+    writeFileSync(join(unselected, "SKILL.md"), "---\nname: unselected\ndescription: Optional skill\n---\nOriginal\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"],
+      skillsSubset: ["getting-started"], gitRunner, agents: [] });
+    writeFileSync(join(unselected, "SKILL.md"), "---\nname: unselected\ndescription: Optional skill\n---\nUpdated\n");
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner, activate: true,
+      revisionResolver: () => "r2", agents: [recordingAgent("codex", calls)] });
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.equal(result.remote[0]!.changes?.[0]?.content, true);
+    assert.equal(result.remote[0]!.changes?.[0]?.runtimeRefreshRequired, false);
+    assert.deepEqual(calls, []);
+    const entry = readLock(lockPath(pluginsDir)).plugins.sales!;
+    assert.equal(entry.resolvedRevision, "r2");
+    assert.equal(existsSync(join(installedPluginDir(pluginsDir, "sales", entry.origin), "skills/unselected")), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("updatePlugins reports unchanged when the source is identical", async () => {
   const root = scratch();

@@ -123,6 +123,11 @@ The lock records two hashes: `sourceHash` covers the complete cached payload and
 `installedHash` covers the effective selection. Runtime projections are excluded
 from both hashes so re-adapting does not churn content identity.
 
+The approved consumer-side update work separates publisher versions, packaged
+content changes, verified repository checkpoints, and native synchronization.
+See [Plugin Update Semantics and Delivery Tracking](plugin-update-semantics.md)
+for its acceptance matrix and implementation/validation status.
+
 The cache is scoped by a stable store id under the OS-managed
 system cache tree (`~/Library/Caches/adg/plugins/` on macOS,
 `$XDG_CACHE_HOME/adg/plugins/` on Linux). `adg plugins cache status` reports

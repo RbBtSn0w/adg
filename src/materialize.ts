@@ -77,7 +77,7 @@ export function effectivePackageFilter(
   return (rawPath: string): boolean => {
     if (rawPath === "") return true;
     const relPath = toPosix(rawPath);
-    if (relPath === ".agents" || relPath === ADG_MANIFEST_PATH) return true;
+    if (relPath === ".agents" || relPath === toPosix(ADG_MANIFEST_PATH)) return true;
     if (relPath.startsWith("../") || relPath === "..") return false;
     if (!relPath.includes("/") && META_RE.test(relPath)) return true;
     return roots.some((root) => pathWithin(relPath, root) || root.startsWith(`${relPath}/`));

@@ -18,7 +18,7 @@ export interface AdaptResult {
  * mapping when present, otherwise falls back to the adapter's default path.
  * An optional `selection` narrows what the generated manifests expose.
  */
-export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selection?: PluginSelection): AdaptResult[] {
+export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selection?: PluginSelection, runtimeRoot: string = pluginDir): AdaptResult[] {
   const manifest = readManifest(pluginDir);
   const results: AdaptResult[] = [];
 
@@ -38,7 +38,7 @@ export function adaptPlugin(pluginDir: string, targets: AdapterTarget[], selecti
     writeJson(file, out);
     if (target === "antigravity") {
       writeAntigravityMcpConfig(pluginDir, manifest, selection);
-      for (const warning of writeAntigravityHooks(pluginDir, manifest, selection)) hookWarnings.add(warning);
+      for (const warning of writeAntigravityHooks(pluginDir, manifest, selection, runtimeRoot)) hookWarnings.add(warning);
     }
     results.push({ target, file });
   }

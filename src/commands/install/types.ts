@@ -5,6 +5,7 @@ import type { GitRunner } from "../../sources.ts";
 import type { UpdatePhase } from "../../render/progress.ts";
 import type { Agent, AgentScope, AgentSyncResult } from "../../agents/index.ts";
 import type { PluginContents } from "../../components.ts";
+import type { PluginChanges } from "../../plugin-changes.ts";
 
 export interface InstallOneOptions {
   /** Local directory containing the plugin (already fetched). */
@@ -38,6 +39,9 @@ export interface InstallOneOptions {
 }
 
 export interface InstallResult {
+  changes?: PluginChanges;
+  /** Requests native synchronization; does not assert it succeeded. */
+  runtimeRefreshRequired?: boolean;
   name: string;
   version: string;
   installedTo: string;
