@@ -245,3 +245,11 @@ test("annotateCliRun leaves successful exits as success metadata only", () => {
   assert.equal(exceptions.length, 0);
   assert.equal(statuses.length, 0);
 });
+
+// (Regression: #167)
+test("CLI capture preserves JSON stdout independently from stderr diagnostics", () => {
+  const cli = makeCli("node", { probeArgs: [] });
+  const result = cli.run(["-e", 'process.stdout.write("{}");process.stderr.write("warning")']);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result, { ok: true, out: "{}warning", stdout: "{}", stderr: "warning" });
+});

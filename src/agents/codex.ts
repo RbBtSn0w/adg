@@ -186,7 +186,7 @@ function listCodexMarketplaces(
   const errors: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const listed = runner(["plugin", "marketplace", "list", "--json"]);
-    if (listed.ok) return { ok: true, sources: parseCodexMarketplaceLocalSources(listed.out), removed, errors };
+    if (listed.ok) return { ok: true, sources: parseCodexMarketplaceLocalSources(listed.stdout ?? listed.out), removed, errors };
 
     const detail = listed.out.trim() || "codex plugin marketplace list failed without an error message";
     const ownedStale = parseCodexStaleMarketplaceErrors(listed.out).filter((e) => isAdgOwnedName(e.name));
@@ -307,8 +307,13 @@ export const codexAgent: Agent = {
       try {
         const result = run(["plugin", "list", "--available", "--marketplace", marketplace, "--json"]);
         if (!result.ok) return codexListFailure(result.out);
-        const records = parseCodexInspection(result.out, marketplace);
-        recordTelemetryEvent("adg.codex.inspect_plugins", { "inspection.valid": records !== undefined, "inspection.record_count": records?.length ?? 0 }, span);
+        const records = parseCodexInspection(result.stdout ?? result.out, marketplace);
+        recordTelemetryEvent("adg.codex.inspect_plugins", {
+          "inspection.valid": records !== undefined,
+          "inspection.record_count": records?.length ?? 0,
+          "inspection.version_count": records?.filter((record) => record.version !== undefined).length ?? 0,
+          "inspection.stderr_present": Boolean(result.stderr),
+        }, span);
         return records ?? codexUnrecognizedListFailure(result.out);
       } finally { span.end(); }
     });
@@ -323,7 +328,7 @@ export const codexAgent: Agent = {
     if (!mp) return undefined; // no generated marketplace → can't scope the query
     const jsonRes = run(["plugin", "list", "--json"]);
     if (jsonRes.ok) {
-      const parsed = parseCodexPluginListJson(jsonRes.out, mp);
+      const parsed = parseCodexPluginListJson(jsonRes.stdout ?? jsonRes.out, mp);
       if (parsed !== undefined) return parsed;
       return codexUnrecognizedListFailure(jsonRes.out);
     }
@@ -354,28 +359,7 @@ export function codexUnrecognizedListFailure(out: string): AgentListFailure {
 
 /** Parse `codex plugin list --json` into installed and enabled plugin names for one marketplace. */
 export function parseCodexPluginListJson(out: string, marketplace: string): string[] | undefined {
-  try {
-    const parsed = JSON.parse(out) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    const installed = (parsed as Record<string, unknown>).installed;
-    if (!Array.isArray(installed)) return undefined;
-    const names: string[] = [];
-    const seen = new Set<string>();
-    for (const entry of installed) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const record = entry as Record<string, unknown>;
-      const name = typeof record.name === "string" ? record.name : undefined;
-      const mp = typeof record.marketplaceName === "string" ? record.marketplaceName : undefined;
-      const isInstalled = record.installed === true;
-      const enabled = record.enabled === true;
-      if (!name || mp !== marketplace || !isInstalled || !enabled || seen.has(name)) continue;
-      seen.add(name);
-      names.push(name);
-    }
-    return names;
-  } catch {
-    return undefined;
-  }
+  return parseCodexInspection(out, marketplace)?.filter((record) => record.installed && record.enabled).map((record) => record.name);
 }
 
 /**
@@ -410,14 +394,21 @@ export function parseCodexPluginList(out: string, marketplace: string): string[]
 export function parseCodexInspection(out: string, marketplace: string): import("./types.ts").AgentPluginRecord[] | undefined {
   try {
     const parsed = JSON.parse(out);
-    if (!Array.isArray(parsed?.installed) || !Array.isArray(parsed?.available)) return undefined;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.installed)) return undefined;
+    const available = parsed.available === undefined ? [] : parsed.available;
+    if (!Array.isArray(available)) return undefined;
     const records = new Map<string, import("./types.ts").AgentPluginRecord>();
-    for (const record of [...parsed.installed, ...parsed.available]) {
-      if (!record || typeof record !== "object") return undefined;
-      if (record.marketplaceName !== marketplace) continue;
-      if (typeof record.name !== "string" || record.pluginId !== `${record.name}@${marketplace}` || typeof record.installed !== "boolean" || typeof record.enabled !== "boolean" || (record.enabled && !record.installed)) return undefined;
-      if (records.has(record.name)) return undefined;
-      records.set(record.name, { id: record.pluginId, name: record.name, installed: record.installed, enabled: record.enabled });
+    for (const [entries, installed] of [[parsed.installed, true], [available, false]] as const) {
+      for (const record of entries) {
+        if (!record || typeof record !== "object" || Array.isArray(record) || typeof record.marketplaceName !== "string") return undefined;
+        if (record.marketplaceName !== marketplace) continue;
+        if (record.installed !== installed) return undefined;
+        if (typeof record.name !== "string" || !record.name.trim() || record.pluginId !== `${record.name}@${marketplace}` || typeof record.installed !== "boolean" || typeof record.enabled !== "boolean" || (record.enabled && !record.installed)) return undefined;
+        if (record.version != null && (typeof record.version !== "string" || !record.version.trim())) return undefined;
+        if (records.has(record.name)) return undefined;
+        records.set(record.name, { id: record.pluginId, name: record.name, installed: record.installed, enabled: record.enabled,
+          ...(typeof record.version === "string" ? { version: record.version } : {}) });
+      }
     }
     return [...records.values()];
   } catch { return undefined; }
