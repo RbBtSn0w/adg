@@ -1,8 +1,11 @@
 # Plugin Update Semantics and Delivery Tracking
 
-**Status:** Local implementation verified; native runtime validation tracked separately  
-**Decision date:** 2026-10-30  
-**Delivery owner:** ADG lead; project-management tracking in this document  
+**Status:** Local implementation verified; native runtime validation tracked separately
+
+**Decision date:** 2026-10-30
+
+**Delivery owner:** ADG lead; project-management tracking in this document
+
 **Tracking issue:** [ADG #161](https://github.com/RbBtSn0w/adg/issues/161)
 
 ## Problem and approved direction
