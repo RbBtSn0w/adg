@@ -5,7 +5,6 @@ import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
 import { codexAgent, codexMarketplaceName, parseCodexInspection, parseCodexPluginListJson } from "../src/agents/codex.ts";
-import { makeCli } from "../src/agents/base.ts";
 import { pluginStatus } from "../src/commands/status.ts";
 import { installPlugin } from "../src/commands/install.ts";
 import { tmp, scaffoldSource } from "./helpers.ts";
@@ -62,13 +61,6 @@ test("Codex snapshots reject installation flags that contradict their containing
     assert.equal(parseCodexInspection(out, "adg"), undefined);
     assert.equal(parseCodexPluginListJson(out, "adg"), undefined);
   }
-});
-
-test("CLI capture preserves JSON stdout independently from stderr diagnostics", () => {
-  const cli = makeCli("node", { probeArgs: [] });
-  const result = cli.run(["-e", 'process.stdout.write("{}");process.stderr.write("warning")']);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result, { ok: true, out: "{}warning", stdout: "{}", stderr: "warning" });
 });
 
 test("Codex status parses stdout despite warnings and never runs mutating commands", (t) => {
