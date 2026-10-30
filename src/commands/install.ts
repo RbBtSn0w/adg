@@ -100,7 +100,7 @@ function activateInstalled(
 ): AgentSyncResult[] | undefined {
   const updatedLock = readLock(lockPath(opts.pluginsDir));
   const eligible = installed.filter((result) => pluginState(updatedLock.plugins[result.name]!) === "enabled");
-  const toActivate = opts.skipUnchanged ? eligible.filter((result) => result.changed) : eligible;
+  const toActivate = opts.skipUnchanged ? eligible.filter((result) => result.runtimeRefreshRequired ?? result.changed) : eligible;
   if (!opts.activate || toActivate.length === 0) return undefined;
 
   const resolved = opts.agents ?? resolveAgents(targets);
@@ -121,7 +121,15 @@ function activateInstalled(
     if (activateNames.length > 0) parts.push(agent.activate(ctxFor(activateNames)));
     if (refreshNames.length > 0) parts.push(agent.refresh(ctxFor(refreshNames)));
     return parts.reduce<AgentSyncResult>(
-      (acc, result) => ({ agent: result.agent, affected: [...acc.affected, ...result.affected], skipped: acc.skipped && result.skipped, ...((acc.failures?.length || result.failures?.length) ? { failures: [...(acc.failures ?? []), ...(result.failures ?? [])] } : {}) }),
+      (acc, result) => ({
+        agent: result.agent,
+        affected: [...acc.affected, ...result.affected],
+        skipped: acc.skipped && result.skipped,
+        ...((acc.failures?.length || result.failures?.length) ? { failures: [...(acc.failures ?? []), ...(result.failures ?? [])] } : {}),
+        ...Object.fromEntries((["verified", "unverified", "preservedDisabled"] as const)
+          .filter((field) => acc[field] !== undefined || result[field] !== undefined)
+          .map((field) => [field, [...new Set([...(acc[field] ?? []), ...(result[field] ?? [])])]])),
+      }),
       { agent: agent.id, affected: [], skipped: true },
     );
   });

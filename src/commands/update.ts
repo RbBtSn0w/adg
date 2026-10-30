@@ -9,6 +9,8 @@ import { resolveDefaultDsl } from "../default-dsl.ts";
 import { ADG_MANIFEST_PATH } from "../manifest.ts";
 import { copyPluginDir, writeJson } from "../fsutil.ts";
 import type { UpdatePhase } from "../render/progress.ts";
+import type { PluginChanges } from "../plugin-changes.ts";
+import { pluginState } from "../types.ts";
 
 export interface UpdateResult {
   name: string;
@@ -16,6 +18,8 @@ export interface UpdateResult {
   version: string;
   sourceHash: string;
   installedHash: string;
+  changes?: PluginChanges;
+  runtimeRefreshRequired?: boolean;
 }
 
 export interface UpdateOptions {
@@ -107,13 +111,15 @@ export function updateLock(
     } finally {
       if (staging) rmSync(staging, { recursive: true, force: true });
     }
-    if (result.changed) changedNames.push(name);
+    if ((result.runtimeRefreshRequired ?? result.changed) && pluginState(entry) === "enabled") changedNames.push(name);
     results.push({
       name,
       changed: result.changed,
       version: result.version,
       sourceHash: result.sourceHash,
       installedHash: result.installedHash,
+      ...(result.changes ? { changes: result.changes } : {}),
+      runtimeRefreshRequired: result.runtimeRefreshRequired ?? result.changed,
     });
   }
 

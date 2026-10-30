@@ -16,6 +16,7 @@ import { syncPlugins, type SyncResult } from "./sync.ts";
 import { updateLock, type UpdateLockResult } from "./update.ts";
 import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
 import type { UpdatePhase } from "../render/progress.ts";
+import type { PluginChanges } from "../plugin-changes.ts";
 
 /**
  * The marketplace layer is a *view* over installed plugins grouped by their
@@ -128,7 +129,7 @@ function requireGroup(pluginsDir: string, source: string, scope?: ScopeInfo): Ma
 export interface PluginUpdateSourceResult {
   source: string;
   ref?: string;
-  /** Plugin names whose content/version changed upstream and were refreshed. */
+  /** Plugin names whose source/store records changed; not runtime success. */
   updated: string[];
   /** Re-fetched but byte-identical to what was installed. */
   unchanged: string[];
@@ -136,6 +137,8 @@ export interface PluginUpdateSourceResult {
   deleted: string[];
   /** Discovered in the source but not installed (offered for `--all`). */
   available: string[];
+  /** Source/store changes; runtime sync outcomes are reported separately in agents. */
+  changes?: Array<PluginChanges & { name: string; runtimeRefreshRequired: boolean }>;
   /** Set when the source could not be fetched; the message explains why. */
   failed?: string;
 }
@@ -327,6 +330,9 @@ export async function updatePlugins(
         unchanged: installed.filter((r) => !r.changed).map((r) => r.name).sort(),
         deleted: group.installed.filter((n) => !availableSet.has(n)).sort(),
         available: [...available].filter((n) => !installedNow.has(n) && !group.installed.includes(n)).sort(),
+        changes: installed.filter((r) => r.changes).map((r) => ({
+          name: r.name, ...r.changes!, runtimeRefreshRequired: r.runtimeRefreshRequired ?? r.changed,
+        })).sort((a, b) => a.name.localeCompare(b.name)),
       });
     } catch (err) {
       remote.push({
@@ -363,7 +369,9 @@ export async function updatePlugins(
     scope: opts.agentScope ?? "project",
   }, false, repairAgent, {
     initial, observed: true,
-    changed: [...remote.flatMap((source) => source.updated), ...local.results.filter((plugin) => plugin.changed).map((plugin) => plugin.name)],
+    changed: [...remote.flatMap((source) => source.changes
+      ? source.changes.filter((plugin) => plugin.runtimeRefreshRequired).map((plugin) => plugin.name)
+      : source.updated), ...local.results.filter((plugin) => plugin.runtimeRefreshRequired ?? plugin.changed).map((plugin) => plugin.name)],
     removed: repairNames.filter((name) => !currentLock.plugins[name]),
   })] : [];
   const agents = mergeAgentResults([remoteAgents, local.agents ?? [], repairs]);

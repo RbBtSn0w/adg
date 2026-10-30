@@ -1,3 +1,15 @@
+## [0.11.0-beta.1](https://github.com/RbBtSn0w/adg/compare/0.10.1...0.11.0-beta.1) (2026-10-30)
+
+### Added
+
+* **skills:** sync upstream v1.7.4 and restore vendor contracts ([#152](https://github.com/RbBtSn0w/adg/issues/152)) ([27df66c](https://github.com/RbBtSn0w/adg/commit/27df66c51057d25048bb527f94a59eb426d7a231))
+
+### Fixed
+
+* **plugins:** retain Git failure diagnostics during updates ([#151](https://github.com/RbBtSn0w/adg/issues/151)) ([bbc4e89](https://github.com/RbBtSn0w/adg/commit/bbc4e89a7818130a5cc0583185216baac3e86177))
+* **plugins:** separate release changes, checkpoints and runtime synchronization ([#162](https://github.com/RbBtSn0w/adg/issues/162)) ([9f9c75d](https://github.com/RbBtSn0w/adg/commit/9f9c75d53a375653726ac91b47864ef07ef82b20))
+* **release:** align changelog preset with semantic-release writer ([#163](https://github.com/RbBtSn0w/adg/issues/163)) ([c0d6b31](https://github.com/RbBtSn0w/adg/commit/c0d6b317e531d74e9bcce5f14a638564f68a4646))
+
 ## [0.10.1](https://github.com/RbBtSn0w/adg/compare/0.10.0...0.10.1) (2026-10-17)
 
 ### Fixed
