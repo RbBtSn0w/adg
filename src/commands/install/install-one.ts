@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { ADAPTER_TARGETS } from "../../adapters/index.ts";
@@ -12,6 +13,7 @@ import { recordTelemetryEvent } from "../../telemetry.ts";
 import { readMarketplace, upsertMarketplacePlugin, writeMarketplace } from "../../marketplace.ts";
 import {
   normalizePluginSelection,
+  COMPONENT_TYPES,
   resolveSelectionDependencies,
   sameSource,
   type AdgManifest,
@@ -21,6 +23,7 @@ import {
 import { pluginContents } from "../../components.ts";
 import { effectivePackageFilter, materializePlugin, withPluginSourceCache } from "../../materialize.ts";
 import type { InstallOneOptions, InstallResult } from "./types.ts";
+import { pluginComparisonHash, type PluginChanges } from "../../plugin-changes.ts";
 
 // Generated runtime projections never count toward a plugin's content hash.
 const HASH_IGNORE = PROJECTION_DIRS;
@@ -98,14 +101,73 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
 
   const sourceHash = contentHash(source, manifest);
   const cacheDir = pluginSourceCacheDir(opts.pluginsDir, name);
+  const targets = opts.targets ?? [...ADAPTER_TARGETS];
+  const contents = pluginContents(source, manifest);
+  const selectedContents = (value: typeof selection) => Object.fromEntries(COMPONENT_TYPES.map((component) => {
+    const available = contents[component];
+    const selected = component === "skills" ? value?.skills : component === "mcp" ? value?.mcp : undefined;
+    return [component, value && !value.components.includes(component) ? [] : available.filter((name) => !selected || selected.includes(name)).sort()];
+  }));
+  const effectiveSelectionChanged = !isDeepStrictEqual(selectedContents(resolveSelectionDependencies(manifest, prev?.selection)), selectedContents(selection));
+  const changes: PluginChanges = {
+    version: !prev || prev.version !== manifest.version,
+    content: true,
+    selection: !isDeepStrictEqual(prev?.selection, desiredSelection),
+    source: Boolean(prev && opts.resolvedRevision && prev.resolvedRevision !== opts.resolvedRevision),
+  };
+  // Capture comparison evidence before the cache transaction replaces it.
+  if (prev && existsSync(cacheDir)) {
+    try {
+      const priorManifest = readManifest(cacheDir);
+      if (contentHash(cacheDir, priorManifest) === prev.sourceHash) {
+        changes.content = pluginComparisonHash(cacheDir, priorManifest) !== pluginComparisonHash(source, manifest);
+      }
+    } catch { /* Missing/invalid comparison evidence requires a conservative update. */ }
+  }
+  let projectionsIntact = false;
+  let installationIntact = false;
+  try {
+    const installedManifest = readManifest(dest);
+    const previousSelection = resolveSelectionDependencies(installedManifest, prev?.selection);
+    installationIntact = Boolean(prev && folderHash(dest, PROJECTION_DIRS, effectivePackageFilter(installedManifest, previousSelection)) === prev.installedHash);
+    // Generate the complete expected installation, including auxiliary MCP,
+    // hooks and runner files that are outside native manifest directories.
+    const work = mkdtempSync(join(tmpdir(), "adg-projection-check-"));
+    try {
+      const expected = join(work, "expected");
+      materializePlugin({ source: dest, destination: expected, manifest: installedManifest, selection: previousSelection,
+        build: (staging) => { adaptPlugin(staging, targets, previousSelection, dest); } });
+      const paths = new Set<string>();
+      const collect = (dir: string, prefix = "") => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+          paths.add(path);
+          if (entry.isDirectory()) collect(join(dir, entry.name), path);
+        }
+      };
+      collect(expected);
+      projectionsIntact = folderHash(expected) === folderHash(dest, [], (path) => paths.has(path));
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  } catch { /* Missing or damaged projections must be regenerated. */ }
   return withPluginSourceCache(source, cacheDir, manifest, (snapshot) => {
     // Detect-then-update compares the complete source snapshot, never the
     // selection-pruned runtime installation.
     if (!opts.forceMaterialize && opts.skipUnchanged && prev
+      && !effectiveSelectionChanged && projectionsIntact
       && prev.sourceHash === sourceHash && prev.version === manifest.version) {
       const installedIntact = existsSync(dest)
         && folderHash(dest, PROJECTION_DIRS, effectivePackageFilter(manifest, selection)) === prev.installedHash;
       if (installedIntact) {
+        if (changes.source || changes.selection) {
+          // Exact bytes are verified at this revision; this is not an install.
+          lock.plugins[name] = {
+            ...prev,
+            ...(changes.source ? { resolvedRevision: opts.resolvedRevision! } : {}),
+            ...(desiredSelection ? { selection: desiredSelection } : {}),
+          };
+          writeLock(lockFile, lock);
+        }
+        recordTelemetryEvent("adg.install.change", { ...changes, "runtime.refresh_required": false }, opts.telemetrySpan);
         return {
           name,
           version: manifest.version,
@@ -114,11 +176,12 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
           installedHash: prev.installedHash,
           adapted: [],
           changed: false,
+          changes,
+          runtimeRefreshRequired: false,
         };
       }
     }
 
-    const targets = opts.targets ?? [...ADAPTER_TARGETS];
     const adapted: string[] = [];
     let installedHash = "";
     materializePlugin({
@@ -127,7 +190,7 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
       manifest,
       selection,
       build: (staging) => {
-        adapted.push(...adaptPlugin(staging, targets, selection).map((r) => relative(staging, r.file)));
+        adapted.push(...adaptPlugin(staging, targets, selection, dest).map((r) => relative(staging, r.file)));
         installedHash = folderHash(staging, PROJECTION_DIRS, effectivePackageFilter(manifest, selection));
       },
     });
@@ -165,6 +228,9 @@ export function installPlugin(opts: InstallOneOptions): InstallResult {
     });
     writeMarketplace(marketFile, market);
 
-    return { name, version: manifest.version, installedTo: dest, sourceHash, installedHash, adapted: adaptedFiles, changed };
+    const runtimeRefreshRequired = !prev || changes.version || changes.selection || !projectionsIntact || !installationIntact
+      || prev.installedHash !== installedHash || Boolean(opts.forceMaterialize);
+    recordTelemetryEvent("adg.install.change", { ...changes, "runtime.refresh_required": runtimeRefreshRequired }, opts.telemetrySpan);
+    return { name, version: manifest.version, installedTo: dest, sourceHash, installedHash, adapted: adaptedFiles, changed, changes, runtimeRefreshRequired };
   });
 }

@@ -40,8 +40,12 @@ export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: s
   for (const r of agents ?? []) {
     const name = getAgent(r.agent)?.displayName ?? r.agent;
     for (const failure of r.failures ?? []) out.push(ui.err(`${name}: ${failure.stage}${failure.plugin ? ` ${failure.plugin}` : ""}: ${failure.message}`));
-    const completed = r.verified ?? r.affected;
+    const failed = new Set((r.failures ?? []).flatMap((failure) => failure.plugin ? [failure.plugin] : []));
+    const uncertain = new Set(r.unverified ?? []);
+    const globalFailure = r.failures?.some((failure) => !failure.plugin);
+    const completed = (r.verified ?? (globalFailure ? [] : r.affected)).filter((plugin) => !failed.has(plugin) && !uncertain.has(plugin));
     if (completed.length > 0) out.push(`${ui.ok(verb)} in ${ui.name(name)}: ${completed.join(", ")}`);
+    if (r.failures?.length || r.unverified?.length) out.push(ui.warn(`runtime synchronization pending in ${name}; run \`adg plugins sync --target ${r.agent}\` with the same scope to retry.`));
     if (r.unverified?.length) out.push(ui.warn(`installed, recovery unverified in ${name}: ${r.unverified.join(", ")}`));
     if (r.preservedDisabled?.length) out.push(ui.meta(`runtime disabled, preserved in ${name}: ${r.preservedDisabled.join(", ")}; use enable or sync to activate`));
     else if (r.skipped)
@@ -129,7 +133,16 @@ export function renderUpdateReport(result: PluginUpdateResult): string[] {
       out.push(`${head} ${ui.err("could not be checked")} ${ui.meta(`— ${r.failed}`)}`);
       continue;
     }
-    if (r.updated.length > 0) out.push(`${head}: ${ui.ok(`updated ${r.updated.join(", ")}`)}`);
+    if (r.updated.length > 0 && r.changes) {
+      const versionOnly = r.updated.filter((name) => {
+        const change = r.changes!.find((item) => item.name === name);
+        return change?.version && !change.content && !change.selection;
+      });
+      const content = r.updated.filter((name) => !versionOnly.includes(name));
+      if (content.length > 0) out.push(`${head}: ${ui.ok(`content/configuration updated ${content.join(", ")}`)}`);
+      if (versionOnly.length > 0) out.push(`${head}: ${ui.meta(`version only ${versionOnly.join(", ")} (component files unchanged)`)}`);
+    }
+    else if (r.updated.length > 0) out.push(`${head}: ${ui.ok(`updated ${r.updated.join(", ")}`)}`);
     else out.push(`${head}: ${ui.meta(`up to date (${r.unchanged.length})`)}`);
 
     if (r.deleted.length > 0) {
@@ -141,7 +154,9 @@ export function renderUpdateReport(result: PluginUpdateResult): string[] {
   }
 
   for (const res of result.local.results) {
-    out.push(`${res.changed ? ui.ok("updated") : ui.meta("unchanged")} ${ui.name(`${res.name}@${res.version}`)} ${ui.meta("(local)")}`);
+    const versionOnly = res.changes?.version && !res.changes.content && !res.changes.selection;
+    const label = !res.changed ? ui.meta("unchanged") : versionOnly ? ui.meta("version only") : ui.ok("content/configuration updated");
+    out.push(`${label} ${ui.name(`${res.name}@${res.version}`)} ${ui.meta("(local)")}`);
   }
   for (const m of result.local.missing) out.push(ui.warn(`  ! missing directory for locked plugin: ${m}`));
 

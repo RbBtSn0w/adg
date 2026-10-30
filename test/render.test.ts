@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
 import { formatColumns, abbrevHome, ellipsizeStart } from "../src/render/ui.ts";
-import { renderContents, renderPluginList, renderMarketplaceList, renderPrune, renderStatus } from "../src/render/plugins.ts";
+import { renderAgentReport, renderContents, renderPluginList, renderMarketplaceList, renderPrune, renderStatus } from "../src/render/plugins.ts";
 import { pluginsListJson, pluginsStatusJson } from "../src/render/json.ts";
 import type { ListedPlugin } from "../src/commands/list.ts";
 import type { MarketplaceGroup } from "../src/commands/marketplace.ts";
@@ -17,6 +17,30 @@ import type { AgentPruneResult } from "../src/agents/types.ts";
 // checks are unaffected because the wrapped text stays contiguous.
 // eslint-disable-next-line no-control-regex
 const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
+
+test("runtime failures remain pending even when an adapter reports the plugin as affected", () => {
+  const lines = renderAgentReport([{ agent: "codex", affected: ["sales"], skipped: false,
+    failures: [{ plugin: "sales", stage: "verify", errorType: "test_failure", message: "not applied" }] }], "re-synced").map(stripAnsi).join("\n");
+  assert.match(lines, /not applied/);
+  assert.match(lines, /pending.*plugins sync/);
+  assert.doesNotMatch(lines, /re-synced in/);
+});
+
+test("runtime-wide failures suppress unverified affected claims", () => {
+  const lines = renderAgentReport([{ agent: "codex", affected: ["sales"], skipped: false,
+    failures: [{ stage: "marketplace", errorType: "test_failure", message: "registry unavailable" }] }], "re-synced").map(stripAnsi).join("\n");
+  assert.match(lines, /registry unavailable/);
+  assert.match(lines, /pending/);
+  assert.doesNotMatch(lines, /re-synced in/);
+});
+
+test("runtime unverified entries are never presented as completed", () => {
+  const lines = renderAgentReport([{ agent: "codex", affected: ["sales", "finance"],
+    unverified: ["sales"], skipped: false }], "re-synced").map(stripAnsi);
+  assert.match(lines.find((line) => line.startsWith("re-synced"))!, /finance/);
+  assert.doesNotMatch(lines.find((line) => line.startsWith("re-synced"))!, /sales/);
+  assert.match(lines.join("\n"), /pending.*plugins sync/);
+});
 
 test("formatColumns lays items into width-bounded rows", () => {
   const out = formatColumns(["a", "bb", "ccc"], { width: 12, indent: 2, gutter: 2, maxColWidth: 4 });

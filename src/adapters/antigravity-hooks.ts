@@ -375,6 +375,7 @@ export function writeAntigravityHooks(
   pluginDir: string,
   manifest: AdgManifest,
   selection?: PluginSelection,
+  runtimeRoot: string = pluginDir,
 ): string[] {
   const target = join(pluginDir, TARGET_FILE);
   const sources = hookSources(pluginDir, manifest);
@@ -398,7 +399,9 @@ export function writeAntigravityHooks(
   }
 
   const document = parseJsonFile(sources.canonical!, "canonical hooks") as ClaudeHooksDocument;
-  const { definition, warnings } = translateDocument(pluginDir, manifest.name, document);
+  // Commands execute after staging is promoted: embed the installed location,
+  // while source reads and generated file writes still use the staging folder.
+  const { definition, warnings } = translateDocument(runtimeRoot, manifest.name, document);
   if (Object.keys(definition).length) {
     const projected = { [manifest.name]: definition };
     validateNativeDocument(projected);
