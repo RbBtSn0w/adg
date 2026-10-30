@@ -7,6 +7,15 @@ import { addPlugins, installPlugin } from "../src/commands/install.ts";
 import { readLock } from "../src/lock.ts";
 import { lockPath, pluginSourceCacheDir } from "../src/paths.ts";
 import { tmp } from "./helpers.ts";
+import { effectivePackageFilter } from "../src/materialize.ts";
+
+test("effective packaging includes the canonical manifest with normalized separators", () => {
+  const f = fixture();
+  try {
+    const manifest = JSON.parse(readFileSync(join(f.source, ".agents", ".plugin.json"), "utf8"));
+    assert.equal(effectivePackageFilter(manifest)(".agents/.plugin.json"), true);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+});
 
 function fixture() {
   const root = tmp();
@@ -186,7 +195,8 @@ test("translated hooks refer to the installed root and unchanged updates do not 
     writeFileSync(join(f.source, "hooks", "hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "echo ready" }] }] } }));
     const before = installPlugin(f);
     const hooks = readFileSync(join(before.installedTo, "hooks.json"), "utf8");
-    assert.equal(hooks.includes(before.installedTo), true);
+    const commands = JSON.parse(hooks).demo.PreInvocation.map((handler: { command: string }) => handler.command);
+    assert.equal(commands.some((command: string) => command.includes(before.installedTo)), true);
     assert.equal(hooks.includes("adg-staging"), false);
     const result = installPlugin({ ...f, skipUnchanged: true });
     assert.equal(result.runtimeRefreshRequired, false);
