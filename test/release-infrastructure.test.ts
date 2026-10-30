@@ -6,6 +6,33 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import YAML from "yaml";
 
+test("configured semantic-release plugins render notes and preserve release classification", () => {
+  const script = `
+    import { readFileSync } from 'node:fs';
+    import { generateNotes } from '@semantic-release/release-notes-generator';
+    import { analyzeCommits } from '@semantic-release/commit-analyzer';
+    const config = JSON.parse(readFileSync('.releaserc.json', 'utf8'));
+    const plugin = name => config.plugins.find(p => Array.isArray(p) && p[0] === name)[1];
+    const commits = ['feat: add release example', 'fix: repair release example', 'chore: hidden maintenance example']
+      .map((message, i) => ({message, hash: String(i + 1).repeat(40)}));
+    const context = {cwd: process.cwd(), env: process.env, commits,
+      logger: {log() {}}, options: {repositoryUrl: 'https://github.com/RbBtSn0w/adg.git'},
+      lastRelease: {gitTag: '1.0.0'}, nextRelease: {version: '1.1.0', gitTag: '1.1.0'}};
+    const notes = await generateNotes(plugin('@semantic-release/release-notes-generator'), context);
+    const release = await analyzeCommits(plugin('@semantic-release/commit-analyzer'), context);
+    console.log(JSON.stringify({notes, release}));
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const { notes, release } = JSON.parse(result.stdout);
+  assert.match(notes, /Added/);
+  assert.match(notes, /Fixed/);
+  assert.match(notes, /add release example/);
+  assert.match(notes, /repair release example/);
+  assert.doesNotMatch(notes, /hidden maintenance example/);
+  assert.equal(release, "minor");
+});
+
 /**
  * Test Intent
  * Risk: a failed GitHub Packages mirror is reported as a successful release.
