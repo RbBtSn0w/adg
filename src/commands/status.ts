@@ -1,7 +1,7 @@
 import { runtimeDifference } from "./runtime-repair.ts";
 import { existsSync } from "node:fs";
 import { listPlugins } from "./list.ts";
-import { allAgents, isAgentListFailure, resolveAgents, type Agent, type AgentScope } from "../agents/index.ts";
+import { allAgents, isAgentListFailure, resolveAgents, type Agent, type AgentScope, type AgentPluginRecord } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { lockPath } from "../paths.ts";
 import { pluginState } from "../types.ts";
@@ -30,6 +30,8 @@ export interface AgentStatus {
   inSync: string[];
   runtimeMissing?: string[];
   runtimeDisabled?: string[];
+  /** Native registration/catalog facts, not proof of an existing session's loaded version. */
+  runtimePlugins?: AgentPluginRecord[];
   /** In the store but not enabled in the agent → needs `link`/`sync`. */
   missing: string[];
   /** Enabled in the agent but absent from the store → possible orphan → `unlink`. */
@@ -99,6 +101,7 @@ export function pluginStatus(opts: StatusOptions): AgentStatus[] {
       displayName: a.displayName,
       queryable: true,
       ...details,
+      ...(Array.isArray(inspection) ? { runtimePlugins: inspection } : {}),
       inSync: enabled.filter((n) => agentSet.has(n)),
       missing: enabled.filter((n) => !agentSet.has(n)),
       agentOnly,

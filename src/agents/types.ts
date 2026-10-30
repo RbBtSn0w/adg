@@ -41,6 +41,8 @@ export interface AgentPluginRecord {
   name: string;
   installed: boolean;
   enabled: boolean;
+  /** Native registration version, or catalog version when not installed. */
+  version?: string;
 }
 
 export type AgentInspectionResult = AgentPluginRecord[] | AgentListFailure | undefined;

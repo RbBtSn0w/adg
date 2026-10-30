@@ -8,6 +8,9 @@ import { runSubprocessSync } from "../subprocess.ts";
 export interface RunResult {
   ok: boolean;
   out: string;
+  /** Separate streams for machine-readable output; optional for injected runners. */
+  stdout?: string;
+  stderr?: string;
 }
 
 /**
@@ -138,7 +141,7 @@ export function makeCli(bin: string, opts: CliOptions): Cli {
             if (r.error) console.error(r.error.message);
             else if (r.stderr) console.error(r.stderr.trim());
           }
-          return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? r.error.message : ""}` };
+          return { ok, out: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? r.error.message : ""}`, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
         } finally {
           span.end();
         }
