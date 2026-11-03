@@ -51,7 +51,8 @@ npm ci --no-audit --no-fund
 npm run typecheck
 npm run build
 npm test
-npm pack --ignore-scripts --pack-destination /absolute/scratch
-npm run test:package -- /absolute/scratch/*.tgz
+pack_dir=$(mktemp -d)
+NPM_CONFIG_IGNORE_SCRIPTS=true npm pack --ignore-scripts --pack-destination "$pack_dir"
+npm run test:package -- "$pack_dir"/*.tgz
 node --test test/release-payload.test.mjs
 ```
