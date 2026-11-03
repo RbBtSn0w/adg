@@ -52,6 +52,6 @@ npm run typecheck
 npm run build
 npm test
 npm pack --ignore-scripts --pack-destination /absolute/scratch
-npm run test:package -- /absolute/scratch/package.tgz
+npm run test:package -- /absolute/scratch/*.tgz
 node --test test/release-payload.test.mjs
 ```

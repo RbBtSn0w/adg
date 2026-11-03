@@ -43,8 +43,17 @@ export async function publish(_options, { cwd, env, nextRelease }) {
       let error; try { error = JSON.parse(view.stdout).error; } catch { /* fail closed below */ }
       if (error?.code !== 'E404') throw Error(`${target}: registry lookup failed: ${view.stderr}`);
       execFileSync('npm', ['publish', resolve(archive), '--ignore-scripts', '--access', 'public', '--tag', 'latest', '--registry', registry, ...(target === 'npm' ? ['--provenance'] : [])], {cwd: input, env: runEnv, stdio: 'inherit', timeout: 120000});
-      const actual = execFileSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
-      if (JSON.parse(actual) !== metadata.integrity) throw Error(`${target}: published integrity mismatch`);
+      let verified = false;
+      let detail = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const actual = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
+        try { verified = !actual.error && actual.status === 0 && JSON.parse(actual.stdout) === metadata.integrity; }
+        catch { /* Malformed or not-yet-visible registry metadata remains unverified. */ }
+        if (verified) break;
+        detail = actual.error?.message || actual.stderr || actual.stdout;
+        if (attempt < 2) await new Promise(done => setTimeout(done, 1000 * (attempt + 1)));
+      }
+      if (!verified) throw Error(`${target}: published integrity could not be verified: ${detail}`);
     }
     writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata, registry, candidate: env.CANDIDATE_SHA}));
   }

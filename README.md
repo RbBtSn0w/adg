@@ -501,8 +501,7 @@ it's sanitized.
 
 ## Contributing
 
-All feature/fix pull requests target the **`main`** integration branch; `main`
-is reserved for stable releases. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+All feature/fix pull requests target the **`main`** integration branch. See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [docs/branching-and-release.md](docs/branching-and-release.md).
 
 ## License

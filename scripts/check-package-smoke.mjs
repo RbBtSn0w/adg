@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..");
 const tarball = process.argv[2];
-if (!tarball || !tarball.startsWith('/') || !existsSync(tarball)) throw new Error('Expected an absolute existing tarball path');
+if (!tarball || !isAbsolute(tarball) || !existsSync(tarball)) throw new Error('Expected an absolute existing tarball path');
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
