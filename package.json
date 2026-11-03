@@ -1,7 +1,7 @@
 {
   "name": "@rbbtsn0w/adg",
   "version": "0.11.1",
-  "description": "Agent Directory Group (ADG) toolkit — two domains: plugins and skills.",
+  "description": "Agent Directory Group (ADG) toolkit \u2014 two domains: plugins and skills.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -35,7 +35,8 @@
     "audit:prod": "npm audit --omit=dev",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run typecheck",
-    "prepack": "npm run typecheck && npm run build"
+    "prepack": "npm run typecheck && npm run build",
+    "test:package": "node scripts/check-package-smoke.mjs"
   },
   "files": [
     "dist",
@@ -62,16 +63,18 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/git": "^11.0.1",
     "@semantic-release/github": "^12.0.8",
     "@semantic-release/npm": "^13.1.5",
     "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/node": "^26.6.5",
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "semantic-release": "^25.0.5",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@commitlint/lint": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
+    "import-from-esm": "2.0.0",
+    "publint": "0.3.25"
   },
   "comment:overrides": "Security floors for transitive development tooling: keep npm on a patched 11.x release, pin transitive packages to patch security advisories (handlebars, postcss-selector-parser, http-cache-semantics, brace-expansion, ip-address), and pin transitive undici/js-yaml branches to their patched versions.",
   "overrides": {

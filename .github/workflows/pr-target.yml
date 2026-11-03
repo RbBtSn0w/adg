@@ -1,40 +1,16 @@
 name: PR Target Branch
 
-# Enforce the contribution flow: feature/fix PRs must target `develop`.
-# The only PR allowed to target `main` is the release PR from `develop`.
-#
-# Uses `pull_request` (not `pull_request_target`): the check only reads the
-# event's member-specific PR refs — no secrets or write access. The shortcut
-# github.base_ref may identify a native stack's trunk instead of the selected
-# member's direct base. A fork that neuters this file just fails to report the
-# required check, which blocks the merge (fail-safe).
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-    branches: [ main, develop ]
-
 permissions:
   contents: read
-
 jobs:
   check-base-branch:
     name: Validate base branch
     runs-on: ubuntu-latest
     steps:
-      - name: Check PR target
-        env:
+      - env:
           BASE: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.ref }}
-        run: |
-          echo "PR: ${HEAD} -> ${BASE}"
-          if [ "${BASE}" = "develop" ]; then
-            echo "OK: targeting the integration branch (develop)."
-            exit 0
-          fi
-          if [ "${BASE}" = "main" ] && [ "${HEAD}" = "develop" ]; then
-            echo "OK: release PR (develop -> main)."
-            exit 0
-          fi
-          echo "::error::Pull requests must target the develop branch."
-          echo "main is reserved for stable releases. Re-open this PR with base = develop."
-          exit 1
+        run: test "$BASE" = main

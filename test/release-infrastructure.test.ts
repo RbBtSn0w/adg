@@ -33,92 +33,14 @@ test("configured semantic-release plugins render notes and preserve release clas
   assert.equal(release, "minor");
 });
 
-/**
- * Test Intent
- * Risk: a failed GitHub Packages mirror is reported as a successful release.
- * Why Automation: authentication and registry failures share npm's non-zero exit path.
- * Why Existing Tests Insufficient: the release shell script previously had no executable contract test.
- * Chosen Layer: Integration Test - execute the real script with a deterministic npm process boundary.
- * Fragility Analysis: assert exit semantics, not npm wording or shell implementation details.
- * If Omitted: CI can stay green while the required package mirror is absent.
- */
-function runMirror(mode: "success" | "duplicate" | "conflict" | "failure"): { status: number | null; stderr: string } {
-  const root = mkdtempSync(join(tmpdir(), "adg-release-script-"));
-  try {
-    const bin = join(root, "bin");
-    const fakeNpm = join(bin, "npm");
-    const script = resolve("scripts/publish-github-packages.sh");
-    mkdirSync(bin);
-    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }));
-    writeFileSync(fakeNpm, `#!/usr/bin/env bash
-case "$FAKE_NPM_MODE" in
-  success) exit 0 ;;
-  duplicate) echo "npm error EPUBLISHCONFLICT version already exists" >&2; exit 1 ;;
-  conflict) echo "npm error E409 Conflict: repository policy rejected publish" >&2; exit 1 ;;
-  failure) echo "npm error E401 authentication failed" >&2; exit 1 ;;
-esac
-`);
-    chmodSync(fakeNpm, 0o755);
-    const result = spawnSync("bash", [script], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH ?? ""}`,
-        GITHUB_TOKEN: "test-token",
-        FAKE_NPM_MODE: mode,
-      },
-    });
-    return { status: result.status, stderr: String(result.stderr ?? "") };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
-const bashAvailable = spawnSync("bash", ["--version"], { stdio: "ignore" }).status === 0;
-const mirrorTest = (name: string, body: () => void): void => {
-  test(name, { skip: bashAvailable ? false : "requires bash to exercise the release script" }, body);
-};
-
-mirrorTest("GitHub Packages mirror succeeds when npm publish succeeds", () => {
-  assert.equal(runMirror("success").status, 0);
-});
-
-mirrorTest("GitHub Packages mirror tolerates an already-published version", () => {
-  assert.equal(runMirror("duplicate").status, 0);
-});
-
-mirrorTest("GitHub Packages mirror propagates non-duplicate failures", () => {
-  const result = runMirror("failure");
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /authentication failed/);
-});
-
-mirrorTest("GitHub Packages mirror does not treat an arbitrary conflict as a duplicate", () => {
-  assert.notEqual(runMirror("conflict").status, 0);
-});
-
-/**
- * Test Intent
- * Risk: support and release gates silently disappear during workflow edits.
- * Why Automation: YAML success does not prove the repository runs its declared minimum or packed CLI.
- * Why Existing Tests Insufficient: CI only covered the rolling Node matrix and source layout.
- * Chosen Layer: Integration Test - lock the repository's required gate declarations.
- * Fragility Analysis: assert semantic command/version markers, not YAML ordering.
- * If Omitted: future cleanup can remove a release-critical gate without a failing test.
- */
 test("CI covers the minimum Node runtime and repository release gates", () => {
   const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
   const pkg = JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts?: Record<string, string> };
   assert.match(workflow, /node-version:\s*["']?22\.18\.0["']?/);
   assert.match(workflow, /npm run check:docs/);
-  assert.match(workflow, /npm run check:package-smoke/);
+  assert.match(workflow, /npm run test:package/);
   assert.match(workflow, /npm run check:vendor-upstream/);
-  assert.match(workflow, /npm install -g npm@11\.21\.0/);
-  assert.match(workflow, /pr-dev-release:/);
-  assert.match(workflow, /--tag next/);
-  assert.match(workflow, /Mint release-bot token/);
-  assert.match(workflow, /token:\s*\$\{\{\s*steps\.bot\.outputs\.token\s*\|\|\s*secrets\.GITHUB_TOKEN\s*\}\}/);
+  assert.doesNotMatch(workflow, /pr-dev-release:|id-token: write|npm publish/);
   assert.ok(pkg.scripts?.["check:docs"]);
   assert.ok(pkg.scripts?.["check:package-smoke"]);
   assert.ok(pkg.scripts?.["check:vendor-upstream"]);
@@ -127,9 +49,8 @@ test("CI covers the minimum Node runtime and repository release gates", () => {
 test("workflows pin third-party actions to immutable commits", () => {
   for (const file of [
     ".github/workflows/ci.yml",
-    ".github/workflows/sync-main-to-develop.yml",
-    ".github/workflows/scheduled-release-pr.yml",
-    ".github/workflows/retarget-dependabot.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/pr-commit-semantics.yml",
   ]) {
     const workflow = readFileSync(resolve(file), "utf8");
     const refs = [...workflow.matchAll(/^\s*uses:\s*[^\s@]+@([^\s#]+)/gm)].map((match) => match[1]!);
@@ -138,7 +59,7 @@ test("workflows pin third-party actions to immutable commits", () => {
   }
 });
 
-test("dependabot targets develop and groups dependencies to avoid PR surges", () => {
+test("dependabot targets main and groups dependencies to avoid PR surges", () => {
   const dependabotRaw = readFileSync(resolve(".github/dependabot.yml"), "utf8");
   const dependabot = YAML.parse(dependabotRaw) as {
     updates: Array<{
@@ -154,7 +75,7 @@ test("dependabot targets develop and groups dependencies to avoid PR surges", ()
 
   const npm = dependabot.updates.find((u) => u["package-ecosystem"] === "npm");
   assert.ok(npm, "npm ecosystem entry exists");
-  assert.equal(npm["target-branch"], "develop");
+  assert.equal(npm["target-branch"], "main");
   assert.equal(npm["open-pull-requests-limit"], 5);
   assert.equal(npm.schedule.interval, "weekly");
   assert.equal(npm.schedule.day, "wednesday");
@@ -165,33 +86,13 @@ test("dependabot targets develop and groups dependencies to avoid PR surges", ()
 
   const actions = dependabot.updates.find((u) => u["package-ecosystem"] === "github-actions");
   assert.ok(actions, "github-actions ecosystem entry exists");
-  assert.equal(actions["target-branch"], "develop");
+  assert.equal(actions["target-branch"], "main");
   assert.equal(actions["open-pull-requests-limit"], 5);
   assert.equal(actions.schedule.interval, "weekly");
   assert.equal(actions.schedule.day, "wednesday");
   assert.ok(actions.groups?.actions);
 
-  const retargetRaw = readFileSync(resolve(".github/workflows/retarget-dependabot.yml"), "utf8");
-  const retarget = YAML.parse(retargetRaw) as {
-    on: { pull_request_target?: { types: string[]; branches: string[] }; workflow_dispatch?: unknown };
-    jobs: {
-      retarget: {
-        if: string;
-        steps: Array<{ name: string; run?: string }>;
-      };
-    };
-  };
 
-  assert.deepEqual(retarget.on.pull_request_target?.types, ["opened", "reopened", "edited"]);
-  assert.deepEqual(retarget.on.pull_request_target?.branches, ["main"]);
-  assert.ok(retarget.on.workflow_dispatch !== undefined);
-  assert.match(
-    retarget.jobs.retarget.if,
-    /github\.event_name\s*==\s*['"]workflow_dispatch['"]\s*\|\|\s*github\.event\.pull_request\.user\.login\s*==\s*['"]dependabot\[bot\]['"]/,
-  );
-  const retargetStep = retarget.jobs.retarget.steps.find((s) => s.name === "Retarget PR to develop");
-  assert.ok(retargetStep?.run);
-  assert.match(retargetStep.run, /--app\s+dependabot/);
 });
 
 test("PR target validation uses each stack member's own refs", () => {
@@ -204,11 +105,9 @@ test("PR target validation uses each stack member's own refs", () => {
 test("maintenance scripts preserve Windows process and filesystem semantics", () => {
   const packageSmoke = readFileSync(resolve("scripts/check-package-smoke.mjs"), "utf8");
   const vendorUpstream = readFileSync(resolve("scripts/check-vendor-upstream.mjs"), "utf8");
-  const publish = readFileSync(resolve("scripts/publish-github-packages.sh"), "utf8");
   assert.match(packageSmoke, /shell:\s*process\.platform === "win32"/);
   assert.match(packageSmoke, /USERPROFILE:\s*scratch/);
   assert.match(vendorUpstream, /shell:\s*process\.platform === "win32"/);
   assert.match(vendorUpstream, /process\.platform === "win32" \? "junction" : "dir"/);
-  assert.doesNotMatch(publish, /2>\s*>\(/);
-  assert.match(publish, /2>\s*"\$publish_log"/);
+
 });

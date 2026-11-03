@@ -1,16 +1,19 @@
 {
   "branches": [
-    "main",
-    { "name": "develop", "channel": "beta", "prerelease": "beta" }
+    "main"
   ],
   "tagFormat": "${version}",
   "plugins": [
+    "./scripts/commit-semantics.mjs",
     [
       "@semantic-release/commit-analyzer",
       {
         "preset": "conventionalcommits",
         "releaseRules": [
-          { "type": "refactor", "release": "patch" }
+          {
+            "type": "refactor",
+            "release": "patch"
+          }
         ]
       }
     ],
@@ -20,42 +23,72 @@
         "preset": "conventionalcommits",
         "presetConfig": {
           "types": [
-            { "type": "feat", "section": "Added" },
-            { "type": "fix", "section": "Fixed" },
-            { "type": "perf", "section": "Changed" },
-            { "type": "refactor", "section": "Changed" },
-            { "type": "revert", "section": "Fixed" },
-            { "type": "docs", "section": "Changed" },
-            { "type": "chore", "hidden": true },
-            { "type": "style", "hidden": true },
-            { "type": "test", "hidden": true },
-            { "type": "build", "hidden": true },
-            { "type": "ci", "hidden": true }
+            {
+              "type": "feat",
+              "section": "Added"
+            },
+            {
+              "type": "fix",
+              "section": "Fixed"
+            },
+            {
+              "type": "perf",
+              "section": "Changed"
+            },
+            {
+              "type": "refactor",
+              "section": "Changed"
+            },
+            {
+              "type": "revert",
+              "section": "Fixed"
+            },
+            {
+              "type": "docs",
+              "section": "Changed"
+            },
+            {
+              "type": "chore",
+              "hidden": true
+            },
+            {
+              "type": "style",
+              "hidden": true
+            },
+            {
+              "type": "test",
+              "hidden": true
+            },
+            {
+              "type": "build",
+              "hidden": true
+            },
+            {
+              "type": "ci",
+              "hidden": true
+            }
           ]
         }
       }
     ],
-    "@semantic-release/changelog",
-    [
-      "@semantic-release/npm",
-      {
-        "npmPublish": true,
-        "provenance": true
-      }
-    ],
+    "./scripts/release-payload.mjs",
     [
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "package.json", "label": "Package JSON" }
+          {
+            "path": "release-input/final.tgz",
+            "label": "Verified npm archive"
+          },
+          {
+            "path": "release-input/final.json",
+            "label": "Archive identity"
+          },
+          {
+            "path": "release-input/receipts/*.json",
+            "label": "Registry receipt"
+          }
         ]
-      }
-    ],
-    [
-      "@semantic-release/git",
-      {
-        "assets": ["package.json", "package-lock.json", "CHANGELOG.md", "README.md"],
-        "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}"
       }
     ]
   ]

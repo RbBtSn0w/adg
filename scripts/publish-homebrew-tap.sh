@@ -2,6 +2,7 @@
 set -euo pipefail
 
 : "${HOMEBREW_TAP_DIR:?HOMEBREW_TAP_DIR is required}"
+: "${RELEASE_ARCHIVE:?RELEASE_ARCHIVE is required}"
 
 package_name="@rbbtsn0w/adg"
 version="${1:-$(node -p "require('./package.json').version")}"
@@ -35,6 +36,11 @@ if [[ -z "$tarball_url" ]]; then
 fi
 
 sha256="$(curl -fsSL "$tarball_url" | sha256_stream)"
+expected_sha256="$(sha256_stream < "$RELEASE_ARCHIVE")"
+if [[ "$sha256" != "$expected_sha256" ]]; then
+  echo "npm tarball differs from this run's final archive." >&2
+  exit 1
+fi
 formula_path="${HOMEBREW_TAP_DIR}/Formula/adg.rb"
 
 cat >"$formula_path" <<EOF

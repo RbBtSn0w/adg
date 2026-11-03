@@ -1,76 +1,57 @@
 # Branching and release
 
-ADG uses `develop` as the integration branch and `main` as the stable release
-branch. Feature and fix pull requests always target `develop`; the only pull
-request allowed to target `main` is the release promotion from `develop`.
+`main` is the only integration trunk. Create short-lived feature/fix branches from
+current `origin/main`; submit reviewed squash PRs to `main`. Keep Conventional
+Commit titles and breaking-change footers. PR metadata and the actual engine-selected
+release range use the same conventionalcommits parser, with refactor yielding patch.
+No commit SHA exemptions are permitted.
 
-## Contribution flow
+## Publication
 
-1. Branch from the latest `develop`.
-2. Open a pull request back to `develop`.
-3. Pass the repository checks and review.
-4. Merge through branch protection; never push directly to `develop` or `main`.
+`.github/workflows/release.yml` runs Friday at 07:00 UTC (15:00 Asia/Singapore)
+and by manual dispatch on main. Both jobs require `RELEASE_ENABLED == 'true'`;
+unset disables publication. CI and PRs never publish. develop beta, PR previews,
+promotion PRs, sync-back and Dependabot retarget writers have been removed.
 
-Merges to `develop` are published by semantic-release under the `beta` npm
-dist-tag (prereleases as `x.y.z-beta.N`).
+The read-only job installs locked dependencies, verifies the candidate, builds once,
+packs once with scripts disabled, runs publint and exercises the installed packed
+CLI. An immutable same-run artifact ID carries the candidate SHA and SHA256 checksum.
+The publisher restores those exact bytes and checks live main immediately before
+semantic-release. Any read error, empty result or drift fails closed.
 
-## Automated Weekly Stable Release
+semantic-release alone selects the version and creates the tag/notes. Its stateless
+payload hook updates only the restored package manifest version and archives the
+same files without build, pack or lifecycle scripts. npmjs and GitHub Packages
+receive the identical final archive. Existing versions require matching SHA512
+integrity; registry/auth failures are errors. Each successful target writes a receipt.
+The GitHub Release attaches the archive, identity and registry receipts. Homebrew
+continues through the existing release App and tap updater after a real release.
+The release job never writes version/changelog commits to main.
 
-Every Friday at 15:00 Beijing time (UTC+8 / 07:00 UTC), a scheduled automation workflow
-(`.github/workflows/scheduled-release-pr.yml`):
+## Activation and recovery
 
-1. Checks if `develop` has new commits ahead of `main`.
-2. Automatically opens a `develop -> main` release promotion PR.
-3. Enables native GitHub `auto-merge`.
-4. Once all CI checks (test matrix, audits, smoke tests) pass and there are no conflicts or blockers, GitHub automatically merges the PR into `main`.
-5. Merging to `main` triggers `semantic-release` to cut a stable release (`latest` dist-tag).
+This migration is default-off, not evidence of operational publication. Before enablement,
+verify npm trusted-publisher binding to this repository and exact workflow filename
+`release.yml`, supported Node/npm OIDC, package/tag permissions, release App access to
+the Homebrew tap, and real release baseline/history. Configure PR squash title/body
+and required checks separately. Do not change credentials as a fallback on failure.
 
-## PR Dev Preview Releases
+Publication across registries, GitHub and Homebrew is not transactional. Download this
+run's final archive/identity and target receipts after partial failure; verify candidate,
+version and archive digest, then explicitly recover only the missing side effect.
+A later semantic-release no-op does not repair a missing mirror/Release/tap entry.
+Never republish different bytes at an existing version or rewrite tags. External old
+controllers/timers must be disabled at the separately authorized cutover. Remote develop
+is retained inactive; branch deletion is a separate owner action.
 
-Each pull request targeting `develop` triggers automated dev preview packaging:
-
-- Published under the `next` dist-tag on npm and GitHub Packages.
-- Formatted as `<BASE>-dev.pr<PR_NUM>.<SHORT_SHA>`.
-- The CI bot posts verification instructions directly on the PR with `npx`, `adg update --tag <version>`, or `adg update --dev`.
-
-## Back-merge after a stable release
-
-The release commit created on `main` must be merged back into `develop` so both
-branches share the same release ancestry. The `Sync main to develop` workflow opens
-a `main -> develop` pull request after successful main CI:
-
-- A conflict-free pull request is merged automatically with a merge commit.
-- A conflicting pull request receives `manual-sync-needed` and must be resolved
-  by a maintainer before further promotion work.
-- Resolve version and changelog conflicts in favor of the stable `main` release
-  commit while preserving subsequent integration changes from `develop`.
-- If `develop` was missing or deleted on `origin` (e.g. removed by repository-level
-  `delete_branch_on_merge` after promotion), the workflow automatically recreates
-  `develop` directly from the newly promoted `main` commit, self-healing the release
-  train without human intervention.
-
-Under normal operations, the workflow never pushes directly to a protected branch;
-all updates land via the auto-merged pull request. The sole exception is the emergency
-self-healing path above, which directly recreates `refs/heads/develop` via the GitHub API
-only when the branch is completely absent from `origin`. An open `manual-sync-needed`
-pull request is an operational action item, not a successful sync.
-
-## Local release checks
-
-Run the same checks used by CI before opening a pull request:
+## Local checks
 
 ```bash
-npm ci
-npm run check:vendor-deps
-npm run check:vendor-upstream
-npm run audit:prod
-npm run check:docs
+npm ci --no-audit --no-fund
 npm run typecheck
 npm run build
 npm test
-npm run check:package-smoke
+npm pack --ignore-scripts --pack-destination /absolute/scratch
+npm run test:package -- /absolute/scratch/package.tgz
+node --test test/release-payload.test.mjs
 ```
-
-Release automation is defined in `.github/workflows/ci.yml` and
-`.releaserc.json`. Optional Homebrew publication only runs for stable releases
-when the release-bot GitHub App is configured.
