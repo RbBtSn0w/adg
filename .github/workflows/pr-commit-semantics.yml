@@ -1,0 +1,33 @@
+name: PR Commit Semantics
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-message:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # No checkout: untrusted PR metadata is input, never executable code.
+      - name: Set up commit validation runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 'lts/*'
+      - name: Install isolated commitlint
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/commit-tools
+        run: npm install --prefix "$RELEASE_TOOLS" --ignore-scripts --no-audit --no-fund --save-exact @commitlint/cli@21.2.4 @commitlint/config-conventional@21.2.4 conventional-changelog-conventionalcommits@9.3.0
+      - name: Validate intended squash message
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/commit-tools
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node -e 'const fs=require("fs"),path=require("path"),{createRequire}=require("module");const r=createRequire(path.join(process.env.RELEASE_TOOLS,"package.json"));fs.writeFileSync(path.join(process.env.RELEASE_TOOLS,"commitlint.json"),JSON.stringify({extends:[r.resolve("@commitlint/config-conventional")],parserPreset:"conventional-changelog-conventionalcommits",defaultIgnores:false,rules:{"body-max-line-length":[0],"footer-max-line-length":[0]}}));'
+          printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" |
+            "$RELEASE_TOOLS/node_modules/.bin/commitlint" --config "$RELEASE_TOOLS/commitlint.json" --strict

@@ -1,0 +1,234 @@
+name: Scheduled Release
+
+on:
+  schedule:
+    # Friday 15:00 Asia/Singapore (UTC+8) -> 07:00 UTC.
+    - cron: '0 7 * * 5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TZ: Asia/Singapore
+  CI: 'true'
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - name: Validate release entrypoint
+        id: gate
+        shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$RELEASE_REF" != 'refs/heads/main' ]; then
+            echo '::error::Release requires main.'
+            exit 1
+          fi
+          case "$RELEASE_EVENT" in
+            schedule|workflow_dispatch) ;;
+            *) echo '::error::Unsupported release event.'; exit 1 ;;
+          esac
+
+      - name: Checkout candidate and release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up release-compatible Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+
+      - name: Use trusted-publishing npm
+        run: npm install -g npm@11.21.0 --ignore-scripts
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Adapt checks/build and define test:package to exercise the packed public API.
+      - name: Verify candidate
+        id: verify
+        timeout-minutes: 15
+        run: |
+          npm run check:vendor-deps
+          npm run check:docs
+          npm run check:test-isolation
+          npm run audit:prod
+          npm run check:vendor-upstream
+          npm run typecheck
+          npm run build
+          npm test
+          node --test test/release-*.test.mjs
+
+      - name: Pack and validate actual package
+        id: package
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p release-input
+          npm pack --ignore-scripts --json --pack-destination release-input > "$RUNNER_TEMP/pack.json"
+          node -e 'const fs=require("fs"),path=require("path");const rows=JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,"pack.json")));if(rows.length!==1)throw Error("Expected one package");fs.renameSync(path.join("release-input",rows[0].filename),"release-input/package.tgz");'
+          npx --no-install publint release-input/package.tgz --strict
+          (cd release-input && shasum -a 256 package.tgz > package.tgz.sha256)
+          npm run test:package -- "$PWD/release-input/package.tgz"
+          (cd release-input && shasum -a 256 -c package.tgz.sha256)
+          printf '%s\n' "$CANDIDATE_SHA" > release-input/candidate.sha
+
+      - name: Hand off verified package
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: npm-package-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-input/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: vars.RELEASE_ENABLED == 'true' && needs.verify.result == 'success' && needs.verify.outputs.artifact-id != ''
+    permissions:
+      packages: write
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout candidate and release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up release-compatible Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+
+      - name: Use trusted-publishing npm
+        run: npm install -g npm@11.21.0 --ignore-scripts
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: Download this run's verified package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact-id }}
+          path: release-input
+          merge-multiple: true
+
+      - name: Verify and restore package payload
+        id: restore
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          test "$(cat release-input/candidate.sha)" = "$CANDIDATE_SHA"
+          (cd release-input && shasum -a 256 -c package.tgz.sha256)
+          mkdir -p release-input/unpacked
+          tar -xzf release-input/package.tgz -C release-input/unpacked
+          npx --no-install publint release-input/unpacked/package --pack false --strict
+
+      - name: Publish verified candidate
+        id: publish
+        shell: bash
+        env:
+          RELEASE_BOT_APP_ID: ${{ vars.RELEASE_BOT_APP_ID }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # npm may update package.json's version, but must never rebuild the payload.
+          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          live_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ -z "$live_sha" ] || [ "$live_sha" != "$CANDIDATE_SHA" ]; then
+            echo '::error::Main changed or could not be read; rerun verification on a fresh candidate.'
+            exit 1
+          fi
+          test -n "${RELEASE_BOT_APP_ID:-}" || { echo 'Homebrew release App is required'; exit 1; }
+          npx --no-install semantic-release
+          if test -f release-input/released-version; then echo 'released=true' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Preserve final payload and per-target receipts
+        if: always() && steps.publish.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-receipts-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            release-input/final.tgz
+            release-input/final.json
+            release-input/receipts/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Create release bot token
+        if: ${{ steps.publish.outputs.released == 'true' }}
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: release-bot
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: RbBtSn0w
+          repositories: homebrew-tap
+          permission-contents: write
+      - name: Checkout homebrew tap
+        if: ${{ steps.publish.outputs.released == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: RbBtSn0w/homebrew-tap
+          token: ${{ steps.release-bot.outputs.token }}
+          ref: main
+          path: homebrew-tap
+      - name: Update homebrew formula
+        if: ${{ steps.publish.outputs.released == 'true' }}
+        env:
+          RELEASE_ARCHIVE: ${{ github.workspace }}/release-input/final.tgz
+          HOMEBREW_TAP_DIR: ${{ github.workspace }}/homebrew-tap
+        run: ./scripts/publish-homebrew-tap.sh "$(cat release-input/released-version)"
+      - name: Commit homebrew formula update
+        if: ${{ steps.publish.outputs.released == 'true' }}
+        working-directory: homebrew-tap
+        run: |
+          version="$(cat ../release-input/released-version)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then check the index — git diff (no --cached) does not
+          # see a brand-new untracked Formula/adg.rb, so the first publish must
+          # not be gated on it.
+          git add Formula/adg.rb
+          if git diff --cached --quiet -- Formula/adg.rb; then
+            echo "No Homebrew formula changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: update adg to ${version}"
+          git push origin HEAD:main
+
+      - name: Record Homebrew receipt
+        if: steps.publish.outputs.released == 'true'
+        run: git -C homebrew-tap rev-parse HEAD > release-input/receipts/homebrew.commit
+      - name: Preserve downstream receipt
+        if: always() && steps.publish.outputs.released == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: homebrew-receipt-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-input/receipts/homebrew.commit
+          if-no-files-found: warn

@@ -1,26 +1,15 @@
 # Contributing
 
-Thanks for helping improve ADG! This project uses a two-branch model to keep
-releases stable and the contribution flow predictable.
-
-## Branch model
-
-| Branch | Role | Who pushes | Released as |
-| ------ | ---- | ---------- | ----------- |
-| `main` | Stable release. Default/home branch. | Automated release PR from `develop` (or maintainers). | Stable version |
-| `develop` | Integration branch. Target for all contributions. | Contributors, via PR. | Prerelease (`-beta.N`) |
-
-**All pull requests must target `develop`.** `main` is reserved for stable
-releases and is not a destination for development work. PRs that target `main`
-(other than the release promotion PR from `develop`) are rejected automatically by
-CI.
+Contributions use short-lived branches and reviewed squash PRs to `main`, the
+only integration trunk. Preserve Conventional Commit title/body and breaking
+change declarations. Direct pushes to main are not part of the contribution flow.
 
 ## Contributor workflow
 
 1. **Fork** the repository.
-2. Create a **feature branch** off `develop`:
+2. Create a **feature branch** off `main`:
    ```bash
-   git switch develop && git pull
+   git switch main && git pull
    git switch -c fix/your-change
    ```
 3. Make your change. Keep commits focused and use
@@ -34,7 +23,7 @@ CI.
    npm run build
    npm test
    ```
-5. Open a **Pull Request with base branch `develop`** and fill in the PR template.
+5. Open a **Pull Request with base branch `main`** and fill in the PR template.
 6. Wait for CI and code review. A maintainer merges once both pass.
 
 CI runs the full check sequence (`npm ci`, dependency/audit checks, typecheck,
@@ -57,25 +46,9 @@ path-separator and shell-quoting behavior.
 - The shared fixtures (`tmp`, `baseManifest`, `scaffoldSource`) live in
   `test/helpers.ts` — reuse them instead of re-declaring per file.
 
-## What gets rejected
-
-- PRs targeting `main` directly (CI fails with
-  *"Pull requests must target the develop branch."*).
-- Pushes directly to `main` or `develop` (branch protection requires a PR).
-
 ## Release flow
 
-Releases are automated. Changes accumulate on `develop` and ship via scheduled
-Friday release PRs or maintainer workflow dispatch.
-
-```
-Multiple PRs ─▶ merge into develop ─▶ test & validate (publishes -beta.N)
-             ─▶ release PR: develop → main ─▶ auto-merge on green CI ─▶ stable release published
-```
-
-- Merging into `develop` publishes a **prerelease** (`x.y.z-beta.N`).
-- Promoting `develop` → `main` publishes the **stable** release.
-
-Both are handled by `semantic-release` (see `.releaserc.json` and
-`.github/workflows/ci.yml`). See [docs/branching-and-release.md](docs/branching-and-release.md)
-for the full process and repository protection setup.
+CI verifies contributions without publishing. The default-off scheduled/manual
+workflow publishes stable packages from main only, after repeating exact-candidate
+verification. See [branching and release](docs/branching-and-release.md) for
+artifact checks, activation requirements, and partial-publication recovery.

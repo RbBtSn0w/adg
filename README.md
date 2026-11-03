@@ -54,7 +54,6 @@ Install the CLI once, then run `adg` from anywhere:
 
 ```bash
 npm install -g @rbbtsn0w/adg          # stable channel
-npm install -g @rbbtsn0w/adg@beta     # pre-release channel
 brew tap RbBtSn0w/tap
 brew install adg
 # or run ad-hoc, no install:
@@ -502,8 +501,7 @@ it's sanitized.
 
 ## Contributing
 
-All feature/fix pull requests target the **`develop`** integration branch; `main`
-is reserved for stable releases. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+All feature/fix pull requests target the **`main`** integration branch. See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [docs/branching-and-release.md](docs/branching-and-release.md).
 
 ## License
