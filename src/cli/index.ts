@@ -159,9 +159,11 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     positional: "<source>  limit to one source key from `adg plugins marketplace list` (default: all)",
     blurb:
       "Re-fetches every remote source and refreshes the plugins installed from it,\n" +
-      "reporting what changed, what's unchanged, what was deleted upstream, and what's\n" +
+      "reporting what changed, what's unchanged, what's missing upstream, and what's\n" +
       "newly available (install those too with --all). Local-source plugins are\n" +
-      "rescanned in place. In a terminal, it asks whether to update project, global,\n" +
+      "rescanned in place. Missing upstream plugins are retained; migrate or remove\n" +
+      "them explicitly. Updates never uninstall plugins, including with --all.\n" +
+      "In a terminal, it asks whether to update project, global,\n" +
       "or both; pass a scope flag to skip the prompt.\n\n" +
       "This is the plugins-domain twin of `adg skills update`.",
     flags: ["all", "repair", ...SCOPE],

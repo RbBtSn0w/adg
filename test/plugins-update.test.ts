@@ -3,17 +3,20 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Attributes, Span } from "@opentelemetry/api";
 
 import { initPlugin } from "../src/commands/init.ts";
 import { addPlugins } from "../src/commands/install.ts";
 import type { GitRunner } from "../src/sources.ts";
 import type { Agent } from "../src/agents/index.ts";
-import { updatePlugins } from "../src/commands/marketplace.ts";
+import { marketplaceList, updatePlugins } from "../src/commands/marketplace.ts";
 import type { UpdatePhase } from "../src/render/progress.ts";
 import { readLock, writeLock } from "../src/lock.ts";
-import { installedPluginDir, lockPath } from "../src/paths.ts";
+import { installedPluginDir, lockPath, pluginSourceCacheDir } from "../src/paths.ts";
 import { renderUpdateReport } from "../src/render/plugins.ts";
 import { agentCommandOutcome } from "../src/command-outcome.ts";
+import { updateResultCounts } from "../src/cli/handlers.ts";
+import { folderHash } from "../src/hash.ts";
 
 /** A fake codex agent that records every activate() call it receives. */
 function recordingAgent(id: string, calls: { id: string; plugins: string[] }[]): Agent {
@@ -231,6 +234,85 @@ test("updatePlugins reports unchanged when the source is identical", async () =>
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+for (const source of [undefined, "acme/market"]) {
+  test(`updatePlugins checks each installed plugin at its own source ref${source ? " with a named source" : ""}`, async () => {
+    const root = scratch();
+    try {
+      const remote = join(root, "remote");
+      const pinned = join(root, "pinned");
+      writeNativeMarket(remote, ["live-only"]);
+      writeNativeMarket(pinned, ["pinned-only"]);
+      const pluginsDir = join(root, "pdir");
+      const gitRunner: GitRunner = (args) => cpSync(args.includes("--branch") ? pinned : remote, args.at(-1)!, { recursive: true });
+      await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+      await addPlugins({ spec: "acme/market", ref: "v1", pluginsDir, all: true, gitRunner, agents: [] });
+      writeNativeMarket(remote, ["live-only"], "2.0.0");
+      const result = await updatePlugins({ pluginsDir, source, gitRunner, agents: [],
+        revisionResolver: (_source, ref) => ref ? "tag-r1" : "main-r2" });
+      assert.deepEqual(result.remote.flatMap((group) => group.missingUpstream ?? []), []);
+      assert.equal(result.remote.length, 2);
+      assert.deepEqual(updateResultCounts(result), { succeeded: 2, failed: 0 });
+      const lock = readLock(lockPath(pluginsDir));
+      assert.equal(lock.plugins["live-only"]!.version, "2.0.0");
+      assert.equal(lock.plugins["live-only"]!.resolvedRevision, "main-r2");
+      assert.equal(lock.plugins["pinned-only"]!.version, "1.0.0");
+      assert.equal(lock.plugins["pinned-only"]!.resolvedRevision, "tag-r1");
+      assert.equal(marketplaceList({ pluginsDir }).length, 1, "the source-level view still aggregates refs");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+test("updatePlugins --all preserves sibling source refs when both revisions expose the same names", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    const pinned = join(root, "pinned");
+    writeNativeMarket(remote, ["live-only"]);
+    writeNativeMarket(pinned, ["pinned-only"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner: GitRunner = (args) => cpSync(args.includes("--branch") ? pinned : remote, args.at(-1)!, { recursive: true });
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+    await addPlugins({ spec: "acme/market", ref: "v1", pluginsDir, all: true, gitRunner, agents: [] });
+    writeNativeMarket(remote, ["live-only"], "2.0.0");
+    writeNativeMarket(remote, ["pinned-only"], "9.0.0");
+    writeNativeMarket(pinned, ["live-only"], "9.0.0");
+    const result = await updatePlugins({ pluginsDir, all: true, gitRunner, agents: [],
+      revisionResolver: (_source, ref) => ref ? "tag-r1" : "main-r2" });
+    assert.ok(result.remote.every((group) => !group.failed && !group.missingUpstream?.length && group.available.length === 0));
+    const lock = readLock(lockPath(pluginsDir));
+    assert.deepEqual(lock.plugins["live-only"]!.origin, { type: "github", repo: "acme/market", path: "live-only" });
+    assert.equal(lock.plugins["live-only"]!.version, "2.0.0");
+    assert.deepEqual(lock.plugins["pinned-only"]!.origin, { type: "github", repo: "acme/market", ref: "v1", path: "pinned-only" });
+    assert.equal(lock.plugins["pinned-only"]!.version, "1.0.0");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("updatePlugins refuses dependency closure that would change a sibling source ref", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    const pinned = join(root, "pinned");
+    const live = initPlugin({ name: "live-only", dir: remote }).pluginDir;
+    initPlugin({ name: "pinned-only", dir: pinned });
+    const pluginsDir = join(root, "pdir");
+    const gitRunner: GitRunner = (args) => cpSync(args.includes("--branch") ? pinned : remote, args.at(-1)!, { recursive: true });
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+    await addPlugins({ spec: "acme/market", ref: "v1", pluginsDir, all: true, gitRunner, agents: [] });
+    const before = readLock(lockPath(pluginsDir));
+    initPlugin({ name: "pinned-only", dir: remote });
+    const file = join(live, ".agents/.plugin.json");
+    const manifest = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(file, JSON.stringify({ ...manifest, dependencies: [{ name: "pinned-only", version: "*" }] }));
+    const result = await updatePlugins({ pluginsDir, gitRunner, agents: [],
+      revisionResolver: (_source, ref) => ref ? "tag-r1" : "main-r2" });
+    assert.match(result.remote.find((group) => !group.ref)!.failed ?? "", /dependency plugin.*different source ref/);
+    const after = readLock(lockPath(pluginsDir));
+    assert.deepEqual(after.plugins["live-only"], before.plugins["live-only"]);
+    assert.deepEqual(after.plugins["pinned-only"]!.origin, before.plugins["pinned-only"]!.origin);
+    assert.equal(after.plugins["pinned-only"]!.resolvedRevision, "tag-r1");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("updatePlugins treats a GitHub marketplace key as remote when a matching CWD path exists", async () => {
@@ -693,7 +775,91 @@ test("updatePlugins reports updated when upstream content changed", async () => 
   }
 });
 
-test("updatePlugins removes a plugin deleted upstream from the same source", async () => {
+for (const all of [false, true]) {
+  // (Regression: upstream renames emptied the store and erased the source's update entrypoint.)
+  test(`updatePlugins${all ? " --all" : ""} preserves installed plugins through an upstream marketplace replacement`, async () => {
+    const root = scratch();
+    try {
+      const remote = join(root, "remote");
+      const oldNames = ["app-develop", "core-kit", "optional-kit", "xcode"];
+      const newNames = ["apple-development", "apple-platform-guidance", "apple-xcode"];
+      for (const name of oldNames) initPlugin({ name, dir: remote });
+      const pluginsDir = join(root, "pdir");
+      const gitRunner = fakeClone(remote);
+      await addPlugins({ spec: "acme/market", pluginsDir, all: true, skillsSubset: ["getting-started"], gitRunner, agents: [] });
+      const before = readLock(lockPath(pluginsDir));
+      before.plugins["core-kit"]!.state = "disabled";
+      for (const entry of Object.values(before.plugins)) entry.resolvedRevision = "r1";
+      writeLock(lockPath(pluginsDir), before);
+      const snapshots = oldNames.map((name) => ({
+        name,
+        installed: folderHash(installedPluginDir(pluginsDir, name, before.plugins[name]!.origin)),
+        cache: folderHash(pluginSourceCacheDir(pluginsDir, name)),
+      }));
+      for (const name of oldNames) deleteFromMarket(remote, name);
+      writeNativeMarket(remote, newNames, "2.0.0");
+      const calls: { id: string; plugins: string[] }[] = [];
+      const agent = recordingAgent("codex", calls);
+      const removed: string[] = [];
+      agent.deactivate = (ctx) => {
+        removed.push(...ctx.plugins);
+        return { agent: "codex", affected: ctx.plugins, skipped: false };
+      };
+      const events: { name: string; attributes: unknown }[] = [];
+      const telemetrySpan: Pick<Span, "addEvent"> = {
+        addEvent(name: string, attributes?: Attributes) {
+          events.push({ name, attributes });
+          return this as Span;
+        },
+      };
+      const options = { pluginsDir, all, gitRunner, activate: true, agents: [agent],
+        deactivationAgents: [agent], revisionResolver: () => "r2",
+        telemetrySpan };
+      const result = await updatePlugins(options);
+
+      const after = readLock(lockPath(pluginsDir));
+      for (const snapshot of snapshots) {
+        assert.deepEqual(after.plugins[snapshot.name], before.plugins[snapshot.name], "retain state, selection and the last verified revision");
+        assert.equal(folderHash(installedPluginDir(pluginsDir, snapshot.name, before.plugins[snapshot.name]!.origin)), snapshot.installed);
+        assert.equal(folderHash(pluginSourceCacheDir(pluginsDir, snapshot.name)), snapshot.cache);
+      }
+      assert.deepEqual(removed, [], "an update must not uninstall from any runtime");
+      assert.deepEqual(lockNames(pluginsDir), [...oldNames, ...(all ? newNames : [])].sort());
+      assert.equal(marketplaceList({ pluginsDir })[0]!.source, "acme/market");
+      assert.deepEqual(result.remote[0]!.missingUpstream, [...oldNames].sort());
+      assert.deepEqual(result.remote[0]!.deleted, []);
+      assert.deepEqual(result.remote[0]!.available, all ? [] : [...newNames].sort());
+      const report = renderUpdateReport(result).join("\n");
+      assert.match(report, /retained.*missing upstream/);
+      assert.doesNotMatch(report, /up to date|removed stale upstream/);
+      assert.deepEqual(updateResultCounts(result), { succeeded: 0, failed: 1 });
+      assert.deepEqual(events, [{ name: "adg.plugins.update.missing_upstream", attributes: {
+        "plugins.retained": 4, "update.include_new": all,
+      } }], "telemetry contains counts and policy only");
+
+      const repeated = await updatePlugins(options);
+      assert.deepEqual(repeated.remote[0]!.missingUpstream, [...oldNames].sort(), "repeat updates must keep checking the retained source");
+
+      const restored = initPlugin({ name: "core-kit", dir: remote }).pluginDir;
+      const manifestFile = join(restored, ".agents/.plugin.json");
+      const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+      writeFileSync(manifestFile, JSON.stringify({ ...manifest, version: "3.0.0" }));
+      calls.length = 0;
+      const recovered = await updatePlugins({ ...options, revisionResolver: () => "r3" });
+      assert.ok(recovered.remote[0]!.updated.includes("core-kit"));
+      const entry = readLock(lockPath(pluginsDir)).plugins["core-kit"]!;
+      assert.equal(entry.version, "3.0.0");
+      assert.equal(entry.resolvedRevision, "r3");
+      assert.equal(entry.state, "disabled");
+      assert.deepEqual(entry.selection, before.plugins["core-kit"]!.selection);
+      assert.deepEqual(calls, [], "a returning disabled plugin remains disabled");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("updatePlugins retains a plugin deleted upstream from the same source", async () => {
   const root = scratch();
   try {
     const remote = join(root, "remote");
@@ -703,14 +869,96 @@ test("updatePlugins removes a plugin deleted upstream from the same source", asy
     await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
 
     deleteFromMarket(remote, "finance");
+    writeNativeMarket(remote, ["sales"], "2.0.0");
 
     const { remote: results } = await updatePlugins({ pluginsDir, targets: ["codex"], gitRunner });
-    assert.deepEqual(results[0]!.deleted, ["finance"]);
-    assert.deepEqual(results[0]!.unchanged, ["sales"]);
-    assert.deepEqual(lockNames(pluginsDir), ["sales"]);
+    assert.deepEqual(results[0]!.deleted, []);
+    assert.deepEqual(results[0]!.missingUpstream, ["finance"]);
+    assert.deepEqual(results[0]!.updated, ["sales"]);
+    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("updatePlugins --all keeps the old source when a replacement cannot be installed", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    writeNativeMarket(remote, ["old-plugin"]);
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+    const other = initPlugin({ name: "replacement", dir: join(root, "other") }).pluginDir;
+    await addPlugins({ spec: other, pluginsDir, agents: [] });
+    const before = readLock(lockPath(pluginsDir));
+    const payload = folderHash(installedPluginDir(pluginsDir, "old-plugin", before.plugins["old-plugin"]!.origin));
+    const cache = folderHash(pluginSourceCacheDir(pluginsDir, "old-plugin"));
+    deleteFromMarket(remote, "old-plugin");
+    writeNativeMarket(remote, ["replacement"]);
+
+    const result = await updatePlugins({ source: "acme/market", pluginsDir, all: true,
+      gitRunner, agents: [], revisionResolver: () => "r2" });
+    assert.match(result.remote[0]!.failed ?? "", /name collision/);
+    assert.deepEqual(readLock(lockPath(pluginsDir)), before);
+    assert.equal(folderHash(installedPluginDir(pluginsDir, "old-plugin", before.plugins["old-plugin"]!.origin)), payload);
+    assert.equal(folderHash(pluginSourceCacheDir(pluginsDir, "old-plugin")), cache);
+    assert.ok(marketplaceList({ pluginsDir }).some((group) => group.source === "acme/market"));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const all of [false, true]) {
+  test(`updatePlugins${all ? " --all" : ""} retains explicit plugins when upstream becomes a Default DSL source`, async () => {
+    const root = scratch();
+    try {
+      const remote = join(root, "remote");
+      writeNativeMarket(remote, ["old-plugin"]);
+      const pluginsDir = join(root, "pdir");
+      const gitRunner = fakeClone(remote);
+      await addPlugins({ spec: "acme/market", pluginsDir, all: true, gitRunner, agents: [] });
+      const before = readLock(lockPath(pluginsDir));
+      deleteFromMarket(remote, "old-plugin");
+      mkdirSync(join(remote, "skills/demo"), { recursive: true });
+      writeFileSync(join(remote, "skills/demo/SKILL.md"), "---\nname: demo\ndescription: Demo.\n---\nNew structural source\n");
+
+      const result = await updatePlugins({ pluginsDir, all, gitRunner, agents: [], revisionResolver: () => "r2" });
+      assert.equal(result.remote[0]!.failed, undefined);
+      assert.deepEqual(result.remote[0]!.missingUpstream, ["old-plugin"]);
+      assert.deepEqual(result.remote[0]!.updated, []);
+      assert.deepEqual(readLock(lockPath(pluginsDir)), before, "updates cannot authorize a different structural identity");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+test("updatePlugins replays multiple Default DSL profiles without removing their siblings", async () => {
+  const root = scratch();
+  try {
+    const remote = join(root, "remote");
+    mkdirSync(join(remote, "skills/demo"), { recursive: true });
+    const skill = join(remote, "skills/demo/SKILL.md");
+    writeFileSync(skill, "---\nname: demo\ndescription: Demo.\n---\nOriginal\n");
+    const pluginsDir = join(root, "pdir");
+    const gitRunner = fakeClone(remote);
+    for (const as of ["first-profile", "second-profile"]) {
+      await addPlugins({ spec: "acme/market", as, pluginsDir, only: ["skills"],
+        preserveExisting: true, structuralIdentity: as, gitRunner, agents: [] });
+    }
+    const before = readLock(lockPath(pluginsDir));
+    before.plugins["second-profile"]!.state = "disabled";
+    writeLock(lockPath(pluginsDir), before);
+    writeFileSync(skill, "---\nname: demo\ndescription: Demo.\n---\nUpdated\n");
+
+    const calls: { id: string; plugins: string[] }[] = [];
+    const result = await updatePlugins({ pluginsDir, gitRunner, activate: true,
+      agents: [recordingAgent("codex", calls)], revisionResolver: () => "r2" });
+    assert.equal(result.remote[0]!.failed, undefined);
+    assert.equal(result.remote[0]!.missingUpstream, undefined);
+    assert.deepEqual(result.remote[0]!.updated, ["first-profile", "second-profile"]);
+    assert.deepEqual(lockNames(pluginsDir), ["first-profile", "second-profile"]);
+    const after = readLock(lockPath(pluginsDir));
+    assert.equal(after.plugins["second-profile"]!.state, "disabled");
+    assert.deepEqual(calls, [{ id: "codex", plugins: ["first-profile"] }]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("updatePlugins refreshes remaining skills after a skill is deleted upstream", async () => {
@@ -742,7 +990,7 @@ test("updatePlugins refreshes remaining skills after a skill is deleted upstream
   }
 });
 
-test("updatePlugins deactivates upstream-deleted plugins from every mapped agent", async () => {
+test("updatePlugins preserves upstream-missing plugins in every mapped agent", async () => {
   const root = scratch();
   try {
     const remote = join(root, "remote");
@@ -776,11 +1024,8 @@ test("updatePlugins deactivates upstream-deleted plugins from every mapped agent
       deactivationAgents: [fake("claude"), fake("codex"), fake("antigravity")],
     });
 
-    assert.deepEqual(calls.map((c) => [c.id, c.plugins]), [
-      ["claude", ["finance"]],
-      ["codex", ["finance"]],
-      ["antigravity", ["finance"]],
-    ]);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(lockNames(pluginsDir), ["finance", "sales"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

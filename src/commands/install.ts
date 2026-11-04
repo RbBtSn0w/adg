@@ -170,6 +170,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       }
     }
     if (candidates.size === 0) {
+      // Ordinary plugin updates cannot authorize a new structural identity
+      // after all explicit manifests disappear. Existing DSL profiles replay
+      // separately with their persisted identity and authorization.
+      if (opts.preserveExisting && !opts.structuralIdentity) {
+        return { order: [], installed: [], removed: [], converted, available: [] };
+      }
       const synthesized = await synthesizeDefaultDslPlugin(opts, parsed, workRoot, resolvedRevision);
       candidates = synthesized.candidates;
       converted = synthesized.converted;
@@ -186,7 +192,15 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
       };
     }
 
-    const selected = structuralName ? [structuralName] : await selectPluginNames(opts, candidates, converted);
+    const installedAtAnotherRef = (name: string): boolean => {
+      const origin = existingLock.plugins[name]?.origin;
+      return parsed.kind === "github" && origin?.type === "github"
+        && origin.repo === parsed.source && origin.ref !== sourceRef;
+    };
+    const chosen = structuralName ? [structuralName] : await selectPluginNames(opts, candidates, converted);
+    // --all permits additions, but an existing sibling still belongs to its
+    // own ref. Explicit add remains the operation that can change that pin.
+    const selected = opts.preserveExisting ? chosen.filter((name) => !installedAtAnotherRef(name)) : chosen;
 
     // Resolve adapter targets after the plugin choice (lets a CLI agent picker
     // run once we know what's being installed). undefined → installPlugin's all.
@@ -223,6 +237,12 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
           seen.add(n);
           order.push(n);
         }
+      }
+    }
+    if (opts.preserveExisting) {
+      const conflicts = order.filter(installedAtAnotherRef);
+      if (conflicts.length > 0) {
+        throw new Error(`dependency plugin(s) installed at a different source ref: ${conflicts.join(", ")}; re-add or migrate explicitly`);
       }
     }
     // A generated Default DSL replay retains its definition profile. Only an

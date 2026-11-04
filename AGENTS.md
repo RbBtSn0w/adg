@@ -50,6 +50,10 @@ npm test
 
 ## Do not
 
+- Do not commit or publish private upstream source content as test fixtures,
+  including compressed snapshots. Use synthetic public fixtures; keep checks
+  against private releases local or in a private test environment. Verify
+  upstream visibility and redistribution authorization before copying content.
 - Do not stage, commit, push, or open PRs unless explicitly asked.
 - Do not edit release/CI config (`.releaserc.json`, `.github/workflows/*`),
   lockfiles, or branch-protection scripts without surfacing the risk first.

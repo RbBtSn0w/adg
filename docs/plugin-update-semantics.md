@@ -105,6 +105,49 @@ review partial failure, explicit recovery, cache recovery, timestamps, and
 disabled state together. This delivery adds no durable runtime retry queue and
 no lock-schema migration.
 
+### Upstream removals and marketplace restructuring
+
+An update does not authorize a new desired plugin set. Keep installed plugins
+that are missing from the fetched source, including their payload, source cache,
+lock entry, component selection, and enabled/disabled state. This applies to
+`update --all` as well: that flag permits additions, not uninstalls. Continue
+updating plugins that still exist upstream. Do not silently derive a new Default
+DSL identity when explicit manifests disappear; migration requires an explicit
+`add` selection.
+
+Report retained names in `missingUpstream`, separately from actual removals in
+`deleted`, and count the incomplete source as failed so the CLI exits nonzero.
+Do not present an empty update as `up to date (0)`. Keep retained entries at
+their last verified revision so repeat checks can detect an upstream return.
+Plugins from one repository may follow different refs. Update checks each ref
+independently, including source-scoped updates, while list/remove/sync keep the
+repository-level view. `--all` preserves sibling pins; a dependency that would
+change another installed plugin's ref requires explicit migration.
+The `adg.plugins.update.missing_upstream` telemetry event records only the
+retained count and whether additions were requested.
+
+Use `adg plugins add <source>` with the original scope/ref to select replacements,
+or `adg plugins remove <name>` to explicitly remove a retired plugin. Explicit
+`add` retains its desired-set reconciliation behavior. Once an older release
+has deleted all installed entries for a source, `update` can no longer discover
+that source; recovery requires re-adding it.
+
+Regression coverage in `test/plugins-update.test.ts` checks full replacement,
+partial disappearance, `--all`, runtime preservation, disabled/partial selections,
+repeated checks, returning identities, replacement failure, explicit-to-DSL
+changes, multiple DSL profiles, and explicit `add` reconciliation.
+
+Public regression fixtures must use synthetic payloads. Private repository
+content must stay outside the public repository and its Git history, including
+compressed snapshots. Checks against private upstream releases belong in a
+local or private test environment.
+
+`test/plugins-update-e2e.test.ts` generates a synthetic four-to-seven-plugin
+marketplace in a temporary directory and runs the real CLI against replayed
+GitHub responses. It checks installation, disabled state, default/repeated
+updates, additive `--all`, retained source/payload/cache state, and explicit
+migration. No upstream content or compressed source fixtures are committed.
+
 ### Explicit synchronization recovery
 
 A verified source checkpoint remains valid when a subsequent native refresh
