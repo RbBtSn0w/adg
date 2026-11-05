@@ -76,7 +76,7 @@
     "import-from-esm": "2.0.0",
     "publint": "0.3.25"
   },
-  "comment:overrides": "Security floors for transitive development tooling: pin npm to 12.2.2 so its bundled undici is patched, pin transitive packages to patch security advisories (handlebars, postcss-selector-parser, http-cache-semantics, brace-expansion, ip-address), and pin transitive undici/js-yaml branches to their patched versions.",
+  "comment:overrides": "Security floors for transitive development tooling: pin npm to 12.2.2 so its bundled undici is patched. npm 12.2.2 declares engines.node ^22.22.2 || ^24.15.0 || >=26, which is stricter than this repo's >=22.18.0. npm ci on Node 22.18 and 25 emits EBADENGINE warnings but is not engine-strict; those CI jobs stay because they pass. Other floors patch handlebars, postcss-selector-parser, http-cache-semantics, brace-expansion, ip-address, undici, and js-yaml.",
   "overrides": {
     "npm": "12.2.2",
     "handlebars": "^4.7.10",
