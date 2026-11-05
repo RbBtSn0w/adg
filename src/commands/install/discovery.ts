@@ -123,7 +123,9 @@ export function reconcileRemotePlugins(
   ref: string | undefined,
   desired: Set<string>,
 ): string[] {
-  if (parsed.kind === "local") return [];
+  // Updating a source is not a new desired-set selection. Upstream renames or
+  // removals must not uninstall the last usable payload or erase its origin.
+  if (opts.preserveExisting || parsed.kind === "local") return [];
   // A sparse checkout does not prove the full source shape, so it must not
   // prune sibling plugins from the same repo that were intentionally excluded.
   if (opts.sparse?.length) return [];

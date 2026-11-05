@@ -56,7 +56,7 @@ interface UpdateScopeTarget {
 }
 
 export function updateResultCounts(result: PluginUpdateResult): { succeeded: number; failed: number } {
-  const failedRemote = result.remote.filter((source) => source.failed !== undefined).length;
+  const failedRemote = result.remote.filter((source) => source.failed !== undefined || Boolean(source.missingUpstream?.length)).length;
   // A failed plugin remains one unit even if several stages report diagnostics.
   const runtimeFailures = new Set(result.agents.flatMap((agent) => (agent.failures ?? []).map((failure) =>
     JSON.stringify([agent.agent, failure.plugin ?? null, failure.plugin ? null : failure.stage]))));

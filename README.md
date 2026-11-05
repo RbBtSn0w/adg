@@ -325,6 +325,17 @@ discovery manifest/projection is cleared. `update` may refresh a disabled
 plugin's payload but never activates it. `list` groups enabled and disabled
 entries, and `status` distinguishes intentional disablement from runtime drift.
 
+`update` also preserves installed plugins that disappear upstream, including
+their last verified payload, enabled/disabled state, and component selections.
+It reports them as missing upstream and exits nonzero until they return or you
+explicitly migrate/remove them. `update --all` installs newly available plugins
+without uninstalling existing ones. For an upstream rename or marketplace
+restructure, use `adg plugins add <source>` to select replacements (or `--all`
+to select everything), keeping the same scope and source ref. Use
+`adg plugins remove <name>` for an explicit uninstall. If an older ADG version
+already removed every plugin from a source, re-add the source; `update` discovers
+sources from installed lock entries and cannot recover an empty source group.
+
 For the local-directory-source flow into Claude's registry/cache, see
 [docs/local-plugin-registration.md](docs/local-plugin-registration.md).
 

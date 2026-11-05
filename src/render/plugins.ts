@@ -143,10 +143,15 @@ export function renderUpdateReport(result: PluginUpdateResult): string[] {
       if (versionOnly.length > 0) out.push(`${head}: ${ui.meta(`version only ${versionOnly.join(", ")} (component files unchanged)`)}`);
     }
     else if (r.updated.length > 0) out.push(`${head}: ${ui.ok(`updated ${r.updated.join(", ")}`)}`);
+    else if (r.missingUpstream?.length) out.push(`${head}: ${ui.warn(`update incomplete (${r.unchanged.length} unchanged)`)}`);
     else out.push(`${head}: ${ui.meta(`up to date (${r.unchanged.length})`)}`);
 
     if (r.deleted.length > 0) {
       out.push(ui.warn(`  removed stale upstream entries: ${r.deleted.join(", ")}`));
+    }
+    if (r.missingUpstream?.length) {
+      out.push(ui.warn(`  retained installed plugins missing upstream: ${r.missingUpstream.join(", ")}`));
+      out.push(ui.warn("  explicit migration or removal required: use `adg plugins add` to select replacements or `adg plugins remove` to uninstall; keep the same scope and source ref."));
     }
     if (r.available.length > 0) {
       out.push(ui.meta(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`));

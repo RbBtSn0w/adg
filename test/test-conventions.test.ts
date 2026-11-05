@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 /**
  * Tests are named after the module/behavior under test, never after the PR or
@@ -26,4 +26,13 @@ test("no test file is named after a PR or commit", () => {
     [],
     `Rename PR/commit-scoped test file(s) to the module/behavior under test: ${offenders.join(", ")}`,
   );
+});
+
+// Generate transport archives from synthetic data in tmpdir; opaque upstream
+// snapshots can disclose private source and cannot be reviewed as normal diffs.
+test("test fixtures do not contain committed source archives", () => {
+  const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+  const archives = readdirSync(fixtures, { recursive: true, encoding: "utf8" })
+    .filter((file) => /\.(?:tar(?:\.gz)?|tgz|zip)$/i.test(file));
+  assert.deepEqual(archives, [], "Generate synthetic archives in a temporary directory instead of committing source snapshots");
 });

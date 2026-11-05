@@ -127,6 +127,8 @@ export interface AddOptions {
    * an upstream-deleted plugin should be reported, not abort the whole refresh.
    */
   missingPlugins?: "error" | "skip";
+  /** Internal update mode: retain installed plugins outside this request's discovered selection. */
+  preserveExisting?: boolean;
   /**
    * Skip re-installing plugins whose source content/version already match the
    * lock (detect-then-update). Set by `update` so an unchanged upstream source

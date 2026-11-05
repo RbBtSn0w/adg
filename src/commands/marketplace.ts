@@ -17,6 +17,8 @@ import { updateLock, type UpdateLockResult } from "./update.ts";
 import type { Agent, AgentScope, AgentSyncResult } from "../agents/index.ts";
 import type { UpdatePhase } from "../render/progress.ts";
 import type { PluginChanges } from "../plugin-changes.ts";
+import type { Span } from "@opentelemetry/api";
+import { recordTelemetryEvent } from "../telemetry.ts";
 
 /**
  * The marketplace layer is a *view* over installed plugins grouped by their
@@ -133,8 +135,10 @@ export interface PluginUpdateSourceResult {
   updated: string[];
   /** Re-fetched but byte-identical to what was installed. */
   unchanged: string[];
-  /** Installed locally but no longer present in the source (deleted upstream). */
+  /** Plugins actually uninstalled; retained for report compatibility. Updates do not uninstall. */
   deleted: string[];
+  /** Installed plugins absent upstream, retained with their last verified payload and state. */
+  missingUpstream?: string[];
   /** Discovered in the source but not installed (offered for `--all`). */
   available: string[];
   /** Source/store changes; runtime sync outcomes are reported separately in agents. */
@@ -182,7 +186,7 @@ export function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[
 /**
  * The plugins-domain equivalent of `adg skills update`: re-fetch every remote
  * source (or one named `source`), report which installed plugins changed,
- * stayed the same, were deleted upstream, or are newly available, and refresh
+ * stayed the same, are missing upstream, or are newly available, and refresh
  * local-source plugins in place. Failures are recorded per-source rather than
  * aborting the whole pass, so one unreachable repo doesn't hide the rest.
  */
@@ -203,6 +207,7 @@ export async function updatePlugins(
     deactivationAgents?: Agent[];
     /** Injectable low-cost remote revision probe; undefined falls back to resolveRemoteRevision. */
     revisionResolver?: (source: string, ref?: string) => string | undefined | Promise<string | undefined>;
+    telemetrySpan?: Pick<Span, "addEvent">;
     /**
      * Progress sink for the phases that actually cost time: one blocking
      * probe per source, a materialize/clone when the revision moved, the per-request
@@ -216,13 +221,29 @@ export async function updatePlugins(
 
   // A named source narrows to just that group (and must be remote); otherwise we
   // refresh every remote source and rescan the local bucket.
-  const remoteGroups = opts.source
+  const selectedGroups = opts.source
     ? [requireGroup(opts.pluginsDir, opts.source, opts.scope)]
     : allGroups.filter((g) => g.remote);
 
-  if (opts.source && !remoteGroups[0]!.remote) {
+  if (opts.source && !selectedGroups[0]!.remote) {
     throw new Error(`source "${opts.source}" is local and cannot be re-synced; re-run \`adg plugins add\`.`);
   }
+
+  // The marketplace view aggregates a repository for list/remove/sync. Update
+  // must fetch each ref independently so one plugin cannot move a sibling's
+  // pin or make it appear absent at the wrong revision.
+  const initialLock = readLock(lockPath(opts.pluginsDir));
+  const remoteGroups = selectedGroups.flatMap((group) => {
+    const refs = new Map<string | undefined, MarketplaceGroup>();
+    for (const name of group.installed) {
+      const origin = initialLock.plugins[name]!.origin;
+      const ref = origin.type === "local" ? undefined : origin.ref;
+      const member = refs.get(ref) ?? { source: group.source, ...(ref ? { ref } : {}), installed: [], remote: true };
+      member.installed.push(name);
+      refs.set(ref, member);
+    }
+    return [...refs.values()];
+  });
 
   const repairAgent = opts.agents
     ? opts.agents.find((agent) => agent.id === "codex") ?? null
@@ -296,6 +317,7 @@ export async function updatePlugins(
             ref: group.ref,
             ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
             missingPlugins: "skip",
+            preserveExisting: true,
             skipUnchanged: true,
             nonInteractive: true,
             ...(request.authorizedComponents ? { authorizedComponents: request.authorizedComponents } : {}),
@@ -322,14 +344,22 @@ export async function updatePlugins(
         }
       } finally { rmSync(checkout, { recursive: true, force: true }); }
       const availableSet = available;
-      const installedNow = new Set(installed.map((r) => r.name));
+      const installedNow = new Set(Object.keys(readLock(lockPath(opts.pluginsDir)).plugins));
+      const missingUpstream = group.installed.filter((name) => !availableSet.has(name)).sort();
+      if (missingUpstream.length > 0) {
+        recordTelemetryEvent("adg.plugins.update.missing_upstream", {
+          "plugins.retained": missingUpstream.length,
+          "update.include_new": Boolean(opts.all),
+        }, opts.telemetrySpan);
+      }
       remote.push({
         source: group.source,
         ...(group.ref ? { ref: group.ref } : {}),
         updated: installed.filter((r) => r.changed).map((r) => r.name).sort(),
         unchanged: installed.filter((r) => !r.changed).map((r) => r.name).sort(),
-        deleted: group.installed.filter((n) => !availableSet.has(n)).sort(),
-        available: [...available].filter((n) => !installedNow.has(n) && !group.installed.includes(n)).sort(),
+        deleted: [],
+        ...(missingUpstream.length > 0 ? { missingUpstream } : {}),
+        available: [...available].filter((n) => !installedNow.has(n)).sort(),
         changes: installed.filter((r) => r.changes).map((r) => ({
           name: r.name, ...r.changes!, runtimeRefreshRequired: r.runtimeRefreshRequired ?? r.changed,
         })).sort((a, b) => a.name.localeCompare(b.name)),
