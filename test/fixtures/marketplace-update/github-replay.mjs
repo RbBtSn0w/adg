@@ -12,6 +12,7 @@ globalThis.fetch = async (input) => {
   const base = `https://api.github.com/repos/${fixtures.source}`;
   if (url.href === `${base}/commits/HEAD`) return Response.json({ sha: release.commit });
   if (url.href === `${base}/tarball/HEAD`) {
+    if (process.env.ADG_TEST_FAIL_TARBALL === "1") return new Response("Fixture download unavailable", { status: 503 });
     return new Response(readFileSync(release.archive), { headers: { "content-type": "application/x-gzip" } });
   }
   throw new Error(`Unexpected network request in isolated marketplace replay: ${url.href}`);

@@ -146,7 +146,11 @@ local or private test environment.
 marketplace in a temporary directory and runs the real CLI against replayed
 GitHub responses. It checks installation, disabled state, default/repeated
 updates, additive `--all`, retained source/payload/cache state, and explicit
-migration. No upstream content or compressed source fixtures are committed.
+migration. Each synthetic plugin includes selected and unselected skills to
+verify that component choices and full-source caches remain distinct. A failed
+download also verifies that the previous installation and marketplace survive.
+This regression uses generated data only and needs no private-repository
+credentials. No upstream content or compressed source fixtures are committed.
 
 ### Explicit synchronization recovery
 

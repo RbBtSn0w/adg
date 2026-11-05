@@ -30,11 +30,13 @@ test("CLI retains installed plugins across a marketplace restructure and explici
       for (const name of release.plugins) {
         const dir = join(snapshot, name);
         mkdirSync(join(dir, ".agents"), { recursive: true });
-        mkdirSync(join(dir, "skills/demo"), { recursive: true });
         writeFileSync(join(dir, ".agents/.plugin.json"), JSON.stringify({
           schemaVersion: "adg.plugin/v1", name, version, description: "Generated test plugin", skills: "./skills/", strict: true,
         }));
-        writeFileSync(join(dir, "skills/demo/SKILL.md"), "---\nname: demo\ndescription: Generated fixture\n---\nSynthetic test instructions.\n");
+        for (const skill of ["demo", "extra"]) {
+          mkdirSync(join(dir, "skills", skill), { recursive: true });
+          writeFileSync(join(dir, "skills", skill, "SKILL.md"), `---\nname: ${skill}\ndescription: Generated fixture\n---\nSynthetic test instructions.\n`);
+        }
       }
       await tar.create({ cwd: parent, file: release.archive, gzip: true }, ["snapshot"]);
     }
@@ -56,10 +58,10 @@ test("CLI retains installed plugins across a marketplace restructure and explici
       DISABLE_TELEMETRY: "1", GITHUB_TOKEN: "", GH_TOKEN: "", NO_COLOR: "1",
       ADG_TEST_REMOTE_LOG: remoteLog, ADG_TEST_RELEASES: releaseFile,
     };
-    const run = (args: string[], version = "2.0.0", expectedStatus = 0) => {
+    const run = (args: string[], version = "2.0.0", expectedStatus = 0, extraEnv: NodeJS.ProcessEnv = {}) => {
       const { result } = spawnAdg(["plugins", ...args, "--global"], {
         isolationRoot: join(root, "agent-homes"), cwd: root, timeout: 45_000,
-        env: { ...env, ADG_TEST_MARKETPLACE_VERSION: version },
+        env: { ...env, ADG_TEST_MARKETPLACE_VERSION: version, ...extraEnv },
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, expectedStatus, `${args.join(" ")}\n${result.stderr}\n${result.stdout}`);
@@ -68,7 +70,7 @@ test("CLI retains installed plugins across a marketplace restructure and explici
     const old = releases["1.0.0"];
     const current = releases["2.0.0"];
     const names = () => Object.keys(readLock(lockPath(store)).plugins).sort();
-    run(["add", source, "--all"], "1.0.0");
+    run(["add", source, "--all", "--skill", "demo"], "1.0.0");
     assert.deepEqual(names(), [...old.plugins].sort());
     run(["disable", "legacy-optional"], "1.0.0");
     const before = readLock(lockPath(store));
@@ -79,7 +81,12 @@ test("CLI retains installed plugins across a marketplace restructure and explici
       assert.equal(entry.resolvedRevision, old.commit);
       assert.equal(entry.origin.type, "github");
       assert.equal("ref" in entry.origin, false);
-      return { name, dir: installedPluginDir(store, name, entry.origin), cache: join(pluginCacheRoot(store, env), name) };
+      assert.deepEqual(entry.selection?.skills, ["demo"]);
+      const dir = installedPluginDir(store, name, entry.origin);
+      const sourceCache = join(pluginCacheRoot(store, env), name);
+      assert.equal(existsSync(join(dir, "skills/extra")), false);
+      assert.equal(existsSync(join(sourceCache, "skills/extra/SKILL.md")), true);
+      return { name, dir, cache: sourceCache };
     }).map((item) => ({ ...item, hash: folderHash(item.dir), cacheHash: folderHash(item.cache) }));
     const verifyPreserved = () => {
       const after = readLock(lockPath(store));
@@ -89,6 +96,11 @@ test("CLI retains installed plugins across a marketplace restructure and explici
         assert.equal(folderHash(item.cache), item.cacheHash);
       }
     };
+    const failedReport = run(["update"], "2.0.0", 1, { ADG_TEST_FAIL_TARBALL: "1" });
+    assert.match(failedReport, /could not be checked/);
+    assert.doesNotMatch(failedReport, /removed stale upstream|up to date/);
+    verifyPreserved();
+    assert.equal(readFileSync(join(store, "marketplace.json"), "utf8"), beforeMarketplace);
     const report = run(["update"], "2.0.0", 1);
     assert.match(report, /update incomplete/);
     assert.match(report, /retained installed plugins missing upstream/);
