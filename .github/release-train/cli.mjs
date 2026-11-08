@@ -2,13 +2,14 @@
 import {existsSync,readFileSync,appendFileSync,realpathSync} from 'node:fs';
 import {resolve,relative,isAbsolute} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {optionValues} from './cli-options.mjs';
 import {analyzeRelease} from './release-analysis.mjs';
 import {sealPlan as sealGitHub,reportStatus as reportGitHub} from './github-release-adapter.mjs';
 import {sealPlan as sealNpm} from './npm-release-adapter.mjs';
 import {publishVerified} from './github-publish.mjs';
 import {writeResult,reportExitCode} from './release-result.mjs';
 export async function main(args=process.argv.slice(2)){
- const operation=args.shift();const value=flag=>{const i=args.indexOf(flag);return i<0?undefined:args[i+1];};
+ const operation=args.shift();const value=optionValues(args,['--config','--profile','--output','--input','--mode','--directory']);
  const path=value('--config')||'.github/release-train.json';
  const config=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{};
  if(config.schema_version!==undefined&&config.schema_version!==1)throw Error('Unsupported runtime config');

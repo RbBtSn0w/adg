@@ -2,7 +2,7 @@ import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-t
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 function digest(path) { return createHash('sha512').update(readFileSync(path)).digest('base64'); }
@@ -21,22 +21,19 @@ function assertLiveMain(cwd, env) {
 }
 export async function prepare(_options, { cwd, env = process.env, nextRelease }) {
   const input = join(cwd, 'release-input'), root = join(input, 'unpacked/package');
+  // The verified engine decision is mandatory and immutable across prepare.
+  const analysis = JSON.parse(readFileSync(join(input, 'analysis.json'), 'utf8'));
+  if (!/^[a-f0-9]{40}$/.test(analysis.candidate_sha || '') || analysis.candidate_sha !== env.CANDIDATE_SHA || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(analysis.version || '') || analysis.version !== nextRelease.version || typeof analysis.tag !== 'string' || !analysis.tag || analysis.tag !== nextRelease.gitTag) throw Error('Engine release differs from verified analysis');
+  if (typeof analysis.notes !== 'string' || typeof nextRelease.notes !== 'string' || analysis.notes !== nextRelease.notes) throw Error('Release notes changed after analysis; analyze and verify a fresh candidate');
   const before = JSON.stringify(payload(root));
   const manifestPath = join(root, 'package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  const selected = join(input, 'analysis.json');
-  if (existsSync(selected)) {
-    const analysis = JSON.parse(readFileSync(selected));
-    if (analysis.candidate_sha !== env.CANDIDATE_SHA || analysis.version !== nextRelease.version || analysis.tag !== nextRelease.gitTag) throw Error('Engine release differs from verified analysis');
-  }
   manifest.version = nextRelease.version;
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   // Re-archive existing files directly: no npm pack, file filtering, or lifecycle hooks.
   execFileSync('tar', ['-czf', join(input, 'final.tgz'), '-C', join(input, 'unpacked'), 'package']);
   if (before !== JSON.stringify(payload(root))) throw Error('Prepared payload changed');
-  const analysisPath = join(input, 'analysis.json');
-  const analysis = existsSync(analysisPath) ? JSON.parse(readFileSync(analysisPath)) : {};
-  writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}`, sha256: createHash('sha256').update(readFileSync(join(input, 'final.tgz'))).digest('hex'), candidate_sha: env.CANDIDATE_SHA, repository: env.GITHUB_REPOSITORY, source_run_id: env.GITHUB_RUN_ID, source_attempt: env.GITHUB_RUN_ATTEMPT, operation: 'release', tag: nextRelease.gitTag || analysis.tag, baseline_tag: analysis.baseline_tag || null }));
+  writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}`, sha256: createHash('sha256').update(readFileSync(join(input, 'final.tgz'))).digest('hex'), candidate_sha: env.CANDIDATE_SHA, repository: env.GITHUB_REPOSITORY, source_run_id: env.GITHUB_RUN_ID, source_attempt: env.GITHUB_RUN_ATTEMPT, operation: 'release', tag: nextRelease.gitTag, baseline_tag: analysis.baseline_tag || null }));
   assertLiveMain(cwd, env);
 }
 

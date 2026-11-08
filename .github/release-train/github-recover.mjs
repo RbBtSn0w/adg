@@ -44,6 +44,7 @@ export async function recover({env=process.env,cwd=process.cwd(),read=api,comman
  writeFileSync(join(cwd,'release-plan.json'),JSON.stringify(plan,null,2)+'\n');
  const observed=observeGitHub({plan,repository,read});
  if(observed.targets.stable_tag.status!=='completed')throw Error('missing-tag or conflicting original stable tag; recovery cannot create or move tags');
+ if(observed.recovery.state!=='repairable')throw Error(`GitHub recovery preflight blocked: ${observed.recovery.reason}`);
  const pages=JSON.parse(command('api',`repos/${repository}/releases`,'--paginate','--slurp'));
  if(!Array.isArray(pages)||pages.some(page=>!Array.isArray(page)))throw Error('Invalid paginated release listing');
  const matches=pages.flat().filter(item=>item.tag_name===plan.tag);

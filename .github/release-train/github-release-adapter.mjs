@@ -51,7 +51,7 @@ export function reportStatus({cwd=process.cwd(),env=process.env,extraTargets={}}
   if(plan.candidate_sha&&sourceRunId&&artifactId){
     try{
       const api=path=>JSON.parse(execFileSync('gh',['api',path],{encoding:'utf8',timeout:120000}));
-      recovery=recoveryFromArtifact({plan,repository:env.GITHUB_REPOSITORY,sourceRunId,artifactId,run:api(`repos/${env.GITHUB_REPOSITORY}/actions/runs/${sourceRunId}`),artifact:api(`repos/${env.GITHUB_REPOSITORY}/actions/artifacts/${artifactId}`),tagVerified:observation.targets.stable_tag.status==='completed',allowCurrentRunId:env.GITHUB_RUN_ID});
+      recovery=recoveryFromArtifact({plan,repository:env.GITHUB_REPOSITORY,sourceRunId,artifactId,run:api(`repos/${env.GITHUB_REPOSITORY}/actions/runs/${sourceRunId}`),artifact:api(`repos/${env.GITHUB_REPOSITORY}/actions/artifacts/${artifactId}`),publicationObservation:observation,allowCurrentRunId:env.GITHUB_RUN_ID});
     }catch(error){recovery={available:false,blocked_reason:error.message};}
   }
   return writeResult(join(cwd,'release-result.json'),{schema_version:2,candidate_sha:plan.candidate_sha||env.CANDIDATE_SHA,

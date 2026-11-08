@@ -3,6 +3,7 @@ import {existsSync,readdirSync,readFileSync,statSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import {writeResult,reportExitCode} from '../.github/release-train/release-result.mjs';
+import {observeRelease} from './release-observe.mjs';
 import {recoveryFromArtifact} from '../.github/release-train/observe-github.mjs';
 function observations(root){
  if(!existsSync(root))return [];
@@ -41,9 +42,9 @@ if(process.env.RELEASE_ENABLED==='true'&&result.version&&!Object.values(targets)
    const artifact=gh(`repos/${repository}/actions/artifacts/${original.artifact_id}`);
    const run=gh(`repos/${repository}/actions/runs/${original.source_run_id}`);
    const tag=original.tag||sealed?.tag||result.version;
-   let object=gh(`repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`).object;
-   for(let depth=0;object?.type==='tag'&&depth<8;depth++)object=gh(`repos/${repository}/git/tags/${object.sha}`).object;
-   result.recovery=recoveryFromArtifact({plan:{candidate_sha:result.candidate_sha},repository,sourceRunId:original.source_run_id,artifactId:original.artifact_id,run,artifact,tagVerified:object?.type==='commit'&&object.sha===result.candidate_sha,workflow:config.workflow||'.github/workflows/release.yml',allowCurrentRunId:process.env.GITHUB_RUN_ID,recoveryArtifactPrefix:`release-receipts-${result.candidate_sha}`});
+   const metadata={candidate_sha:result.candidate_sha,version:result.version,tag,repository,sha256:sealed?.sha256};
+   const publicationObservation=observeRelease({metadata,notes:sealed?.notes,expectedAssets:sealed?.expected_assets});
+   result.recovery={...recoveryFromArtifact({plan:{candidate_sha:result.candidate_sha,version:result.version,tag},repository,sourceRunId:original.source_run_id,artifactId:original.artifact_id,run,artifact,publicationObservation,workflow:config.workflow||'.github/workflows/release.yml',allowCurrentRunId:process.env.GITHUB_RUN_ID,recoveryArtifactPrefix:`release-receipts-${result.candidate_sha}`}),publication_state:publicationObservation.recovery.state};
   }catch(error){result.recovery={available:false,blocked_reason:error.message};}
  }
 }

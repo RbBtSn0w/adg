@@ -26,8 +26,11 @@ the exact candidate SHA and checksum by immutable same-run artifact ID.
 Publication restores those bytes, checks live main immediately before the engine,
 and checks it again in the last prepare hook before tag creation. An unreadable,
 empty or changed ref fails closed. The payload hook may change only the package
-manifest version, then archives existing files directly. The prepared version/tag
-must match the earlier engine decision. npmjs and GitHub Packages receive identical
+manifest version, then archives existing files directly. Before any package mutation,
+the hook must read the verified analysis once and match its exact candidate SHA,
+version, tag and complete notes to the current engine decision. Missing analysis
+or changed notes, including a UTC-date rollover, requires fresh analysis and
+verification before publication. npmjs and GitHub Packages receive identical
 final bytes, with SHA512 integrity reconciliation and per-target receipts. GitHub
 attaches the archive and metadata. No version/changelog commit is written to main.
 
@@ -81,6 +84,14 @@ Source checks do not prove runtime activation. Before enabling publication once,
 verify the npm trusted publisher binds this repository and exactly `release.yml`,
 the supported Node/npm OIDC setup, GitHub package/tag/release permissions, current
 release baseline/history, PR squash metadata preservation and required checks.
+For the selected npm trusted-publisher configuration, the package owner must also
+verify **Allow npm dist-tag** during one-time setup. This permission is disabled
+by default and independent from direct publishing; recovery uses it for
+`npm dist-tag add` and `npm dist-tag rm` through the existing OIDC identity.
+The workflow's npm 11.21.0 meets the documented CLI requirement. See
+[npm trusted-publishing dist-tag permissions](https://docs.npmjs.com/trusted-publishers/#managing-dist-tags-with-trusted-publishing).
+This checklist records an activation prerequisite; no package setting or
+credential is changed by these source changes.
 Verify the existing release App's private key, installation and write access to
 `RbBtSn0w/homebrew-tap`; no fallback credential is introduced.
 Disable old controllers/timers at the authorized cutover; remote develop remains
@@ -197,3 +208,20 @@ readback cannot hide the retained evidence. Legacy schema1 completion claims rem
 unconfirmed. Recovery availability uses the shared original-run/workflow/event,
 artifact-role/digest/expiry and tag validation; the still-running original report
 is explicitly allowed without accepting another active run.
+
+## Recovery preflight review follow-up (2026-11-08)
+
+Recovery instructions require a current read-only GitHub observation of the
+original tag, notes, stable channel and every existing original asset. The sealed
+producer observation retains the original notes and both expected asset SHA-256
+identities. Missing Release/assets and a matching draft remain repairable;
+conflicting notes/bytes/duplicate assets are conflicts, while read errors remain
+unknown. Neither conflict nor unknown provides a recovery command.
+
+Actual recovery performs the same preflight before either registry can be written,
+then checks GitHub again before reconciling its assets. A later remote change can
+still interrupt a distributed release; the implementation preserves the resulting
+partial evidence rather than promising atomic cross-service publication.
+`recovery.publication_state` records the readback classification independently
+from artifact availability. The focused release suite passed 33/33, including
+RED/GREEN regressions for conflict instructions and pre-registry side effects.

@@ -6,6 +6,17 @@ import { fileURLToPath } from 'node:url';
 const id = value => /^(?:[1-9]\d*)$/.test(String(value ?? '')) ? String(value) : null;
 const requireFact = (condition, message) => { if (!condition) throw new Error(message); };
 
+// Role names attest a completed producer attempt, separately from run identity.
+export function verifyRecoveryArtifactRole({name,prefix,runAttempt}={}) {
+  const message='Recovery artifact role or source attempt is invalid';
+  requireFact(typeof prefix==='string'&&prefix.length>0&&typeof name==='string',message);
+  const escaped=prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const match=new RegExp('^'+escaped+'-([1-9]\\d*)$').exec(name);
+  const attempt=match?Number(match[1]):NaN;
+  requireFact(Number.isSafeInteger(attempt)&&Number.isSafeInteger(runAttempt)&&runAttempt>=1&&attempt>=1&&attempt<=runAttempt,message);
+  return attempt;
+}
+
 export function verifyRecoverySource({ run, artifact, repository, workflow = '.github/workflows/release.yml', sourceRunId, artifactId }) {
   requireFact(typeof repository === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository), 'Expected repository is required');
   requireFact(id(sourceRunId) && id(artifactId), 'Original run and artifact IDs must be positive integers');

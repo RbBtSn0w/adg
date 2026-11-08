@@ -1,4 +1,5 @@
 // Controlled vendoring: validate the complete old tree before making any changes.
+import {optionValues} from './cli-options.mjs';
 import {createHash} from 'node:crypto';
 import {existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
@@ -42,7 +43,7 @@ export function syncRuntime({destination,source=sourceDirectory,revision='workin
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const args=process.argv.slice(2),operation=args.shift();
- const value=flag=>{const i=args.indexOf(flag);return i<0?undefined:args[i+1];};
+ const value=optionValues(args,['--consumer','--destination','--source','--revision'],['--compare-source']);
  if(!['sync','check'].includes(operation))throw Error('Usage: sync.mjs sync|check --consumer ROOT [--source DIRECTORY --revision REVISION]');
  const consumer=value('--consumer');
  syncRuntime({destination:value('--destination')||(consumer?join(consumer,'.github/release-train'):undefined),source:value('--source'),revision:value('--revision'),check:operation==='check',compareSource:args.includes('--compare-source')});

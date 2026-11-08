@@ -1,4 +1,5 @@
 // Credential-free exact-candidate semantic-release analysis, including non-Node repositories.
+import {optionValues} from './cli-options.mjs';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync,appendFileSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -68,12 +69,12 @@ export async function analyzeRelease({cwd=process.cwd(),configPath='.releaserc.j
   }finally{rmSync(scratch,{recursive:true,force:true});}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+ const args=process.argv.slice(2),value=optionValues(args,['--worker','--config','--output']);
  if(process.argv[2]==='--worker'){
-   const request=JSON.parse(readFileSync(process.argv[3],'utf8'));
+   const request=JSON.parse(readFileSync(value('--worker'),'utf8'));
    const plan=await analyzeIsolated({...request,env:{...process.env,CANDIDATE_SHA:request.candidate,GITHUB_REPOSITORY:request.repository}});
    process.stdout.write(JSON.stringify(plan)+'\n');
  }else{
-   const args=process.argv.slice(2),value=flag=>{const at=args.indexOf(flag);return at<0?undefined:args[at+1];};
    const plan=await analyzeRelease({configPath:value('--config'),outputPath:value('--output')});
    if(process.env.GITHUB_OUTPUT)appendFileSync(process.env.GITHUB_OUTPUT,`release_needed=${plan.release_needed}\n`);
    process.stdout.write(JSON.stringify(plan)+'\n');
