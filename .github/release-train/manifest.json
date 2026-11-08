@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "source_revision": "1027c6e75219ac3dbcc56561cae9f8e06e7de6da",
-  "content_hash": "4816b06f5c8675cdd67a4f4d1e1cb7c3337226928c3b57270d54f1586336c799",
+  "source_revision": "bbf9853a100e47cb0de7624500ee80dac9f55189",
+  "content_hash": "6639beb265f90ff11ca078af3fbe4272bdce4f29841adfe2213dcdc405dcb91d",
   "files": {
     "cli.mjs": "4e1e38a0982d093994df3f15f6d95bef15b023bf7e9c652774dd5c66ba70430d",
     "commit-semantics.mjs": "953f9de905308e8e555556931ea179cdb9f2ae4bfab944d8dfc561dbaf60eeb3",
@@ -17,7 +17,7 @@
     "release-analysis.mjs": "dc5e39ff7ebc92d61d14bdfb4a9fb78b00bc38b3ac7678f5c0bb3d93f027d04c",
     "release-commit-analyzer.mjs": "45df63455c3f5f59aaa7ece1c4f03f0683428d4352f38febab7269baedae3df4",
     "release-notes-generator.mjs": "1e9480d8593d08b60bc811ffe56a51cc5912739af45b463c2bc8df588e26425a",
-    "release-result.mjs": "42d8244cb1e5ccc06fd63ebdddfdf7273cb06e8168b199e8d85f4cda22bbb982",
+    "release-result.mjs": "efa5552d2fed761f17037fe0af2c5a27f3d05f85a43559132ef676a2333cf6e6",
     "sync.mjs": "464a21ba3d25caccdbbfa5857880a3589e9e199a497dcc664e5ae8a8a63603a0"
   }
 }
