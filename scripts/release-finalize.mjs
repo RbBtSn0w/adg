@@ -54,7 +54,7 @@ if(dispatch){
   try{
    inspectedOriginal=inspectRecovery({repository:process.env.GITHUB_REPOSITORY,sourceRunId:dispatch.source_run_id,artifactId:dispatch.artifact_id});
    const {source,sourceAttempt,metadata,analysis,expectedAssets}=inspectedOriginal;
-   result={...result,candidate_sha:metadata.candidate_sha,version:metadata.version,baseline_tag:analysis.baseline_tag??metadata.baseline_tag??null,artifacts:[{...source,source_attempt:sourceAttempt,tag:metadata.tag,repository:metadata.repository,sha256:metadata.sha256,notes:analysis.notes,expected_assets:expectedAssets}]};
+   result={...result,candidate_sha:metadata.candidate_sha,version:metadata.version,baseline_tag:analysis.baseline_tag??metadata.baseline_tag??null,artifacts:[{...source,source_attempt:sourceAttempt,tag:metadata.tag,tag_format:metadata.tag_format??analysis.tag_format,repository:metadata.repository,sha256:metadata.sha256,notes:analysis.notes,expected_assets:expectedAssets}]};
   }catch(error){inspectionFailed=true;result.recovery={...dispatch,available:false,identity_verified:false,blocked_reason:error.message};}
  }
 }
@@ -72,7 +72,7 @@ if(process.env.RELEASE_ENABLED==='true'&&result.version&&!Object.values(targets)
    const artifact=inspectedOriginal?.artifact||gh(`repos/${repository}/actions/artifacts/${original.artifact_id}`);
    const run=inspectedOriginal?.run||gh(`repos/${repository}/actions/runs/${original.source_run_id}`);
    const tag=original.tag||sealed?.tag||result.version;
-   const metadata={candidate_sha:result.candidate_sha,version:result.version,tag,repository,sha256:sealed?.sha256};
+   const metadata={candidate_sha:result.candidate_sha,version:result.version,tag,tag_format:sealed?.tag_format,repository,sha256:sealed?.sha256};
    const publicationObservation=inspectedOriginal?.publicationObservation||observeRelease({metadata,notes:sealed?.notes,expectedAssets:sealed?.expected_assets});
    result.recovery={...original,...recoveryFromArtifact({plan:{candidate_sha:result.candidate_sha,version:result.version,tag},repository,sourceRunId:original.source_run_id,artifactId:original.artifact_id,run,artifact,publicationObservation,workflow:config.workflow||'.github/workflows/release.yml',allowCurrentRunId:process.env.GITHUB_RUN_ID,recoveryArtifactPrefix:`release-receipts-${result.candidate_sha}`}),publication_state:publicationObservation.recovery.state};
   }catch(error){result.recovery={...original,available:false,blocked_reason:error.message};}

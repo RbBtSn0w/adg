@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
   "source_kind": "git",
-  "source_revision": "a839dbe02ae3760940f48c4a2506031ca8402764",
-  "content_hash": "4ff0444fe3fbb428d3e6e5e5404dbf13cfb4837012ad7cd6116eee2c36a56da4",
+  "source_revision": "aea56fd3d0595742deca7a9d845fd0ee6e3e0dbe",
+  "content_hash": "be71632d2c569f40fd37dddd3b9e611eb5cb2eaaf64ad916b68c71ca71dafef2",
   "files": {
-    "cli-options.mjs": "32d9d565c4508a7cd9089528ca96b1261e36f0a9c6991c6c3849bdb93f3bc790",
+    "cli-options.mjs": "b02fa325d78d100b16f932150730fe4df31e0face993e56d1ff64602e5f205a5",
     "cli.mjs": "1529c7ea64f70513a1da3e75ec240dcdfbe7bb5786b55291f4a05ca8f2e8e683",
     "commit-semantics.mjs": "953f9de905308e8e555556931ea179cdb9f2ae4bfab944d8dfc561dbaf60eeb3",
     "github-publish.mjs": "2a8af2e54e6dfbc4d7e42ae5103f2b56b054568c7e9fa85dbcd9a79db62294fc",
     "github-recover.mjs": "b173b4f81ca068eb9e52d278783b6f76be1d19e6b077c00c261431d938d93cb8",
     "github-release-adapter.mjs": "6b78b230e93a84f25775bc237c439668d945fe9784cd3001ca930afa8b6e9741",
-    "npm-channel.mjs": "807d4f3e3f1c097505c9ca4d57a807c37aee20d2bb794a66bea1d7d31a9fb610",
+    "npm-channel.mjs": "4a566e55edce420d163f9162dc66593d79733a408112623c90cb1ec2ea9e6857",
     "npm-recover.mjs": "d07bd6c74cc975e09d3f56738b69202af9c6a2006ac39532aa07abd808f11e89",
     "npm-recovery-source.mjs": "2b9e617a92bf26ef274bd13ed291f5965a924738526be7d6bd8a7dce8e5dd9c6",
     "npm-recovery-tag.mjs": "7b91e5aa42390fc5a71232744f81336ef1083fb357068a4a216c666ea724c203",
@@ -23,6 +23,7 @@
     "release-commit-analyzer.mjs": "45df63455c3f5f59aaa7ece1c4f03f0683428d4352f38febab7269baedae3df4",
     "release-notes-generator.mjs": "1e9480d8593d08b60bc811ffe56a51cc5912739af45b463c2bc8df588e26425a",
     "release-result.mjs": "1857ccf2767f33b26f6eede274cc28c2eb90360842a8fd13708328c6e08019f7",
-    "sync.mjs": "162e2d8243b8d9f1e08408ba5a7cc46f49bfd90a47d03e3c9d098a7de3a5d080"
+    "sync-lock.mjs": "93368e71538c3213aa877b95114aec91f89596cf592cc82ad8d5330c9172836d",
+    "sync.mjs": "d79341bb28e5f13a653173d09a64a6d4f822f070316dc7f6f6d109364c1094ac"
   }
 }

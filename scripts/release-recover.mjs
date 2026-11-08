@@ -1,3 +1,4 @@
+import {sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 // Recovery uses current trusted workflow code and the original sealed publication bytes.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -10,6 +11,8 @@ import {observeRelease} from './release-observe.mjs';
 import { publish } from './release-payload.mjs';
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 export function validatePayload(metadata, analysis, archive) {
+  if (sealedTagFormat({...metadata,tag_format:metadata.tag_format??analysis.tag_format}) !== sealedTagFormat(analysis)) throw Error('Sealed tag format mismatch');
+  metadata.tag_format = sealedTagFormat(analysis);
   if (metadata.candidate_sha !== analysis.candidate_sha || metadata.version !== analysis.version || metadata.tag !== analysis.tag || metadata.sha256 !== sha256(archive)) throw Error('Sealed release payload mismatch');
   if (!/^[a-f0-9]{40}$/.test(metadata.candidate_sha) || !metadata.tag || !metadata.version || !metadata.repository || !metadata.source_run_id) throw Error('Incomplete sealed release identity');
   const integrity = 'sha512-' + createHash('sha512').update(readFileSync(archive)).digest('base64');

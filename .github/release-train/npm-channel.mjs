@@ -39,6 +39,13 @@ export function sealedTagFormat(metadata){
   if(index<0||tag.indexOf(version,index+1)>=0)throw Error('Original sealed tag format is unverifiable');
   format=tag.slice(0,index)+'${version}'+tag.slice(index+version.length);
  }
- if(typeof format!=='string'||format.split('${version}').length!==2||format.replace('${version}',version)!==tag)throw Error('Original configured tag format differs from the sealed tag');
- return format;
+ if(typeof format!=='string')throw Error('Original configured tag format differs from the sealed tag');
+ // Normalize only direct version interpolation. Never evaluate a template from
+ // an artifact; expressions, evaluation blocks and escaping are not executable evidence.
+ const tokens=format.match(/\$\{\s*version\s*\}|<%=\s*version\s*%>/g)||[];
+ const canonical=format.replace(/\$\{\s*version\s*\}|<%=\s*version\s*%>/g,'${version}');
+ const literal=canonical.replace('${version}','');
+ if(tokens.length!==1||literal.includes('${')||literal.includes('<%'))throw Error('Unsupported tag template: only direct version interpolation is accepted');
+ if(canonical.replace('${version}',version)!==tag)throw Error('Original configured tag format differs from the sealed tag');
+ return canonical;
 }

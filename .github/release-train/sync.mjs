@@ -1,4 +1,5 @@
 // Controlled vendoring with an interruption journal; no generated file is hand-owned.
+import {withSyncLock,assertSyncUnlocked} from './sync-lock.mjs';
 import {optionValues} from './cli-options.mjs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -85,7 +86,7 @@ function provenance(source,revision,content){
  if(JSON.stringify(Object.keys(expected).sort())!==JSON.stringify(Object.keys(content).sort())||Object.keys(content).some(name=>hash(content[name])!==hash(expected[name])))throw Error('Selected source revision does not match runtime files and bytes');
  return {source_kind:'git',source_revision:sha};
 }
-export function syncRuntime({destination,source=sourceDirectory,revision='working-tree',check=false,compareSource=false,consumer}={}){
+function syncUnlocked({destination,source=sourceDirectory,revision='working-tree',check=false,compareSource=false,consumer}={}){
  if(!destination)throw Error('Destination is required');
  destination=resolve(destination);source=resolve(source);confined(destination,consumer);
  if(destination===source&&(!check||compareSource))throw Error('Source and destination must differ');
@@ -118,9 +119,22 @@ export function syncRuntime({destination,source=sourceDirectory,revision='workin
   writeFileSync(join(stage,'journal.json'),json(journal));
   renameSync(join(stage,'journal.json'),journalPath);recorded=true;
   return completeJournal(destination,journal);
- }finally{
-  if(!recorded){for(const name of files(stage)){if(![...names,'manifest.json','journal.json'].includes(name))throw Error('Unknown staged file');rmSync(join(stage,name));}rmdirSync(stage);}
+ }catch(error){
+  if(!recorded){
+   try{for(const name of files(stage)){if(![...names,'manifest.json','journal.json'].includes(name))throw Error('Unknown staged file');rmSync(join(stage,name));}rmdirSync(stage);}
+   catch(cleanupError){
+    throw new AggregateError([error,cleanupError],`${error.message}; staging cleanup failed: ${cleanupError.message}`,{cause:error});
+   }
+  }
+  throw error;
  }
+}
+export function syncRuntime(options={}){
+ if(!options.destination)throw Error('Destination is required');
+ const destination=resolve(options.destination);confined(destination,options.consumer);
+ if(options.check){assertSyncUnlocked(destination);return syncUnlocked({...options,destination});}
+ mkdirSync(dirname(destination),{recursive:true});confined(destination,options.consumer);
+ return withSyncLock(destination,()=>syncUnlocked({...options,destination}));
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const args=process.argv.slice(2),operation=args.shift();

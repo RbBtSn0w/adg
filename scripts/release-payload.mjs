@@ -1,4 +1,4 @@
-import {verifyLatest,assertNoKnownNewerLatest} from '../.github/release-train/npm-channel.mjs';
+import {verifyLatest,assertNoKnownNewerLatest,sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -26,6 +26,7 @@ export async function prepare(_options, { cwd, env = process.env, nextRelease })
   const analysis = JSON.parse(readFileSync(join(input, 'analysis.json'), 'utf8'));
   if (!/^[a-f0-9]{40}$/.test(analysis.candidate_sha || '') || analysis.candidate_sha !== env.CANDIDATE_SHA || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(analysis.version || '') || analysis.version !== nextRelease.version || typeof analysis.tag !== 'string' || !analysis.tag || analysis.tag !== nextRelease.gitTag) throw Error('Engine release differs from verified analysis');
   if (typeof analysis.notes !== 'string' || typeof nextRelease.notes !== 'string' || analysis.notes !== nextRelease.notes) throw Error('Release notes changed after analysis; analyze and verify a fresh candidate');
+  const tagFormat = sealedTagFormat(analysis);
   const before = JSON.stringify(payload(root));
   const manifestPath = join(root, 'package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -34,7 +35,7 @@ export async function prepare(_options, { cwd, env = process.env, nextRelease })
   // Re-archive existing files directly: no npm pack, file filtering, or lifecycle hooks.
   execFileSync('tar', ['-czf', join(input, 'final.tgz'), '-C', join(input, 'unpacked'), 'package']);
   if (before !== JSON.stringify(payload(root))) throw Error('Prepared payload changed');
-  writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}`, sha256: createHash('sha256').update(readFileSync(join(input, 'final.tgz'))).digest('hex'), candidate_sha: env.CANDIDATE_SHA, repository: env.GITHUB_REPOSITORY, source_run_id: env.GITHUB_RUN_ID, source_attempt: env.GITHUB_RUN_ATTEMPT, operation: 'release', tag: nextRelease.gitTag, baseline_tag: analysis.baseline_tag || null }));
+  writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}`, sha256: createHash('sha256').update(readFileSync(join(input, 'final.tgz'))).digest('hex'), candidate_sha: env.CANDIDATE_SHA, repository: env.GITHUB_REPOSITORY, source_run_id: env.GITHUB_RUN_ID, source_attempt: env.GITHUB_RUN_ATTEMPT, operation: 'release', tag: nextRelease.gitTag, tag_format: tagFormat, baseline_tag: analysis.baseline_tag || null }));
   assertLiveMain(cwd, env);
 }
 
