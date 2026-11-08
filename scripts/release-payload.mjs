@@ -40,10 +40,14 @@ export async function prepare(_options, { cwd, env = process.env, nextRelease })
 
 export async function publish(_options, { cwd, env, nextRelease }) {
   if(env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
-  if (!_options.recovery) assertLiveMain(cwd, env);
   const input = join(cwd, 'release-input'), archive = join(input, 'final.tgz');
   const metadata = JSON.parse(readFileSync(join(input, 'final.json'), 'utf8'));
   if (metadata.version !== nextRelease.version || metadata.integrity !== `sha512-${digest(archive)}`) throw Error('Final artifact mismatch');
+  // The tag fixes identity; main may advance while these original bytes are published.
+  if(!_options.recovery){
+    const analysis=JSON.parse(readFileSync(join(input,'analysis.json'),'utf8'));
+    if(metadata.candidate_sha!==env.CANDIDATE_SHA||metadata.candidate_sha!==analysis.candidate_sha||metadata.version!==analysis.version||metadata.tag!==analysis.tag||metadata.tag!==nextRelease.gitTag||(nextRelease.gitHead!==undefined&&nextRelease.gitHead!==metadata.candidate_sha)||typeof analysis.notes!=='string'||analysis.notes!==nextRelease.notes)throw Error('Publication identity differs from the original sealed analysis');
+  }
   const receipts = join(input, 'receipts'); mkdirSync(receipts, { recursive: true });
   for (const [target, registry] of [['npm', 'https://registry.npmjs.org'], ['github-packages', 'https://npm.pkg.github.com']]) {
     const receiptPath=join(receipts,`${target}.json`);
