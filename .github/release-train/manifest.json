@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "source_kind": "git",
+  "source_revision": "aea56fd3d0595742deca7a9d845fd0ee6e3e0dbe",
+  "content_hash": "be71632d2c569f40fd37dddd3b9e611eb5cb2eaaf64ad916b68c71ca71dafef2",
+  "files": {
+    "cli-options.mjs": "b02fa325d78d100b16f932150730fe4df31e0face993e56d1ff64602e5f205a5",
+    "cli.mjs": "1529c7ea64f70513a1da3e75ec240dcdfbe7bb5786b55291f4a05ca8f2e8e683",
+    "commit-semantics.mjs": "953f9de905308e8e555556931ea179cdb9f2ae4bfab944d8dfc561dbaf60eeb3",
+    "github-publish.mjs": "2a8af2e54e6dfbc4d7e42ae5103f2b56b054568c7e9fa85dbcd9a79db62294fc",
+    "github-recover.mjs": "b173b4f81ca068eb9e52d278783b6f76be1d19e6b077c00c261431d938d93cb8",
+    "github-release-adapter.mjs": "6b78b230e93a84f25775bc237c439668d945fe9784cd3001ca930afa8b6e9741",
+    "npm-channel.mjs": "4a566e55edce420d163f9162dc66593d79733a408112623c90cb1ec2ea9e6857",
+    "npm-recover.mjs": "d07bd6c74cc975e09d3f56738b69202af9c6a2006ac39532aa07abd808f11e89",
+    "npm-recovery-source.mjs": "2b9e617a92bf26ef274bd13ed291f5965a924738526be7d6bd8a7dce8e5dd9c6",
+    "npm-recovery-tag.mjs": "7b91e5aa42390fc5a71232744f81336ef1083fb357068a4a216c666ea724c203",
+    "npm-release-adapter.mjs": "b8b616e03351f61f02ef8f7f544b714e1fe2413255b25dade8ff38dff09734cf",
+    "npm-release-status.mjs": "bc4053f3bcca092bc4319137883d2a84cc3822261bf9c3fe6e2c8ffd0f921fea",
+    "observe-github.mjs": "7f7370cc0173253344f46d8e63844a30463b144bd30708b1cbcafb11db6171b7",
+    "publication-guard.mjs": "8650f1ad9680efa5e72b879ac084ff13107780bacb03ef72e384fa75cdd136e4",
+    "recovery-source.mjs": "22d9c4415730ee09225c9dcb7b76712f37c69322b7d7c9a9cc185b3cd0584135",
+    "release-analysis.mjs": "467e25fa8f672c1c1a778dbbca3c250f2433d172bdf33739c92e43887968a2f9",
+    "release-commit-analyzer.mjs": "45df63455c3f5f59aaa7ece1c4f03f0683428d4352f38febab7269baedae3df4",
+    "release-notes-generator.mjs": "1e9480d8593d08b60bc811ffe56a51cc5912739af45b463c2bc8df588e26425a",
+    "release-result.mjs": "1857ccf2767f33b26f6eede274cc28c2eb90360842a8fd13708328c6e08019f7",
+    "sync-lock.mjs": "93368e71538c3213aa877b95114aec91f89596cf592cc82ad8d5330c9172836d",
+    "sync.mjs": "d79341bb28e5f13a653173d09a64a6d4f822f070316dc7f6f6d109364c1094ac"
+  }
+}
