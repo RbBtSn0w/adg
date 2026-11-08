@@ -1,9 +1,10 @@
 // Recovery uses current trusted workflow code and the original sealed publication bytes.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import {fileURLToPath} from 'node:url';
 import { verifyRecoverySource, verifyRecoveryArtifactRole } from './recovery-source.mjs';
 import { verifyNpm } from './npm-release-adapter.mjs';
 import {observeNpmGitHub} from './npm-release-status.mjs';
@@ -33,6 +34,8 @@ function findRelease(repository,tag) {
   return matches[0]||null;
 }
 export function reconcileGitHub(metadata, notes, input = 'release-sealed') {
+  rmSync(join(input,'receipts/github-release.json'),{force:true});
+  if(notes!==metadata.notes)throw Error('GitHub reconciliation requires original sealed notes');
   const preflight=observeNpmGitHub({plan:metadata,inputDirectory:input});
   if(preflight.recovery.state!=='repairable')throw Error(`GitHub recovery preflight blocked: ${preflight.recovery.reason}`);
   let release=findRelease(metadata.repository,metadata.tag);
@@ -57,7 +60,8 @@ export function reconcileGitHub(metadata, notes, input = 'release-sealed') {
   }
   if (release.draft) gh('release', 'edit', metadata.tag, '--repo', metadata.repository, '--latest=false', '--draft=false');
   const observed = findRelease(metadata.repository,metadata.tag);
-  if (!observed || observed.draft || observed.tag_name !== metadata.tag) throw Error('GitHub Release publication was not verified');
+  if(!observed||String(observed.id)!==String(release.id)||observed.draft!==false||observed.prerelease!==false||observed.tag_name!==metadata.tag||observed.body!==metadata.notes)throw Error('GitHub Release final readback differs from original identity, notes or stable channel');
+  if(!Array.isArray(observed.assets))throw Error('GitHub Release final asset readback is unavailable');
   for (const name of ['final.tgz', 'final.json']) {
     const matches = observed.assets.filter(asset => asset.name === name);
     if (matches.length !== 1) throw Error(`GitHub asset is missing or ambiguous: ${name}`);
@@ -122,4 +126,4 @@ export async function recover() {
   await verifyNpm({recover:true});
   reconcileGitHub(metadata, metadata.notes);
 }
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) await recover();
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) await recover();

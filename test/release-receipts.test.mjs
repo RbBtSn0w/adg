@@ -42,7 +42,19 @@ test('all-job retry cannot reinterpret a tag created by partial publication as n
 });
 
 test('matching receipt confirms only its channel and a conflicting digest remains unconfirmed',()=>{
- const receipt={status:'completed',candidate_sha:candidate,version:'2.0.0',observed_at:'2026-11-08T00:00:00Z',remote_id:'example@2.0.0',sha256:'b'.repeat(64)};
+ const receipt={status:'completed',candidate_sha:candidate,version:'2.0.0',observed_at:'2026-11-08T00:00:00Z',remote_id:'example@2.0.0',latest_version:'2.0.0',channel_observed_at:'2026-11-08T00:00:00Z',sha256:'b'.repeat(64)};
  const matched=observe(receipt);assert.equal(matched.targets.npm.status,'completed');assert.equal(matched.publication,'partial');assert.equal(matched.targets['github-packages'].status,'not-run');
  assert.notEqual(observe({...receipt,sha256:'c'.repeat(64)}).targets.npm.status,'completed');
+});
+
+test('status confirms registry receipts only with a verified current channel observation',()=>{
+ const receipt={status:'completed',candidate_sha:candidate,version:'2.0.0',observed_at:'2026-11-08T00:00:00Z',remote_id:'example@2.0.0',sha256:'b'.repeat(64),latest_version:'2.0.0',channel_observed_at:'2026-11-08T00:00:00Z'};
+ for(const bad of [{latest_version:'1.0.0'},{latest_version:'next'},{channel_observed_at:undefined}])assert.notEqual(observe({...receipt,...bad}).targets.npm.status,'completed');
+ assert.equal(observe({...receipt,latest_version:'3.0.0'}).targets.npm.status,'completed');
+});
+
+test('stage snapshot classifies retained byte-valid channel-invalid receipts independently',()=>{
+ const receipt={status:'completed',candidate_sha:candidate,version:'2.0.0',observed_at:'2026-11-08T00:00:00Z',remote_id:'example@2.0.0',sha256:'b'.repeat(64),latest_version:'1.0.0',channel_observed_at:'2026-11-08T00:00:00Z'};
+ const value=observe(receipt);assert.equal(value.targets.npm.status,'unknown');assert.equal(value.targets.npm.bytes_verified,true);assert.equal(value.targets.npm.channel_blocked,true);
+ const wrong=observe({...receipt,sha256:'f'.repeat(64)});assert.notEqual(wrong.targets.npm.bytes_verified,true);assert.notEqual(wrong.targets.npm.channel_blocked,true);
 });

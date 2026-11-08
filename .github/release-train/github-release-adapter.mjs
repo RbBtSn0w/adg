@@ -1,4 +1,5 @@
 // Guard semantic-release's actual decision before it can create any tag or release.
+import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -15,13 +16,13 @@ function planFor({env=process.env,cwd=process.cwd()}) {
 export function verifyRelease(_options,context) {
   const plan=planFor(context);
   if(!plan)return;
-  if(context.nextRelease.gitHead!==plan.candidate_sha||context.nextRelease.version!==plan.version||context.nextRelease.gitTag!==plan.tag)
-    throw new Error('Semantic-release decision differs from sealed candidate/version/tag');
+  assertPublicationEnabled(context.env??process.env);
+  assertSealedRelease(plan,context.nextRelease);
 }
 export function prepare(_options,context) {
   verifyRelease(_options,context);
   const plan=planFor(context);
-  if(plan&&context.nextRelease.notes!==plan.notes) throw new Error('Release notes changed after analysis; analyze and verify a fresh plan');
+  if(plan)assertSealedRelease(plan,context.nextRelease,{notes:true});
 }
 
 export function sealPlan({cwd=process.cwd(),env=process.env}={}) {

@@ -34,7 +34,7 @@ export function createResult(input) {
       target.reason = 'Legacy or incomplete receipt does not establish remote publication';
     }
   }
-  const states = Object.values(targets).map(target => target.status);
+  const states = intended.map(name => targets[name].status);
   const completed = states.filter(state => state === 'completed').length;
   const failed = input.analysis === 'failed' || verification === 'failed' || states.includes('failed') || Boolean(input.failure_stage);
   let publication;
@@ -74,7 +74,7 @@ export function createResult(input) {
 
 export function reportExitCode(result) {
   if(!result||result.schema_version!==2)return 0;
-  return result.verification==='failed'||Boolean(result.failure_stage)||Object.values(result.targets).some(target=>target.status==='failed')||result.publication==='failed'||(result.publication==='partial'&&!result.asynchronous)?1:0;
+  return result.verification==='failed'||Boolean(result.failure_stage)||result.intended_targets.some(name=>result.targets[name]?.status==='failed')||result.publication==='failed'||(result.publication==='partial'&&!result.asynchronous)?1:0;
 }
 
 export function recoveryMetadata(value) {
@@ -90,7 +90,7 @@ export function writeResult(outputPath, input, { summaryPath = process.env.GITHU
   mkdirSync(dirname(resolve(outputPath)), { recursive: true });
   writeFileSync(outputPath, JSON.stringify(result, null, 2) + '\n');
   if (summaryPath) {
-    const labels = {completed:'Publication complete',partial:'Publication incomplete',failed:'Publication not confirmed','in-progress':'Publication in progress','no-release':'No release needed',disabled:result.verification==='failed'?'Validation failed · Publication disabled':result.verification!=='passed'?'Checks not confirmed · Publication disabled':result.version===null&&['success','no-release'].includes(result.analysis)?'No release needed · Publication disabled':'Checks passed · Publication disabled'};
+    const labels = {completed:'Publication complete',partial:'Publication incomplete',failed:'Publication not confirmed','in-progress':'Publication in progress','no-release':'No release needed',disabled:result.verification==='failed'?'Validation failed · Publication disabled':result.failure_stage?'Outcome not confirmed · Publication disabled':result.verification!=='passed'?'Checks not confirmed · Publication disabled':result.version===null&&['success','no-release'].includes(result.analysis)?'No release needed · Publication disabled':'Checks passed · Publication disabled'};
     const rows = Object.entries(result.targets).map(([name,target])=>`| ${cell(name)} | ${cell(target.status==='unknown'?'Not confirmed':target.status)} | ${cell(target.url || target.remote_id || target.reason)} |`);
     const recovery = result.recovery;
     const outstandingNative=result.intended_targets.filter(name=>/(^|_)(cloud|archive|asc_upload|testflight)(_|$)/.test(name)&&result.targets[name]?.status!=='completed').map(name=>result.targets[name]);
@@ -99,7 +99,7 @@ export function writeResult(outputPath, input, { summaryPath = process.env.GITHU
     const headline=nativePending?`GitHub publication complete · TestFlight ${nativeLabel}`:labels[result.publication];
     const noAction=['completed','no-release'].includes(result.publication);
     const showRecovery=!noAction&&result.publication!=='disabled';
-    const action = noAction?'No action needed.':result.verification==='failed'&&result.publication==='disabled'?'Correct the failed verification and validate a fresh candidate. Publication remains disabled.':nativePending?'Inspect the native Cloud and TestFlight evidence links for outstanding delivery stages.':showRecovery&&recovery.available?(recovery.command || `gh workflow run release.yml --ref main -f operation=recover -f source_run_id=${recovery.source_run_id} -f artifact_id=${recovery.artifact_id}`):result.publication==='disabled'?'No publication was attempted. Initial activation remains separate.':'Inspect the failed stage and remote receipts before starting another release.';
+    const action = noAction?'No action needed.':result.verification==='failed'&&result.publication==='disabled'?'Correct the failed verification and validate a fresh candidate. Publication remains disabled.':result.publication==='disabled'&&result.failure_stage?'Inspect the failed report stage and restore its original evidence. Publication remains disabled.':nativePending?'Inspect the native Cloud and TestFlight evidence links for outstanding delivery stages.':showRecovery&&recovery.available?(recovery.command || `gh workflow run release.yml --ref main -f operation=recover -f source_run_id=${recovery.source_run_id} -f artifact_id=${recovery.artifact_id}`):result.publication==='disabled'?'No publication was attempted. Initial activation remains separate.':'Inspect the failed stage and remote receipts before starting another release.';
     const lines = [`## ${headline}`,'',`Next: ${showRecovery&&recovery.available&&recovery.wait_for_run_completion?'After the original run completes: ':''}${action}`,'',`Version: ${cell(result.version)||'none'} · Candidate: \`${result.candidate_sha.slice(0,7)}\` · Observed: ${cell(result.observed_at)}`,'',`Analysis: ${cell(result.analysis)}; verification: ${cell(result.verification)}; publication enabled: ${result.enabled}`,'','| Target | Result | Evidence |','| --- | --- | --- |',...rows,''];
     if(result.failure_stage)lines.push(`Failed stage: ${cell(result.failure_stage)}`,'');
     for(const error of result.errors)lines.push(`- ${cell(typeof error==='string'?error:error.message??error.code)}`);

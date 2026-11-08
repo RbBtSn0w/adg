@@ -1,8 +1,10 @@
+import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
+import {verifyLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
 // Run after @semantic-release/npm prepare. Never rebuild the verified package.
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {copyFileSync,mkdirSync,readFileSync,readdirSync,writeFileSync} from 'node:fs';
+import {copyFileSync,mkdirSync,readFileSync,readdirSync,writeFileSync,rmSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const digest=(path,algorithm='sha256')=>createHash(algorithm).update(readFileSync(path)).digest(algorithm==='sha512'?'base64':'hex');
@@ -14,8 +16,7 @@ function selected(cwd){
 }
 export function verifyRelease(_options,{cwd,env=process.env,nextRelease}){
  const plan=selected(cwd);
- if(nextRelease.gitHead!==plan.candidate_sha||nextRelease.version!==plan.version||nextRelease.gitTag!==plan.tag)throw Error('Semantic-release differs from the verified candidate/version/tag');
- if(env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
+ assertPublicationEnabled(env);assertSealedRelease(plan,nextRelease);
 }
 export function sealPlan({cwd=process.cwd(),env=process.env}={}){
  const plan=read(join(cwd,'release-plan.json'));
@@ -33,7 +34,7 @@ export function prepare(options,context){
  const {cwd,env=process.env,nextRelease}=context;verifyRelease(options,context);
  const plan=selected(cwd),output=join(cwd,'release-output');
  // Notes are generated after verifyRelease; compare them at the prepare boundary.
- if(nextRelease.notes!==plan.notes)throw Error('Generated release notes differ from the verified plan');
+ assertSealedRelease(plan,nextRelease,{notes:true});
  const archives=readdirSync(output).filter(name=>name.endsWith('.tgz'));
  if(archives.length!==1)throw Error('Expected exactly one final npm prepare archive');
  const archive=join(output,archives[0]),original=join(cwd,'release-input/package.tgz');
@@ -50,7 +51,9 @@ export function prepare(options,context){
  if(head!==plan.candidate_sha||live!==plan.candidate_sha)throw Error('Main changed or could not be read before tag creation');
 }
 export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false}={}){
+ if(recover)assertPublicationEnabled(env);
  const input=join(cwd,'release-sealed'),metadata=read(join(input,'final.json')),archive=join(input,'final.tgz');
+ rmSync(join(input,'receipts/npm.json'),{force:true});
  if(metadata.sha256!==digest(archive)||metadata.integrity!=='sha512-'+digest(archive,'sha512'))throw Error('Sealed final npm archive differs');
  const registry='https://registry.npmjs.org';
  const tagOptions={cwd,env,registry};
@@ -71,9 +74,17 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
   if(attempt<2)await new Promise(done=>setTimeout(done,1000*(attempt+1)));
  }
  if(!matched)throw Error(`npm integrity readback failed: ${observed.stderr||observed.stdout}`);
- let latestVersion;
- if(recover){latestVersion=reconcileLatest(metadata,tagOptions);cleanRecoveryTag(metadata,distributionTag,tagOptions);}
- const receipt={status:'completed',candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,...(latestVersion?{latest_version:latestVersion}:{}),url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,sha256:metadata.sha256};
+ let channel;
+ try{
+  if(recover){reconcileLatest(metadata,tagOptions);cleanRecoveryTag(metadata,distributionTag,tagOptions);}
+  channel=verifyLatest(metadata,tagOptions);
+ }catch(error){
+  const receipt={status:'unknown',bytes_verified:true,channel_blocked:true,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,reason:error.message};
+  mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(join(input,'receipts/npm.json'),JSON.stringify(receipt)+'\n');
+  throw error;
+ }
+ const latestVersion=channel.latest_version;
+ const receipt={status:'completed',channel_observed_at:channel.observed_at,candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,...(latestVersion?{latest_version:latestVersion}:{}),url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,sha256:metadata.sha256};
  mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(join(input,'receipts/npm.json'),JSON.stringify(receipt)+'\n');return receipt;
 }
 export async function publish(_options,{cwd,env}){await verifyNpm({cwd,env});}

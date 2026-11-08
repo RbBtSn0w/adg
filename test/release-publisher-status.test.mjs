@@ -18,7 +18,7 @@ test('normal publisher readback receipts are confirmed by the actual status adap
  const cwd=mkdtempSync(join(tmpdir(),'npm-publisher-status-')),root=join(cwd,'release-input/unpacked/package');mkdirSync(root,{recursive:true});writeFileSync(join(root,'package.json'),JSON.stringify({name:'@scope/public-fixture',version:'1.0.0'}));
  const env=releaseEnv(cwd),nextRelease=releaseDecision(cwd,'2.0.0');await prepare({}, {cwd,env,nextRelease});
  const bin=join(cwd,'bin');mkdirSync(bin);writeFileSync(join(bin,'npm'),`#!/usr/bin/env node
-const fs=require('fs'),path=require('path');if(process.argv[2]!=='view')process.exit(99);console.log(JSON.stringify(JSON.parse(fs.readFileSync(path.join(process.env.STATE,'release-input/final.json'))).integrity));
+const fs=require('fs'),path=require('path');if(process.argv[2]!=='view')process.exit(99);const metadata=JSON.parse(fs.readFileSync(path.join(process.env.STATE,'release-input/final.json')));console.log(JSON.stringify(process.argv[4]==='dist-tags'?{latest:metadata.version}:metadata.integrity));
 `,{mode:0o755});
  await publish({}, {cwd,env:{...env,PATH:bin+':'+env.PATH,STATE:cwd},nextRelease});assertRegistryResult(cwd,'publish');
 });

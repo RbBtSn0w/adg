@@ -1,8 +1,9 @@
+import {verifyLatest} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 function digest(path) { return createHash('sha512').update(readFileSync(path)).digest('base64'); }
@@ -38,12 +39,15 @@ export async function prepare(_options, { cwd, env = process.env, nextRelease })
 }
 
 export async function publish(_options, { cwd, env, nextRelease }) {
+  if(env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
   if (!_options.recovery) assertLiveMain(cwd, env);
   const input = join(cwd, 'release-input'), archive = join(input, 'final.tgz');
   const metadata = JSON.parse(readFileSync(join(input, 'final.json'), 'utf8'));
   if (metadata.version !== nextRelease.version || metadata.integrity !== `sha512-${digest(archive)}`) throw Error('Final artifact mismatch');
   const receipts = join(input, 'receipts'); mkdirSync(receipts, { recursive: true });
   for (const [target, registry] of [['npm', 'https://registry.npmjs.org'], ['github-packages', 'https://npm.pkg.github.com']]) {
+    const receiptPath=join(receipts,`${target}.json`);
+    if(existsSync(receiptPath))unlinkSync(receiptPath);
     const npmrc = join(input, `${target}.npmrc`);
     // Keep the GitHub token out of npmjs requests; npmjs uses trusted publishing.
     writeFileSync(npmrc, target === 'github-packages' ? '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}\n' : '');
@@ -71,8 +75,17 @@ export async function publish(_options, { cwd, env, nextRelease }) {
       }
       if (!verified) throw Error(`${target}: published integrity could not be verified: ${detail}`);
     }
-    if(_options.recovery){reconcileLatest(metadata,tagOptions);cleanRecoveryTag(metadata,distributionTag,tagOptions);}
-    writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata, status: 'completed', registry, observed_at: new Date().toISOString(), remote_id: `${metadata.name}@${metadata.version}`, url: target === 'npm' ? `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` : `https://github.com/${metadata.repository}/packages`, candidate_sha: metadata.candidate_sha}));
+    const bytesObservedAt=new Date().toISOString();
+    let channel;
+    try{
+      // Safe recovery helpers observe latest and retain temporary tags; they never add/remove tags.
+      if(_options.recovery){reconcileLatest(metadata,tagOptions);cleanRecoveryTag(metadata,distributionTag,tagOptions);}
+      channel=verifyLatest(metadata,tagOptions);
+    }catch(error){
+      writeFileSync(receiptPath,JSON.stringify({...metadata,registry,status:'unknown',observed_at:bytesObservedAt,remote_id:`${metadata.name}@${metadata.version}`,url:target==='npm'?`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`:`https://github.com/${metadata.repository}/packages`,bytes_verified:true,channel_blocked:true,reason:`Latest channel is not confirmed: ${error.message}`}));
+      throw error;
+    }
+    writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata, status: 'completed', bytes_verified:true, registry, latest_version:channel.latest_version, channel_observed_at:channel.observed_at, observed_at: new Date().toISOString(), remote_id: `${metadata.name}@${metadata.version}`, url: target === 'npm' ? `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` : `https://github.com/${metadata.repository}/packages`, candidate_sha: metadata.candidate_sha}));
   }
   writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
   return { name: 'npm and GitHub Packages', url: `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` };

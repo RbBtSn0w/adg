@@ -1,4 +1,5 @@
 // Reconcile original GitHub effects; never retag, rebuild, or replace notes.
+import {assertPublicationEnabled} from './publication-guard.mjs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {inflateRawSync} from 'node:zlib';
@@ -34,6 +35,7 @@ export function readPlanArchive(raw){
  return JSON.parse(content.toString('utf8'));
 }
 export async function recover({env=process.env,cwd=process.cwd(),read=api,command=gh}={}){
+ assertPublicationEnabled(env);
  const repository=env.GITHUB_REPOSITORY,sourceRunId=env.SOURCE_RUN_ID,artifactId=env.ARTIFACT_ID;
  const run=read(`repos/${repository}/actions/runs/${sourceRunId}`),artifact=read(`repos/${repository}/actions/artifacts/${artifactId}`);
  const identity=verifyRecoverySource({run,artifact,repository,sourceRunId,artifactId});

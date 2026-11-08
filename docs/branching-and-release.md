@@ -53,12 +53,13 @@ package version/name, tag, SHA256 and registry integrity. It peels the existing 
 and requires the original candidate. Missing or unverifiable evidence fails closed.
 Existing registry versions and GitHub assets must match original bytes. Only missing
 targets are written; existing matching targets are observed. Authentication/network
-errors remain failures, never assumed absence or success. Recovery publishes a missing
-old version under an exclusive temporary tag, then observes stable `latest`: a
-newer/equal version is preserved; an older or absent version is restored to the
-original version only after its bytes pass verification, then read back. Unknown
-version formats fail closed. Only this recovery run's still-matching temporary tag
-is removed. Participating jobs share `release-main`; external manual writers are
+errors remain failures, never assumed absence or success. Recovery may publish missing original bytes under its exclusive recovery tag,
+then reads the stable `latest` channel. It never calls `npm dist-tag add` or
+`npm dist-tag rm`. Only a verified same/newer `latest` can complete the registry
+target; older, missing or unverifiable channels remain unconfirmed. Any owned
+recovery tag is retained intentionally, with no recurring cleanup requirement.
+Restored bytes are preserved even when channel delivery cannot be confirmed.
+Participating jobs share `release-main`; external manual writers are
 outside that lock. GitHub draft lookup uses paginated release listings, validates
 the original notes/assets and preserves the latest release designation. Expired artifacts and
 conflicting remote bytes require owner investigation; never reconstruct the payload.
@@ -84,14 +85,14 @@ Source checks do not prove runtime activation. Before enabling publication once,
 verify the npm trusted publisher binds this repository and exactly `release.yml`,
 the supported Node/npm OIDC setup, GitHub package/tag/release permissions, current
 release baseline/history, PR squash metadata preservation and required checks.
-For the selected npm trusted-publisher configuration, the package owner must also
-verify **Allow npm dist-tag** during one-time setup. This permission is disabled
-by default and independent from direct publishing; recovery uses it for
-`npm dist-tag add` and `npm dist-tag rm` through the existing OIDC identity.
-The workflow's npm 11.21.0 meets the documented CLI requirement. See
+The selected safe recovery policy performs no `npm dist-tag add` or `npm dist-tag rm`,
+so **Allow npm dist-tag** is not an activation prerequisite for this workflow.
+That optional permission is independent of direct publishing and disabled by
+default; existing package settings are not changed. See
 [npm trusted-publishing dist-tag permissions](https://docs.npmjs.com/trusted-publishers/#managing-dist-tags-with-trusted-publishing).
-This checklist records an activation prerequisite; no package setting or
-credential is changed by these source changes.
+Normal scheduled publication still publishes a verified new version through the
+existing trusted-publishing identity. Recovery only observes channel delivery and
+cannot promise to repair an older or missing `latest`.
 Verify the existing release App's private key, installation and write access to
 `RbBtSn0w/homebrew-tap`; no fallback credential is introduced.
 Disable old controllers/timers at the authorized cutover; remote develop remains
@@ -225,3 +226,19 @@ partial evidence rather than promising atomic cross-service publication.
 `recovery.publication_state` records the readback classification independently
 from artifact availability. The focused release suite passed 33/33, including
 RED/GREEN regressions for conflict instructions and pre-registry side effects.
+
+## Late review: durable outcomes and channel evidence (2026-11-08)
+
+Registry completion requires the original sealed checksum plus a legal
+`latest_version` at least as new as the sealed version and an actual
+`channel_observed_at` readback timestamp. Byte confirmation and channel delivery
+remain separate: failed channel readback retains an unknown receipt with confirmed
+byte evidence, without inventing a channel timestamp. The final observer does not
+offer a command that claims recovery can change `latest`.
+
+An early recovery failure retains the original dispatch IDs as unverified
+inputs. The final observer reads and verifies the original run, artifact role,
+archive digest, payload and remote effects before offering a retry command.
+Malformed producer JSON becomes a `report-inputs` failure while other valid
+observations, the final JSON and Summary survive. During GitHub asset reconciliation,
+the final readback rechecks the same release ID, original notes and stable visibility.
