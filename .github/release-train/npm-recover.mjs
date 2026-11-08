@@ -73,6 +73,7 @@ export function reconcileGitHub(metadata, notes, input = 'release-sealed') {
 }
 export async function recover() {
   if (process.env.RELEASE_ENABLED !== 'true') throw Error('Publication remains disabled');
+  for(const name of ['npm.json','github-release.json'])rmSync(join('release-sealed','receipts',name),{force:true});
   const {metadata,files,source,publicationObservation}=inspectRecovery();
   if(publicationObservation.recovery.state!=='repairable')throw Error(`GitHub recovery preflight blocked: ${publicationObservation.recovery.reason}`);
   mkdirSync('release-sealed', { recursive: true });

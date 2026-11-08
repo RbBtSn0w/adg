@@ -1,5 +1,5 @@
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
-import {verifyLatest} from './npm-channel.mjs';
+import {verifyLatest,sealedTagFormat,assertNoKnownNewerLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
 // Run after @semantic-release/npm prepare. Never rebuild the verified package.
 import {execFileSync,spawnSync} from 'node:child_process';
@@ -33,6 +33,9 @@ function payload(archive){
 export function prepare(options,context){
  const {cwd,env=process.env,nextRelease}=context;verifyRelease(options,context);
  const plan=selected(cwd),output=join(cwd,'release-output');
+ const tag_format=plan.tag_format??context.options?.tagFormat??sealedTagFormat(plan);
+ if(plan.tag_format!==undefined&&context.options?.tagFormat!==undefined&&context.options.tagFormat!==plan.tag_format)throw Error('Configured tag format changed after analysis');
+ sealedTagFormat({...plan,tag_format});
  // Notes are generated after verifyRelease; compare them at the prepare boundary.
  assertSealedRelease(plan,nextRelease,{notes:true});
  const archives=readdirSync(output).filter(name=>name.endsWith('.tgz'));
@@ -42,13 +45,14 @@ export function prepare(options,context){
  const before=JSON.parse(execFileSync('tar',['-xOf',original,'package/package.json'],{encoding:'utf8'}));
  if(JSON.stringify({...before,version:nextRelease.version})!==JSON.stringify(manifest)||JSON.stringify(payload(original))!==JSON.stringify(payload(archive)))throw Error('Final npm payload differs beyond the selected manifest version');
  const sealed=join(cwd,'release-sealed');mkdirSync(sealed,{recursive:true});copyFileSync(archive,join(sealed,'final.tgz'));
- const metadata={...plan,operation:'release',repository:env.GITHUB_REPOSITORY,source_run_id:env.GITHUB_RUN_ID,name:manifest.name,sha256:digest(archive),integrity:'sha512-'+digest(archive,'sha512')};
+ const metadata={...plan,tag_format,operation:'release',repository:env.GITHUB_REPOSITORY,source_run_id:env.GITHUB_RUN_ID,name:manifest.name,sha256:digest(archive),integrity:'sha512-'+digest(archive,'sha512')};
  if(!metadata.repository||!/^\d+$/.test(metadata.source_run_id||''))throw Error('Original release provenance is required');
  writeFileSync(join(sealed,'final.json'),JSON.stringify(metadata,null,2)+'\n');
  // semantic-release creates the tag only after every prepare hook has completed.
  const head=execFileSync('git',['rev-parse','HEAD'],{cwd,env,encoding:'utf8'}).trim();
  const live=execFileSync('gh',['api',`repos/${metadata.repository}/git/ref/heads/main`,'--jq','.object.sha'],{cwd,env,encoding:'utf8',timeout:10000}).trim();
  if(head!==plan.candidate_sha||live!==plan.candidate_sha)throw Error('Main changed or could not be read before tag creation');
+ assertNoKnownNewerLatest(metadata,{cwd,env,registry:'https://registry.npmjs.org'});
 }
 export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false}={}){
  if(recover)assertPublicationEnabled(env);

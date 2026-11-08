@@ -2,12 +2,13 @@
 export function optionValues(args,valueFlags,switchFlags=[],{allowUnknown=true}={}){
  const values=new Map(),known=new Set([...valueFlags,...switchFlags]);
  for(let index=0;index<args.length;index++){
-  const flag=args[index];
+  const token=args[index],equals=allowUnknown?-1:token.indexOf('=');
+  const explicit=equals>0,flag=explicit?token.slice(0,equals):token;
   if(!valueFlags.includes(flag)){if(!allowUnknown&&!known.has(flag))throw Error(`Unknown option: ${flag}`);continue;}
-  const operand=args[index+1];
-  if(operand===undefined||operand===''||known.has(operand))throw Error(`${flag} requires a value`);
+  const operand=explicit?token.slice(equals+1):args[index+1];
+  if(operand===undefined||operand===''||(!explicit&&(known.has(operand)||(!allowUnknown&&operand.startsWith('--')))))throw Error(`${flag} requires a value`);
   if(!values.has(flag))values.set(flag,operand);
-  index++;
+  if(!explicit)index++;
  }
  return flag=>values.get(flag);
 }

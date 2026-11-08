@@ -34,6 +34,19 @@ verification before publication. npmjs and GitHub Packages receive identical
 final bytes, with SHA512 integrity reconciliation and per-target receipts. GitHub
 attaches the archive and metadata. No version/changelog commit is written to main.
 
+Before normal publication of a missing version, each registry receives a read-only
+channel check. An already newer `latest` stops that write; read errors and malformed
+channel data fail closed. Older, equal or missing `latest` retains the ordinary
+automatic publication path. Matching existing versions receive read-only checks.
+The original engine version and sealed bytes remain fixed.
+
+This guarantee assumes one authorized normal writer per package. All authorized
+new issuance uses the scheduled/manual `Release` workflow and its `release-main`
+concurrency group. External owner writes are outside that lock and can occur between
+the channel check and publication. The check is not a compare-and-swap and does
+not provide global atomicity against arbitrary external publishers. Friday normal
+publication remains automatic; no coordinator or recurring approval is introduced.
+
 ADG also updates the Homebrew tap with its existing release App and formula updater.
 The updater compares the npm archive digest to the original final archive, rejects
 a newer tap version and rejects conflicting bytes at the same version.

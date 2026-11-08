@@ -1,4 +1,5 @@
 // Credential-free exact-candidate semantic-release analysis, including non-Node repositories.
+import {sealedTagFormat} from './npm-channel.mjs';
 import {optionValues} from './cli-options.mjs';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync,appendFileSync,mkdirSync} from 'node:fs';
@@ -44,7 +45,8 @@ async function analyzeIsolated({cwd=process.cwd(),configPath='.releaserc.json',o
     const result=await semanticRelease({...config,extends:[],verifyConditions:undefined,verifyRelease:undefined,prepare:undefined,publish:undefined,addChannel:undefined,success:undefined,fail:undefined,analyzeCommits:undefined,generateNotes:undefined,plugins,dryRun:true,ci:false,repositoryUrl:pathToFileURL(remote).href},
       {cwd:checkout,env:clean,stdout:{write(){}},stderr:{write(){}}});
     const plan={schema_version:1,candidate_sha:candidate,baseline_tag:baselineTag,version:result?.nextRelease?.version??null,
-      tag:result?.nextRelease?.gitTag??null,notes:result?.nextRelease?.notes??'',release_needed:Boolean(result),verification:'not-run'};
+      tag:result?.nextRelease?.gitTag??null,tag_format:config.tagFormat??'v${version}',notes:result?.nextRelease?.notes??'',release_needed:Boolean(result),verification:'not-run'};
+    if(plan.release_needed)sealedTagFormat(plan);
     if(outputPath)writeFileSync(resolve(cwd,outputPath),JSON.stringify(plan,null,2)+'\n');
     return plan;
   }finally{rmSync(scratch,{recursive:true,force:true});}

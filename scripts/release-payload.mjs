@@ -1,4 +1,4 @@
-import {verifyLatest} from '../.github/release-train/npm-channel.mjs';
+import {verifyLatest,assertNoKnownNewerLatest} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -67,6 +67,8 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     } else {
       let error; try { error = JSON.parse(view.stdout).error; } catch { /* fail closed below */ }
       if (error?.code !== 'E404') throw Error(`${target}: registry lookup failed: ${view.stderr}`);
+      // Reject known channel regression; this read is not a compare-and-swap.
+      if(!_options.recovery)assertNoKnownNewerLatest(metadata,tagOptions);
       execFileSync('npm', ['publish', resolve(archive), '--ignore-scripts', '--access', 'public', '--tag', distributionTag, '--registry', registry, ...(target === 'npm' ? ['--provenance'] : [])], {cwd: input, env: runEnv, stdio: 'inherit', timeout: 120000});
       let verified = false;
       let detail = '';
