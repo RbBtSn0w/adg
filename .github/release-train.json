@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "profile": "npm",
+  "intended_targets": [
+    "npm",
+    "github-packages",
+    "github-release",
+    "homebrew"
+  ],
+  "workflow": ".github/workflows/release.yml"
+}

@@ -43,6 +43,19 @@ if [[ "$sha256" != "$expected_sha256" ]]; then
 fi
 formula_path="${HOMEBREW_TAP_DIR}/Formula/adg.rb"
 
+if [[ -f "$formula_path" ]]; then
+  FORMULA_PATH="$formula_path" RELEASE_VERSION="$version" RELEASE_SHA256="$sha256" node --input-type=module <<'JS'
+import {readFileSync} from 'node:fs';
+const formula=readFileSync(process.env.FORMULA_PATH,'utf8');
+const current=formula.match(/adg-(\d+\.\d+\.\d+)\.tgz/);
+if (!current) throw Error('Existing Homebrew version cannot be verified');
+const a=current[1].split('.').map(Number), b=process.env.RELEASE_VERSION.split('.').map(Number);
+const newer=a.some((part,index)=>part>b[index]&&a.slice(0,index).every((value,i)=>value===b[i]));
+if (newer) throw Error('Homebrew already points to a newer version; recovery will not overwrite it');
+if(current[1]===process.env.RELEASE_VERSION&&!formula.includes(`sha256 "${process.env.RELEASE_SHA256}"`)) throw Error('Existing Homebrew version has a different archive digest');
+JS
+fi
+
 cat >"$formula_path" <<EOF
 require "language/node"
 

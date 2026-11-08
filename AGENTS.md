@@ -15,7 +15,7 @@ standards-first adapter philosophy.
   `origin/main`, and open reviewed PRs targeting `main`.
 - Never push directly to `main`. Squash using a Conventional Commit title/body,
   preserving any breaking-change declaration.
-- Publication is scheduled/manual only; see `docs/branching-and-release.md`.
+- Publication is automated Friday/manual only, with read-only analysis independent of publication enablement; see `docs/branching-and-release.md`.
 
 ## Commit messages
 

@@ -5,12 +5,16 @@ import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { analyzeCommits } from '../scripts/commit-semantics.mjs';
+import { analyzeCommits } from '../.github/release-train/commit-semantics.mjs';
 const require = createRequire(import.meta.url);
 const workflow = require('yaml').parse(readFileSync('.github/workflows/release.yml', 'utf8'));
 const step = (job, id) => workflow.jobs[job].steps.find(s => s.id === id);
 test('entry gate executes only scheduled/manual main candidates; authority is dependent and default-off', () => {
-  assert.equal(workflow.jobs.verify.if, "vars.RELEASE_ENABLED == 'true'");
+  assert.equal(workflow.jobs.verify.if, "inputs.operation != 'recover'");
+  assert.equal(workflow.on.workflow_dispatch.inputs.operation.default, 'release');
+  assert.ok(step('verify', 'analyze'));
+  assert.ok(workflow.jobs.recover);
+  assert.equal(workflow.jobs.result.if, 'always()');
   assert.match(workflow.jobs.release.if, /vars.RELEASE_ENABLED/);
   assert.match(workflow.jobs.release.if, /needs.verify.result/);
   assert.match(workflow.jobs.release.if, /needs.verify.outputs.artifact-id/);
@@ -34,15 +38,16 @@ test('publisher stops on stale, empty, and failed live reads before semantic-rel
   assert.equal(result.status===0,mode==='current',result.stderr?.toString());assert.equal(existsSync(marker),mode==='current');
  }
 });
-test('strict lint checks actual range including skipped malformed commits and analyzer understands breaking forms', async () => {
+test('release history validates semantics without PR style and analyzer understands breaking forms', async () => {
  const cwd=mkdtempSync(join(tmpdir(),'release-history-'));const git=(...args)=>execFileSync('git',args,{cwd,encoding:'utf8'}).trim();
  git('init','-b','main');git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');git('commit','--allow-empty','-m','chore: baseline');const baseline=git('rev-parse','HEAD');
  git('commit','--allow-empty','-m','feat!: changed contract');
  const context={cwd,lastRelease:{gitHead:baseline},env:{...process.env,RELEASE_TOOLS:resolve('.')}};
  await analyzeCommits({},context);
+ git('commit','--allow-empty','-m','chore: Add Legacy Metadata');await analyzeCommits({},context);
  git('commit','--allow-empty','-m','malformed [skip release]');await assert.rejects(analyzeCommits({},context),/Invalid Conventional Commit/);
  const {analyzeCommits:analyze}=await import('@semantic-release/commit-analyzer');
- const config=JSON.parse(readFileSync('.releaserc.json','utf8'));const options=config.plugins.find(p=>Array.isArray(p)&&p[0]==='@semantic-release/commit-analyzer')[1];
+ const config=JSON.parse(readFileSync('.releaserc.json','utf8'));const options=config.plugins.find(p=>Array.isArray(p)&&p[0].endsWith('/release-commit-analyzer.mjs'))[1];
  for (const [message,expected] of [['fix: repair','patch'],['feat: capability','minor'],['feat!: changed contract','major'],['fix: changed contract\n\nBREAKING CHANGE: changed API','major'],['chore: maintenance',null]]) assert.equal(await analyze(options,{cwd:resolve('.'),commits:[{message,hash:'a'.repeat(40)}],logger:{log(){}}}),expected);
 });
 

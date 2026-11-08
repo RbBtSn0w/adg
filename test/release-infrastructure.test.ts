@@ -12,7 +12,7 @@ test("configured semantic-release plugins render notes and preserve release clas
     import { generateNotes } from '@semantic-release/release-notes-generator';
     import { analyzeCommits } from '@semantic-release/commit-analyzer';
     const config = JSON.parse(readFileSync('.releaserc.json', 'utf8'));
-    const plugin = name => config.plugins.find(p => Array.isArray(p) && p[0] === name)[1];
+    const plugin = name => config.plugins.find(p => Array.isArray(p) && (p[0] === name || p[0].endsWith(name === '@semantic-release/commit-analyzer' ? '/release-commit-analyzer.mjs' : '/release-notes-generator.mjs')))[1];
     const commits = ['feat: add release example', 'fix: repair release example', 'chore: hidden maintenance example']
       .map((message, i) => ({message, hash: String(i + 1).repeat(40)}));
     const context = {cwd: process.cwd(), env: process.env, commits,

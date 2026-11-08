@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "source_revision": "1027c6e75219ac3dbcc56561cae9f8e06e7de6da",
+  "content_hash": "4816b06f5c8675cdd67a4f4d1e1cb7c3337226928c3b57270d54f1586336c799",
+  "files": {
+    "cli.mjs": "4e1e38a0982d093994df3f15f6d95bef15b023bf7e9c652774dd5c66ba70430d",
+    "commit-semantics.mjs": "953f9de905308e8e555556931ea179cdb9f2ae4bfab944d8dfc561dbaf60eeb3",
+    "github-publish.mjs": "c5e0caf663077a202ba02ae1998396e95e8f595c0987f25a98d3f55b57fb13d3",
+    "github-recover.mjs": "2320fd8a381a373c5a4c6fa11402c431dc2275f772e718a63036de6d195ba5e4",
+    "github-release-adapter.mjs": "bdd51e6f575a1b6ca180469b2d99e303380573ce0099f22736d5bbc71b0ec332",
+    "npm-recover.mjs": "c3f65341aa2f6b6c40dc71677351296190f3b01c0f05ecd00272ce308e4f67a8",
+    "npm-recovery-tag.mjs": "4f086b3e0fcf742c02802376b9c90480d5a14fc286b8d71bf72c60fca6458925",
+    "npm-release-adapter.mjs": "02c9ee638edabaef3d1ff96b6b5633a445d57ef28bb6fdf830b4730b5b873ba9",
+    "npm-release-status.mjs": "3b6173f21a3fc8cb65eeeb683a99da988e1add898a139bfe0e673fe2982a5c69",
+    "observe-github.mjs": "ace2f5c16b64406f6ca74d4aee95f9e2539f0e43657c1c51c7649c70bc6cdbe5",
+    "recovery-source.mjs": "1cebb60766ea3a86a82ab4c6a4221bd2d2c0deb5df40246092a5121a00edcdbf",
+    "release-analysis.mjs": "dc5e39ff7ebc92d61d14bdfb4a9fb78b00bc38b3ac7678f5c0bb3d93f027d04c",
+    "release-commit-analyzer.mjs": "45df63455c3f5f59aaa7ece1c4f03f0683428d4352f38febab7269baedae3df4",
+    "release-notes-generator.mjs": "1e9480d8593d08b60bc811ffe56a51cc5912739af45b463c2bc8df588e26425a",
+    "release-result.mjs": "42d8244cb1e5ccc06fd63ebdddfdf7273cb06e8168b199e8d85f4cda22bbb982",
+    "sync.mjs": "464a21ba3d25caccdbbfa5857880a3589e9e199a497dcc664e5ae8a8a63603a0"
+  }
+}

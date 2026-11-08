@@ -1,10 +1,23 @@
-name: Scheduled Release
+name: Release
+run-name: ${{ inputs.operation == 'recover' && format('Recover release · run {0}', inputs.source_run_id) || format('Release main · {0}', github.event_name == 'schedule' && 'scheduled' || 'manual') }}
 
 on:
   schedule:
     # Friday 15:00 Asia/Singapore (UTC+8) -> 07:00 UTC.
     - cron: '0 7 * * 5'
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Release current main, or complete an original release
+        type: choice
+        options: [release, recover]
+        default: release
+      source_run_id:
+        description: Original release run ID - required only for recover
+        type: string
+      artifact_id:
+        description: Original recovery artifact ID - copy from Release outcome
+        type: string
 
 permissions:
   contents: read
@@ -19,13 +32,16 @@ concurrency:
 
 jobs:
   verify:
-    if: vars.RELEASE_ENABLED == 'true'
+    name: Analyze and validate candidate
+    if: inputs.operation != 'recover'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
     outputs:
       artifact-id: ${{ steps.artifact.outputs.artifact-id }}
+      has-release: ${{ steps.analyze.outputs.release }}
+      result-artifact-id: ${{ steps.observation.outputs.artifact-id }}
     steps:
       - name: Validate release entrypoint
         id: gate
@@ -59,10 +75,24 @@ jobs:
         run: npm install -g npm@11.21.0 --ignore-scripts
 
       - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
-      # Adapt checks/build and define test:package to exercise the packed public API.
+      - name: Stop ambiguous all-job retries before analysis
+        id: retry-guard
+        shell: bash
+        run: |
+          if [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
+            echo "::error::Analysis retry stopped: prior publication may have created the baseline tag. Read the original Release outcome at ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/1 and recover its sealed release if available. Use a new manual release run to validate fresh main."
+            exit 1
+          fi
+
+      - name: Analyze exact candidate without publication credentials
+        id: analyze
+        run: node .github/release-train/cli.mjs analyze --profile npm
+
+
       - name: Verify candidate
+        if: steps.analyze.outputs.release == 'true'
         id: verify
         timeout-minutes: 15
         run: |
@@ -77,12 +107,14 @@ jobs:
           node --test test/release-*.test.mjs
 
       - name: Pack and validate actual package
+        if: steps.analyze.outputs.release == 'true'
         id: package
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: 'true'
           CANDIDATE_SHA: ${{ github.sha }}
         run: |
           mkdir -p release-input
+          cp release-plan.json release-input/analysis.json
           npm pack --ignore-scripts --json --pack-destination release-input > "$RUNNER_TEMP/pack.json"
           node -e 'const fs=require("fs"),path=require("path");const rows=JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,"pack.json")));if(rows.length!==1)throw Error("Expected one package");fs.renameSync(path.join("release-input",rows[0].filename),"release-input/package.tgz");'
           npx --no-install publint release-input/package.tgz --strict
@@ -92,6 +124,7 @@ jobs:
           printf '%s\n' "$CANDIDATE_SHA" > release-input/candidate.sha
 
       - name: Hand off verified package
+        if: steps.analyze.outputs.release == 'true'
         id: artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -99,8 +132,26 @@ jobs:
           path: release-input/
           if-no-files-found: error
           retention-days: 7
+      - name: Record verification result
+        if: always()
+        env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          RETRY_GUARD_OUTCOME: ${{ steps.retry-guard.outcome }}
+          ANALYSIS_OUTCOME: ${{ steps.analyze.outcome }}
+        run: node scripts/release-status.mjs verify
+      - name: Preserve verification result
+        id: observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-verification-result-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-result.json
+
 
   release:
+    name: Publish verified artifacts
     needs: [verify]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -111,6 +162,9 @@ jobs:
       issues: write
       pull-requests: write
       id-token: write
+    outputs:
+      result-artifact-id: ${{ steps.observation.outputs.artifact-id }}
+      sealed-artifact-id: ${{ steps.sealed.outputs.artifact-id }}
     steps:
       - name: Checkout candidate and release history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -169,7 +223,14 @@ jobs:
           npx --no-install semantic-release
           if test -f release-input/released-version; then echo 'released=true' >> "$GITHUB_OUTPUT"; fi
 
+      - name: Verify GitHub Release receipt
+        if: steps.publish.outputs.released == 'true'
+        run: |
+          node --input-type=module -e "import {readFileSync} from 'node:fs'; import {reconcileGitHub} from './scripts/release-recover.mjs'; reconcileGitHub(JSON.parse(readFileSync('release-input/final.json')), JSON.parse(readFileSync('release-input/analysis.json')).notes);"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Preserve final payload and per-target receipts
+        id: sealed
         if: always() && steps.publish.outcome != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -178,8 +239,20 @@ jobs:
             release-input/final.tgz
             release-input/final.json
             release-input/receipts/
+            release-input/analysis.json
+            release-input/released-version
+            release-input/recovery.json
           if-no-files-found: warn
           retention-days: 30
+      - name: Record publication result
+        if: always()
+        env:
+          SEALED_ARTIFACT_ID: ${{ steps.sealed.outputs.artifact-id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          PUBLISH_OUTCOME: ${{ job.status == 'failure' && 'failure' || steps.publish.outcome }}
+          RELEASE_HOMEBREW: 'true'
+        run: node scripts/release-status.mjs publish
       - name: Create release bot token
         if: ${{ steps.publish.outputs.released == 'true' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -224,11 +297,240 @@ jobs:
 
       - name: Record Homebrew receipt
         if: steps.publish.outputs.released == 'true'
-        run: git -C homebrew-tap rev-parse HEAD > release-input/receipts/homebrew.commit
+        run: node scripts/release-homebrew-receipt.mjs
       - name: Preserve downstream receipt
         if: always() && steps.publish.outputs.released == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: homebrew-receipt-${{ github.sha }}-${{ github.run_attempt }}
-          path: release-input/receipts/homebrew.commit
+          path: release-input/receipts/homebrew.json
           if-no-files-found: warn
+      - name: Record final downstream result
+        if: always()
+        env:
+          SEALED_ARTIFACT_ID: ${{ steps.sealed.outputs.artifact-id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          PUBLISH_OUTCOME: ${{ job.status == 'failure' && 'failure' || steps.publish.outcome }}
+          RELEASE_HOMEBREW: 'true'
+        run: node scripts/release-status.mjs publish
+      - name: Preserve final result
+        id: observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-final-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-result.json
+
+  recover:
+    name: Recover original release
+    if: inputs.operation == 'recover' && vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+      id-token: write
+    outputs:
+      result-artifact-id: ${{ steps.observation.outputs.artifact-id }}
+    steps:
+      - name: Checkout trusted recovery implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require main dispatch and original recovery identities
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          ORIGINAL_RUN: ${{ inputs.source_run_id }}
+          ORIGINAL_ARTIFACT: ${{ inputs.artifact_id }}
+        run: |
+          test "$RELEASE_REF" = refs/heads/main
+          test -n "$ORIGINAL_RUN" && test -n "$ORIGINAL_ARTIFACT" || { echo '::error::Copy both original IDs from Release outcome.'; exit 1; }
+      - name: Set up trusted publishing runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+      - name: Use trusted-publishing npm
+        run: npm install -g npm@11.21.0 --ignore-scripts
+      - name: Install recovery tooling without lifecycle scripts
+        run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Recover original sealed targets
+        id: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+        run: node scripts/release-recover.mjs
+      - name: Create release bot token
+        if: steps.publish.outcome == 'success'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: release-bot
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: RbBtSn0w
+          repositories: homebrew-tap
+          permission-contents: write
+      - name: Checkout homebrew tap
+        if: steps.publish.outcome == 'success'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: RbBtSn0w/homebrew-tap
+          token: ${{ steps.release-bot.outputs.token }}
+          ref: main
+          path: homebrew-tap
+      - name: Update homebrew formula
+        if: steps.publish.outcome == 'success'
+        env:
+          RELEASE_ARCHIVE: ${{ github.workspace }}/release-input/final.tgz
+          HOMEBREW_TAP_DIR: ${{ github.workspace }}/homebrew-tap
+        run: ./scripts/publish-homebrew-tap.sh "$(cat release-input/released-version)"
+      - name: Commit homebrew formula update
+        if: steps.publish.outcome == 'success'
+        working-directory: homebrew-tap
+        run: |
+          version="$(cat ../release-input/released-version)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then check the index — git diff (no --cached) does not
+          # see a brand-new untracked Formula/adg.rb, so the first publish must
+          # not be gated on it.
+          git add Formula/adg.rb
+          if git diff --cached --quiet -- Formula/adg.rb; then
+            echo "No Homebrew formula changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: update adg to ${version}"
+          git push origin HEAD:main
+
+      - name: Record Homebrew receipt
+        if: steps.publish.outcome == 'success'
+        run: node scripts/release-homebrew-receipt.mjs
+      - name: Preserve downstream receipt
+        if: always() && steps.publish.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: homebrew-receipt-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-input/receipts/homebrew.json
+          if-no-files-found: warn
+      - name: Record recovery result
+        if: always()
+        env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          PUBLISH_OUTCOME: ${{ job.status == 'failure' && 'failure' || steps.publish.outcome }}
+          RELEASE_HOMEBREW: 'true'
+        run: node scripts/release-status.mjs recover
+      - name: Preserve recovery receipts
+        id: observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovery-result-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release-input/final.tgz
+            release-input/final.json
+            release-input/analysis.json
+            release-input/recovery.json
+            release-input/receipts/
+            release-result.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  disabled-recovery:
+    name: Explain disabled recovery
+    if: inputs.operation == 'recover' && vars.RELEASE_ENABLED != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      result-artifact-id: ${{ steps.observation.outputs.artifact-id }}
+    steps:
+      - name: Checkout result reporter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Report disabled recovery
+        env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+        run: node scripts/release-status.mjs disabled-recovery
+      - name: Preserve disabled result
+        id: observation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovery-disabled-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-result.json
+
+  result:
+    name: Release outcome
+    if: always()
+    needs: [verify, release, recover, disabled-recovery]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout trusted result reporter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Collect verify producer observation
+        id: collect-verify
+        if: ${{ always() && needs.verify.outputs.result-artifact-id != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.verify.outputs.result-artifact-id }}
+          path: release-observations/verify
+      - name: Collect release producer observation
+        id: collect-release
+        if: ${{ always() && needs.release.outputs.result-artifact-id != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.release.outputs.result-artifact-id }}
+          path: release-observations/release
+      - name: Collect recover producer observation
+        id: collect-recover
+        if: ${{ always() && needs.recover.outputs.result-artifact-id != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.recover.outputs.result-artifact-id }}
+          path: release-observations/recover
+      - name: Collect disabled-recovery producer observation
+        id: collect-disabled-recovery
+        if: ${{ always() && needs['disabled-recovery'].outputs.result-artifact-id != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs['disabled-recovery'].outputs.result-artifact-id }}
+          path: release-observations/disabled-recovery
+      - name: Record final verification and publication result
+        if: always()
+        env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RELEASE_HOMEBREW: 'true'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINAL_VERIFY_ARTIFACT_ID: ${{ needs.verify.outputs.result-artifact-id }}
+          FINAL_VERIFY_DOWNLOAD_OUTCOME: ${{ steps.collect-verify.outcome }}
+          FINAL_RELEASE_ARTIFACT_ID: ${{ needs.release.outputs.result-artifact-id }}
+          FINAL_RELEASE_DOWNLOAD_OUTCOME: ${{ steps.collect-release.outcome }}
+          FINAL_RECOVER_ARTIFACT_ID: ${{ needs.recover.outputs.result-artifact-id }}
+          FINAL_RECOVER_DOWNLOAD_OUTCOME: ${{ steps.collect-recover.outcome }}
+          FINAL_DISABLED_RECOVERY_ARTIFACT_ID: ${{ needs['disabled-recovery'].outputs.result-artifact-id }}
+          FINAL_DISABLED_RECOVERY_DOWNLOAD_OUTCOME: ${{ steps.collect-disabled-recovery.outcome }}
+          FINAL_DISABLED_RECOVERY_RESULT: ${{ needs['disabled-recovery'].result }}
+          FINAL_OPERATION: ${{ inputs.operation }}
+          FINAL_VERIFY_RESULT: ${{ needs.verify.result }}
+          FINAL_RELEASE_RESULT: ${{ needs.release.result }}
+          FINAL_RECOVER_RESULT: ${{ needs.recover.result }}
+        run: node scripts/release-finalize.mjs
+      - name: Preserve aggregate result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-release-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-result.json
