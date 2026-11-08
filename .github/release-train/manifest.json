@@ -1,26 +1,28 @@
 {
   "schema_version": 1,
-  "source_revision": "1865cee47206b560aa64be7266bfbd2797ee8fc9",
-  "content_hash": "165318a56f07157d64045678df5b5a2aac9363d31b8e9501daebd08fe4aba381",
+  "source_kind": "git",
+  "source_revision": "2953fda90cc8e5cf1275fce4e4379430cfec2b21",
+  "content_hash": "f86629a3ba2f62f6763583c6e33b23a2adf1ff50afe04ad1268c5243ac7f6f10",
   "files": {
-    "cli-options.mjs": "d1a084b8b1e346934770e3947c865f101c91d8023286119e83d1c4cb3f2194b6",
+    "cli-options.mjs": "75f6ad106580fb56d885ba66271a191226f69fc0b15601a01033ca88c3ff795d",
     "cli.mjs": "1529c7ea64f70513a1da3e75ec240dcdfbe7bb5786b55291f4a05ca8f2e8e683",
     "commit-semantics.mjs": "953f9de905308e8e555556931ea179cdb9f2ae4bfab944d8dfc561dbaf60eeb3",
     "github-publish.mjs": "2a8af2e54e6dfbc4d7e42ae5103f2b56b054568c7e9fa85dbcd9a79db62294fc",
     "github-recover.mjs": "b173b4f81ca068eb9e52d278783b6f76be1d19e6b077c00c261431d938d93cb8",
     "github-release-adapter.mjs": "6b78b230e93a84f25775bc237c439668d945fe9784cd3001ca930afa8b6e9741",
-    "npm-channel.mjs": "3f05d182a27498b6dd9d0666b786dd1bbdc09d034615eab45ccebb1140b00bba",
-    "npm-recover.mjs": "cde9e30a40a0f36bd0e90e85f09858765a8b0a0b0eaba0e10a2902b62bf04656",
+    "npm-channel.mjs": "e98e34218eda7ace9540144cdb4a3ae689b3909cda61dfdb0d0993acfdb98c58",
+    "npm-recover.mjs": "4964204e32fd5df2710a6d00c67b7044f4882cc3410dcc05a48883ad4e540623",
+    "npm-recovery-source.mjs": "2b9e617a92bf26ef274bd13ed291f5965a924738526be7d6bd8a7dce8e5dd9c6",
     "npm-recovery-tag.mjs": "7b91e5aa42390fc5a71232744f81336ef1083fb357068a4a216c666ea724c203",
-    "npm-release-adapter.mjs": "2a99fdb6dd396edb51362b859a5b07da70e2c0d1777c8e1944c61f0112d307de",
-    "npm-release-status.mjs": "631b9db89fa914d6eb7ed10f972b661b46f6611263942587c17111071af3abd6",
+    "npm-release-adapter.mjs": "aea54dab7f52041b55cc9e83bc067187d00a0fd43091d14f0727838e4aeb2437",
+    "npm-release-status.mjs": "bc4053f3bcca092bc4319137883d2a84cc3822261bf9c3fe6e2c8ffd0f921fea",
     "observe-github.mjs": "7f7370cc0173253344f46d8e63844a30463b144bd30708b1cbcafb11db6171b7",
     "publication-guard.mjs": "8650f1ad9680efa5e72b879ac084ff13107780bacb03ef72e384fa75cdd136e4",
     "recovery-source.mjs": "22d9c4415730ee09225c9dcb7b76712f37c69322b7d7c9a9cc185b3cd0584135",
     "release-analysis.mjs": "f4521fb6f03f984c579cb78ac2de4b1ad5b8a28a3ee47504284339931b419c51",
     "release-commit-analyzer.mjs": "45df63455c3f5f59aaa7ece1c4f03f0683428d4352f38febab7269baedae3df4",
     "release-notes-generator.mjs": "1e9480d8593d08b60bc811ffe56a51cc5912739af45b463c2bc8df588e26425a",
-    "release-result.mjs": "3b137ee2ac54d2c6eab12baf360fcb4afc3c27f765c34c61c886dc682793bd7a",
-    "sync.mjs": "394eca4c4265b9c202af758a9367d42bf2fe1494a58ab388bd69fc5634ac618d"
+    "release-result.mjs": "1857ccf2767f33b26f6eede274cc28c2eb90360842a8fd13708328c6e08019f7",
+    "sync.mjs": "9fc05160278ab6419c14d56607797cf76a319a87cdf6913c63d34c7c3d98348d"
   }
 }

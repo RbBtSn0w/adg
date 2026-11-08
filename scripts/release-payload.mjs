@@ -49,6 +49,7 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     if(metadata.candidate_sha!==env.CANDIDATE_SHA||metadata.candidate_sha!==analysis.candidate_sha||metadata.version!==analysis.version||metadata.tag!==analysis.tag||metadata.tag!==nextRelease.gitTag||(nextRelease.gitHead!==undefined&&nextRelease.gitHead!==metadata.candidate_sha)||typeof analysis.notes!=='string'||analysis.notes!==nextRelease.notes)throw Error('Publication identity differs from the original sealed analysis');
   }
   const receipts = join(input, 'receipts'); mkdirSync(receipts, { recursive: true });
+  const deferredErrors=[];
   for (const [target, registry] of [['npm', 'https://registry.npmjs.org'], ['github-packages', 'https://npm.pkg.github.com']]) {
     const receiptPath=join(receipts,`${target}.json`);
     if(existsSync(receiptPath))unlinkSync(receiptPath);
@@ -87,10 +88,13 @@ export async function publish(_options, { cwd, env, nextRelease }) {
       channel=verifyLatest(metadata,tagOptions);
     }catch(error){
       writeFileSync(receiptPath,JSON.stringify({...metadata,registry,status:'unknown',observed_at:bytesObservedAt,remote_id:`${metadata.name}@${metadata.version}`,url:target==='npm'?`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`:`https://github.com/${metadata.repository}/packages`,bytes_verified:true,channel_blocked:true,reason:`Latest channel is not confirmed: ${error.message}`}));
-      throw error;
+      // Original-byte recovery can continue safe targets; normal publication remains fail-fast.
+      if(!(_options.recovery&&_options.deferChannelErrors))throw error;
+      deferredErrors.push(new Error(`${target}: ${error.message}`,{cause:error}));
+      continue;
     }
     writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata, status: 'completed', bytes_verified:true, registry, latest_version:channel.latest_version, channel_observed_at:channel.observed_at, observed_at: new Date().toISOString(), remote_id: `${metadata.name}@${metadata.version}`, url: target === 'npm' ? `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` : `https://github.com/${metadata.repository}/packages`, candidate_sha: metadata.candidate_sha}));
   }
-  writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
-  return { name: 'npm and GitHub Packages', url: `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` };
+  if(!deferredErrors.length)writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
+  return { name: 'npm and GitHub Packages', url: `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`, ...(_options.recovery&&_options.deferChannelErrors?{deferred_errors:deferredErrors}:{}) };
 }

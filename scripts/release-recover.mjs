@@ -35,6 +35,7 @@ function findRelease(repository,tag) {
   return matches[0]||null;
 }
 export function reconcileGitHub(metadata, notes, input = 'release-input') {
+  rmSync(join(input,'receipts/github-release.json'),{force:true});
   validateTag(metadata);
   const observation=observeRelease({metadata,notes,input});
   if(observation.recovery.state!=='repairable')throw Error(`GitHub reconciliation blocked: ${observation.recovery.reason}`);
@@ -116,6 +117,7 @@ export function inspectRecovery({repository=process.env.GITHUB_REPOSITORY,source
 }
 export async function recover() {
   if(process.env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
+  rmSync(join('release-input','receipts/github-release.json'),{force:true});
   const original=inspectRecovery();
   const {source,sourceAttempt,artifact,metadata,analysis,files,publicationObservation}=original;
   if(publicationObservation.recovery.state!=='repairable')throw Error(`Recovery blocked before registry writes: ${publicationObservation.recovery.reason}`);
@@ -123,7 +125,9 @@ export async function recover() {
   for(const [name,bytes]of Object.entries(files))writeFileSync(join('release-input',name),bytes);
   writeFileSync('release-input/recovery.json',JSON.stringify({...source,tag:metadata.tag,repository:metadata.repository,source_attempt:sourceAttempt,digest:artifact.digest,expires_at:artifact.expires_at}));
   process.env.CANDIDATE_SHA=metadata.candidate_sha;
-  await publish({recovery:true},{cwd:process.cwd(),env:process.env,nextRelease:{version:metadata.version}});
-  reconcileGitHub(metadata,analysis.notes);
+  const publication=await publish({recovery:true,deferChannelErrors:true},{cwd:process.cwd(),env:process.env,nextRelease:{version:metadata.version}});
+  const errors=[...(publication.deferred_errors||[])];
+  try{reconcileGitHub(metadata,analysis.notes);}catch(error){errors.push(error);}
+  if(errors.length)throw new AggregateError(errors,'Original recovery remains incomplete; inspect target receipts');
 }
-if(process.argv[1]&&realpathSync(resolve(process.argv[1]))===realpathSync(fileURLToPath(import.meta.url)))await recover();
+if(process.argv[1]&&process.argv[1]!=='-'&&realpathSync(resolve(process.argv[1]))===realpathSync(fileURLToPath(import.meta.url)))await recover();

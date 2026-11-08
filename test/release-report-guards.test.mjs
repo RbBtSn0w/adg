@@ -72,3 +72,15 @@ test('retained completed receipt with matching bytes but unconfirmed latest bloc
  }
  const wrong=report({...base,targets:{npm:{...receipt,latest_version:'1.0.0',sha256:'f'.repeat(64)}},artifacts:[original]});assert.notEqual(wrong.result.targets.npm.bytes_verified,true);assert.notEqual(wrong.result.targets.npm.channel_blocked,true);
 });
+
+test('invalid producer observed_at becomes report-inputs failure while valid sibling evidence survives',()=>{
+ const original={artifact_id:'34',source_run_id:'12',source_attempt:'1',tag:'v2.0.0',repository:'owner/repo',sha256:'b'.repeat(64),notes:'Original release notes',expected_assets:{'final.tgz':'sha256:'+'b'.repeat(64),'final.json':'sha256:'+'d'.repeat(64)}};
+ const bad=JSON.stringify({...base,observed_at:'invalid',targets:{'github-packages':receipt}});
+ const value=report({...base,targets:{npm:receipt},artifacts:[original]},{MALFORMED_OBSERVATION:bad});assert.equal(value.run.status,1);assert.equal(value.result.failure_stage,'report-inputs');assert.equal(value.result.targets.npm.status,'completed');assert.equal(value.result.targets['github-packages'].status,'not-run');assert.ok(Number.isFinite(Date.parse(value.result.observed_at)));assert.match(value.summary,/report-inputs/);
+});
+test('unknown receipt for another payload cannot retain verified-byte flags or suppress safe original recovery',()=>{
+ const original={artifact_id:'34',source_run_id:'12',source_attempt:'1',tag:'v2.0.0',repository:'owner/repo',sha256:'b'.repeat(64),notes:'Original release notes',expected_assets:{'final.tgz':'sha256:'+'b'.repeat(64),'final.json':'sha256:'+'d'.repeat(64)}};
+ for(const mismatch of [{sha256:'f'.repeat(64)},{candidate_sha:'c'.repeat(40)},{version:'3.0.0'}]){
+  const value=report({...base,targets:{npm:{...receipt,status:'unknown',bytes_verified:true,channel_blocked:true,...mismatch}},artifacts:[original]});assert.equal(value.result.targets.npm.bytes_verified,false);assert.equal(value.result.targets.npm.channel_blocked,false);assert.equal(value.result.recovery.available,true);
+ }
+});

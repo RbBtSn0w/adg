@@ -14,3 +14,10 @@ export function verifyLatest(metadata,{cwd=process.cwd(),env=process.env,registr
  if(!tags||typeof tags!=='object'||Array.isArray(tags))throw Error('npm latest dist-tags readback was not an object');
  return {latest_version:validateLatestVersion(metadata,tags.latest),observed_at:new Date().toISOString()};
 }
+
+export function sealedTagFormat(metadata){
+ if(typeof metadata.version!=='string'||typeof metadata.tag!=='string')throw Error('Original sealed tag format is unverifiable');
+ if(metadata.tag===`v${metadata.version}`)return 'v${version}';
+ if(metadata.tag===metadata.version)return '${version}';
+ throw Error('Original sealed tag format is unsupported');
+}

@@ -26,7 +26,7 @@ if(args[0]==='api') {
  else if(url.endsWith('/artifacts/34/zip'))process.stdout.write(read('original.zip'));
  else if(url.includes('/git/ref/tags/')){if(mode==='early-tag-read-error'&&!fs.existsSync(path.join(state,'tag-error-seen'))){fs.writeFileSync(path.join(state,'tag-error-seen'),'true');process.exit(22);}console.log(JSON.stringify({ref:'refs/tags/v2.0.0',object:{type:'commit',sha:'a'.repeat(40)}}));}
  else if(url.endsWith('/releases')||url.includes('/releases?')||url.includes('/releases/tags/')){
-  if(mode==='read-error'){console.error('readback unavailable');process.exit(22);}
+  if(mode==='read-error'||mode==='stale-github-read-error'){console.error('readback unavailable');process.exit(22);}
   const absent=mode==='missing-release'&&!fs.existsSync(path.join(state,'release-created'));
   if(url.includes('/releases?'))console.log(JSON.stringify(absent?[]:[release()]));else if(url.endsWith('/releases'))console.log(JSON.stringify([absent?[]:[release()]]));
   else if(absent){console.error('HTTP 404');process.exit(1);}else console.log(JSON.stringify(release()));
@@ -40,14 +40,18 @@ else {console.error('unexpected write '+args);process.exit(99);}
  if(['asset-conflict','matching-draft'].includes(mode))for(const name of ['final.tgz','final.json'])writeFileSync(join(cwd,'uploaded-'+name),readFileSync(join(input,name)));
  writeFileSync(join(cwd,'bin/npm'),`#!/usr/bin/env node
 const fs=require('fs'),path=require('path');const args=process.argv.slice(2);const state=process.env.STATE,marker=path.join(state,args.at(-1).includes('github')?'mirror.tgz':'npm.tgz');const metadata=JSON.parse(fs.readFileSync(path.join(state,'release-input/final.json')));
-if(args[0]==='view'&&args[2]==='dist-tags'){const tag='recovery-12';console.log(JSON.stringify({...(process.env.REMOTE_MODE==='channel-missing'?{}:{latest:process.env.REMOTE_MODE==='channel-older'?'1.0.0':'9.0.0'}),...(fs.existsSync(marker+'.tag')?{[tag]:'2.0.0'}:{})}));}
-else if(args[0]==='view'){if(!fs.existsSync(marker)){console.log(JSON.stringify({error:{code:'E404'}}));process.exit(1);}console.log(JSON.stringify(metadata.integrity));}
+if(args[0]==='view'&&args[2]==='dist-tags'){const tag='recovery-12';console.log(JSON.stringify({...(process.env.REMOTE_MODE==='channel-missing'?{}:{latest:(process.env.REMOTE_MODE==='channel-older'||process.env.REMOTE_MODE==='channel-npm-only'&&!args.at(-1).includes('github'))?'1.0.0':'9.0.0'}),...(fs.existsSync(marker+'.tag')?{[tag]:'2.0.0'}:{})}));}
+else if(args[0]==='view'){if(process.env.REMOTE_MODE==='registry-bytes-conflict'){console.log(JSON.stringify('sha512-conflicting'));process.exit(0);}if(process.env.REMOTE_MODE==='registry-read-error'){console.error('package identity unavailable');process.exit(22);}if(!fs.existsSync(marker)){console.log(JSON.stringify({error:{code:'E404'}}));process.exit(1);}console.log(JSON.stringify(metadata.integrity));}
 else if(args[0]==='publish'){const tag=args[args.indexOf('--tag')+1];if(!tag.startsWith('recovery-')){console.error('recovery must preserve newer latest');process.exit(97);}fs.copyFileSync(args[1],marker);fs.writeFileSync(marker+'.tag',tag);}
 else if(args[0]==='dist-tag'&&args[1]!=='rm'){fs.appendFileSync(path.join(state,'channel-mutations.jsonl'),JSON.stringify(args)+'\\n');process.exit(98);}
 else if(args[0]==='dist-tag'&&args[1]==='rm'&&args[3]==='recovery-12'){fs.appendFileSync(path.join(state,'channel-mutations.jsonl'),JSON.stringify(args)+'\\n');fs.unlinkSync(marker+'.tag');}
 else process.exit(98);
 `,{mode:0o755});
  for(const command of ['git','npx'])writeFileSync(join(cwd,'bin',command),'#!/bin/sh\nexit 99\n',{mode:0o755});
+ if(mode==='stale-github-read-error'){
+  mkdirSync(join(cwd,'release-input/receipts'),{recursive:true});for(const name of ['final.tgz','final.json','analysis.json'])writeFileSync(join(cwd,'release-input',name),readFileSync(join(input,name)));
+  writeFileSync(join(cwd,'release-input/recovery.json'),JSON.stringify({source_run_id:'12',artifact_id:'34',source_attempt:1}));writeFileSync(join(cwd,'release-input/receipts/github-release.json'),JSON.stringify({status:'completed',candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,observed_at:'2026-11-08T00:00:00Z',remote_id:'77'}));
+ }
  const result=spawnSync(process.execPath,[resolve('scripts/release-recover.mjs')],{cwd,env:{...process.env,PATH:join(cwd,'bin')+':'+process.env.PATH,STATE:cwd,REMOTE_MODE:mode,RELEASE_ENABLED:'true',GITHUB_REPOSITORY:'owner/repo',GITHUB_SHA:'b'.repeat(40),SOURCE_RUN_ID:'12',ARTIFACT_ID:'34'},encoding:'utf8'});
  return {cwd,result,original};
 }

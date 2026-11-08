@@ -32,3 +32,7 @@ test('normal publication records current or newer latest evidence without changi
 test('direct product publication requires the explicit publication switch before registry access',async()=>{
  const {cwd,context}=await fixture('current');context.env.RELEASE_ENABLED='false';await assert.rejects(publish({},context),/disabled/i);assert.equal(existsSync(join(cwd,'release-input/receipts')),false);assert.equal(existsSync(join(cwd,'unexpected-write')),false);
 });
+
+test('channel deferral cannot turn ordinary publication into a successful partial release',async()=>{
+ const {cwd,context}=await fixture('stale');await assert.rejects(publish({deferChannelErrors:true},context),/latest|channel/i);assert.equal(existsSync(join(cwd,'release-input/receipts/github-packages.json')),false);assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
+});

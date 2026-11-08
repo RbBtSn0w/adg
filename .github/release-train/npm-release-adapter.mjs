@@ -81,6 +81,7 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
  }catch(error){
   const receipt={status:'unknown',bytes_verified:true,channel_blocked:true,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,reason:error.message};
   mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(join(input,'receipts/npm.json'),JSON.stringify(receipt)+'\n');
+  error.publicationReceipt=receipt;
   throw error;
  }
  const latestVersion=channel.latest_version;

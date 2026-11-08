@@ -50,3 +50,17 @@ test('safe recovery may restore missing bytes but never moves or cleans tags for
 test('recovering an older matching draft explicitly preserves the GitHub latest designation',()=>{
  const {cwd,result}=runRecovery('matching-draft');assert.equal(result.status,0,result.stderr);const args=JSON.parse(readFileSync(join(cwd,'draft-edit-args.json')));assert.ok(args.includes('--draft=false'));assert.ok(args.includes('--latest=false'));
 });
+
+test('safe recovery defers only verified channel failures while completing remaining immutable targets',()=>{
+ for(const mode of ['channel-older','channel-missing','channel-npm-only']){
+  const {cwd,result,original}=runRecovery(mode);assert.notEqual(result.status,0,mode);assert.match(result.stderr,/latest|channel/i);
+  for(const file of ['npm.tgz','mirror.tgz','uploaded-final.tgz'])assert.deepEqual(readFileSync(join(cwd,file)),original,`${mode}: ${file}`);
+  const npm=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json'))),mirror=JSON.parse(readFileSync(join(cwd,'release-input/receipts/github-packages.json'))),github=JSON.parse(readFileSync(join(cwd,'release-input/receipts/github-release.json')));
+  assert.equal(npm.status,'unknown');assert.equal(npm.channel_blocked,true);assert.equal(github.status,'completed');assert.equal(mirror.status,mode==='channel-npm-only'?'completed':'unknown');assert.equal(existsSync(join(cwd,'channel-mutations.jsonl')),false);
+ }
+});
+test('recovery still immediately stops on unverified or conflicting registry bytes',()=>{
+ for(const mode of ['registry-bytes-conflict','registry-read-error']){
+  const {cwd,result}=runRecovery(mode);assert.notEqual(result.status,0);for(const file of ['npm.tgz','mirror.tgz','uploaded-final.tgz','draft-published'])assert.equal(existsSync(join(cwd,file)),false,`${mode}: ${file}`);
+ }
+});

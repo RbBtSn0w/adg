@@ -5,18 +5,11 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {fileURLToPath} from 'node:url';
-import { verifyRecoverySource, verifyRecoveryArtifactRole } from './recovery-source.mjs';
+import {inspectRecovery,observeNpmGitHub,validateRecoveryPayload} from './npm-recovery-source.mjs';
+export {inspectRecovery,selectRecoveryEntries} from './npm-recovery-source.mjs';
 import { verifyNpm } from './npm-release-adapter.mjs';
-import {observeNpmGitHub} from './npm-release-status.mjs';
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
-export function validatePayload(metadata, archive) {
-  if(metadata.schema_version!==1||metadata.verification!=='passed'||metadata.release_needed!==true||metadata.operation!=='release')throw Error('Original verified release plan is required');
-  if(!/^[a-f0-9]{40}$/.test(metadata.candidate_sha||'')||!/^\d+\.\d+\.\d+$/.test(metadata.version||'')||!metadata.tag||!metadata.name||typeof metadata.notes!=='string')throw Error('Invalid original release identity');
-  if(metadata.sha256!==sha256(archive)||metadata.integrity!=='sha512-'+createHash('sha512').update(readFileSync(archive)).digest('base64'))throw Error('Original sealed archive digest mismatch');
-  const manifest=JSON.parse(execFileSync('tar',['-xOf',archive,'package/package.json'],{encoding:'utf8'}));
-  if(manifest.name!==metadata.name||manifest.version!==metadata.version)throw Error('Sealed npm manifest differs');
-  return metadata;
-}
+export const validatePayload=validateRecoveryPayload;
 function gh(...args) { return execFileSync('gh', args, { encoding: 'utf8', timeout: 120000, maxBuffer:16*1024*1024 }).trim(); }
 export function validateTag(metadata) {
   const output = gh('api', `repos/${metadata.repository}/git/ref/tags/${encodeURIComponent(metadata.tag)}`);
@@ -78,52 +71,22 @@ export function reconcileGitHub(metadata, notes, input = 'release-sealed') {
   mkdirSync(join(input, 'receipts'), { recursive: true });
   writeFileSync(join(input, 'receipts/github-release.json'), JSON.stringify({ status: 'completed', candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:String(observed.id),url: observed.html_url, sha256: metadata.sha256 }));
 }
-export function selectRecoveryEntries(entries) {
-  if (new Set(entries).size !== entries.length || entries.some(name => name.startsWith('/') || name.includes('\\') || name.split('/').includes('..'))) throw Error('Unsafe or duplicate recovery archive entry');
-  const selected = {};
-  for (const name of ['final.json', 'final.tgz']) {
-    const matches = entries.filter(entry => entry === name || entry === `release-sealed/${name}`);
-    if (matches.length !== 1) throw Error(`Recovery requires exactly one sealed ${name}`);
-    selected[name] = matches[0];
-  }
-  const roots = new Set(Object.values(selected).map(entry => entry.includes('/') ? 'release-sealed' : ''));
-  if (roots.size !== 1) throw Error('Ambiguous recovery payload root');
-  return selected;
-}
 export async function recover() {
   if (process.env.RELEASE_ENABLED !== 'true') throw Error('Publication remains disabled');
-  const repository = process.env.GITHUB_REPOSITORY;
-  const sourceRunId = process.env.SOURCE_RUN_ID, artifactId = process.env.ARTIFACT_ID;
-  if (!/^\d+$/.test(sourceRunId || '') || !/^\d+$/.test(artifactId || '')) throw Error('Recovery requires source_run_id and artifact_id');
-  const run = JSON.parse(gh('api', `repos/${repository}/actions/runs/${sourceRunId}`));
-  const artifact = JSON.parse(gh('api', `repos/${repository}/actions/artifacts/${artifactId}`));
-  const source = verifyRecoverySource({ run, artifact, repository, sourceRunId, artifactId });
-  verifyRecoveryArtifactRole({name:artifact.name,prefix:`release-receipts-${source.candidate_sha}`,runAttempt:run.run_attempt});
-  // Download by immutable artifact ID, never by mutable artifact name.
-  const archive = execFileSync('gh', ['api', `repos/${repository}/actions/artifacts/${artifactId}/zip`], { timeout: 120000, maxBuffer: 100 * 1024 * 1024 });
-  if (!/^sha256:[a-f0-9]{64}$/.test(artifact.digest || '') || artifact.digest !== 'sha256:' + createHash('sha256').update(archive).digest('hex')) throw Error('Original artifact download digest mismatch or unavailable');
-  writeFileSync('recovery.zip', archive);
-  const entries = execFileSync('unzip', ['-Z1', 'recovery.zip'], { encoding: 'utf8' }).split('\n').filter(Boolean);
-  const selected = selectRecoveryEntries(entries);
-  const input = 'recovery-source';
-  mkdirSync(input, { recursive: true });
-  // Read only allowlisted ZIP members into controlled filenames. Never extract
-  // directories or symlinks from an artifact into the runner filesystem.
-  for (const [name, entry] of Object.entries(selected)) {
-    const bytes = execFileSync('unzip', ['-p', 'recovery.zip', entry], { maxBuffer: 100 * 1024 * 1024 });
-    writeFileSync(join(input, name), bytes);
-  }
-  const metadata = JSON.parse(readFileSync(join(input, 'final.json')));
-  validatePayload(metadata, join(input, 'final.tgz'));
-  if (metadata.operation !== 'release') throw Error('Recovery must reference the original release payload');
-  if (metadata.candidate_sha !== source.candidate_sha || metadata.repository !== repository || String(metadata.source_run_id) !== String(sourceRunId)) throw Error('Original payload provenance mismatch');
-  const preflight=observeNpmGitHub({plan:metadata,inputDirectory:input});
-  if(preflight.recovery.state!=='repairable')throw Error(`GitHub recovery preflight blocked: ${preflight.recovery.reason}`);
+  const {metadata,files,source,publicationObservation}=inspectRecovery();
+  if(publicationObservation.recovery.state!=='repairable')throw Error(`GitHub recovery preflight blocked: ${publicationObservation.recovery.reason}`);
   mkdirSync('release-sealed', { recursive: true });
-  for (const name of ['final.json', 'final.tgz']) writeFileSync(join('release-sealed', name), readFileSync(join(input, name)));
+  for (const name of ['final.json', 'final.tgz']) writeFileSync(join('release-sealed', name), files[name]);
   writeFileSync('release-sealed/recovery.json', JSON.stringify(source));
   process.env.CANDIDATE_SHA = metadata.candidate_sha;
-  await verifyNpm({recover:true});
+  let channelError;
+  try{await verifyNpm({recover:true});}
+  catch(error){
+    const receipt=error.publicationReceipt;
+    if(receipt?.status!=='unknown'||receipt.bytes_verified!==true||receipt.channel_blocked!==true||receipt.candidate_sha!==metadata.candidate_sha||receipt.version!==metadata.version||receipt.sha256!==metadata.sha256)throw error;
+    channelError=error;
+  }
   reconcileGitHub(metadata, metadata.notes);
+  if(channelError)throw channelError;
 }
-if (process.argv[1] && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) await recover();
+if (process.argv[1] && process.argv[1]!=='-' && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) await recover();

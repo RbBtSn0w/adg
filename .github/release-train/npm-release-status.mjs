@@ -2,22 +2,25 @@ import {existsSync,readdirSync,readFileSync,statSync} from 'node:fs';
 import {join,resolve,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeResult} from './release-result.mjs';
-import {observeGitHub,refineGitHubAssets,recoveryFromArtifact} from './observe-github.mjs';
+import {recoveryFromArtifact} from './observe-github.mjs';
+import {observeNpmGitHub,inspectRecovery} from './npm-recovery-source.mjs';
+export {observeNpmGitHub} from './npm-recovery-source.mjs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {validateLatestVersion} from './npm-channel.mjs';
+import {validateLatestVersion,sealedTagFormat} from './npm-channel.mjs';
 const read=path=>existsSync(path)?JSON.parse(readFileSync(path,'utf8')):null;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
-function bindNpmReceipt(receipt,plan,cwd,sealedDirectory='release-sealed'){
- if(receipt?.status!=='completed')return receipt;
+function bindNpmReceipt(receipt,plan,cwd,sealedDirectory='release-sealed',sealedFiles){
+ if(!receipt||(receipt.status!=='completed'&&receipt.bytes_verified!==true&&receipt.channel_blocked!==true))return receipt;
  let bytesVerified=false;
  try{
-  if(!/^[a-f0-9]{64}$/.test(plan?.sha256||'')||receipt.candidate_sha!==plan.candidate_sha||receipt.version!==plan.version||receipt.sha256!==plan.sha256||createHash('sha256').update(readFileSync(join(cwd,sealedDirectory,'final.tgz'))).digest('hex')!==plan.sha256)throw Error('Npm receipt does not match the original sealed payload');
+  if(!/^[a-f0-9]{64}$/.test(plan?.sha256||'')||receipt.candidate_sha!==plan.candidate_sha||receipt.version!==plan.version||receipt.sha256!==plan.sha256||createHash('sha256').update(sealedFiles?.['final.tgz']??readFileSync(join(cwd,sealedDirectory,'final.tgz'))).digest('hex')!==plan.sha256)throw Error('Npm receipt does not match the original sealed payload');
   bytesVerified=true;
+  if(receipt.status!=='completed')return {...receipt,bytes_verified:true,channel_blocked:receipt.channel_blocked===true};
   validateLatestVersion(plan,receipt.latest_version);
   if(!Number.isFinite(Date.parse(receipt.channel_observed_at)))throw Error('Npm channel observation time is unavailable');
   return receipt;
- }catch(error){return {...receipt,status:'unknown',...(bytesVerified?{bytes_verified:true,channel_blocked:true}:{}),reason:error.message};}
+ }catch(error){return {...receipt,status:'unknown',bytes_verified:bytesVerified,channel_blocked:bytesVerified,reason:error.message};}
 }
 export function reportStatus({cwd=process.cwd(),env=process.env,mode='verify'}={}){
  const plan=read(join(cwd,'release-sealed/final.json'))||read(join(cwd,'release-input/release-plan.json'))||read(join(cwd,'release-plan.json'))||{};
@@ -45,18 +48,6 @@ function validObservation(source){
   &&(source.errors===undefined||(Array.isArray(source.errors)&&source.errors.every(error=>typeof error==='string'||object(error))));
 }
 function observations(root,cwd,errors){return !existsSync(root)?[]:readdirSync(root).flatMap(name=>{const path=join(root,name);if(statSync(path).isDirectory())return observations(path,cwd,errors);if(name!=='release-result.json')return [];try{const source=read(path);if(!validObservation(source))throw Error('Invalid observation');return [source];}catch{errors.push({message:`Malformed observation: ${relative(cwd,path)}`});return [];}});}
-// npm's GitHub target includes the immutable payloads, beyond tag/release identity.
-export function observeNpmGitHub({cwd=process.cwd(),env=process.env,plan,inputDirectory='release-sealed',tagFormat='v${version}'}={}){
- const api=path=>JSON.parse(execFileSync('gh',['api',path],{cwd,env,encoding:'utf8',timeout:120000}));
- const observed=observeGitHub({plan,repository:env.GITHUB_REPOSITORY,read:api,tagFormat});
- if(observed.recovery.state!=='repairable')return observed;
- try{
-  const checksum=bytes=>createHash('sha256').update(bytes).digest('hex');
-  const expectedAssets=Object.fromEntries(['final.tgz','final.json'].map(name=>[name,'sha256:'+checksum(readFileSync(resolve(cwd,inputDirectory,name)))]));
-  if(expectedAssets['final.tgz']!==`sha256:${plan.sha256}`)throw Error('Original sealed npm archive differs from its manifest checksum');
-  return refineGitHubAssets({observation:observed,expectedAssets,readAsset:asset=>execFileSync('gh',['api',`repos/${env.GITHUB_REPOSITORY}/releases/assets/${asset.id}`,'-H','Accept: application/octet-stream'],{cwd,env,timeout:120000,maxBuffer:100*1024*1024})});
- }catch(error){observed.targets.github={status:'unknown',reason:error.message};observed.errors.push(error.message);observed.recovery={...observed.recovery,state:'unknown',reason:error.message};return observed;}
-}
 export function finalStatus({cwd=process.cwd(),env=process.env}={}){
  const inputErrors=[];
  const sources=observations(join(cwd,'release-observations'),cwd,inputErrors);
@@ -76,19 +67,33 @@ export function finalStatus({cwd=process.cwd(),env=process.env}={}){
    sealedDirectory=recovered;
   }catch{inputErrors.push({message:'Malformed observation: original recovery payload identity'});}
  }
- let plan;try{plan=read(join(cwd,sealedDirectory,'final.json'));if(plan!==null&&(!object(plan)||!/^[a-f0-9]{40}$/.test(plan.candidate_sha||'')||typeof plan.version!=='string'||!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(plan.version)||(env.SOURCE_RUN_ID&&String(plan.source_run_id)!==String(env.SOURCE_RUN_ID))))throw Error('Invalid sealed manifest');}catch{plan=null;inputErrors.push({message:`Malformed observation: ${sealedDirectory}/final.json`});}
+ let plan;try{plan=read(join(cwd,sealedDirectory,'final.json'));if(plan!==null&&(!object(plan)||!/^[a-f0-9]{40}$/.test(plan.candidate_sha||'')||typeof plan.version!=='string'||!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(plan.version)||(env.SOURCE_RUN_ID&&String(plan.source_run_id)!==String(env.SOURCE_RUN_ID))))throw Error('Invalid sealed manifest');if(plan)sealedTagFormat(plan);}catch{plan=null;inputErrors.push({message:`Malformed observation: ${sealedDirectory}/final.json`});}
+ let inspected;
+ const requested=env.SOURCE_RUN_ID||env.ARTIFACT_ID;
+ const validIds=/^[1-9]\d*$/.test(env.SOURCE_RUN_ID||'')&&/^[1-9]\d*$/.test(env.ARTIFACT_ID||'');
+ if(requested){
+  input.recovery={available:false,...(validIds?{source_run_id:env.SOURCE_RUN_ID,artifact_id:env.ARTIFACT_ID}:{}),blocked_reason:validIds?'Original recovery evidence has not been verified':'Recovery requires positive original run and artifact IDs'};
+  if(!plan&&validIds)try{
+   inspected=inspectRecovery({cwd,env:{...process.env,...env}});plan=inspected.metadata;input.verification='passed';input.analysis='release';
+  }catch(error){input.recovery.blocked_reason=error.message;}
+ }
  if(plan){
   input={...input,candidate_sha:plan.candidate_sha,version:plan.version,baseline_tag:plan.baseline_tag};
-  const observed=observeNpmGitHub({cwd,env:{...process.env,...env},plan,inputDirectory:sealedDirectory});
+  const observed=inspected?.publicationObservation??observeNpmGitHub({cwd,env:{...process.env,...env},plan,inputDirectory:sealedDirectory});
   targets.github=observed.targets.github;
   input.errors=[...(input.errors||[]),...observed.errors];
   const sourceRunId=env.SOURCE_RUN_ID||env.GITHUB_RUN_ID,artifactId=env.ARTIFACT_ID||env.SEALED_ARTIFACT_ID;
-  if(sourceRunId&&artifactId){try{
+  if(inspected){
+   input.recovery={source_run_id:sourceRunId,artifact_id:artifactId,...recoveryFromArtifact({plan,repository:env.GITHUB_REPOSITORY,sourceRunId,artifactId,run:inspected.run,artifact:inspected.artifact,publicationObservation:observed,recoveryArtifactPrefix:`release-receipts-${plan.candidate_sha}`})};
+  }else if(sourceRunId&&artifactId&&(!requested||validIds)){try{
    const api=path=>JSON.parse(execFileSync('gh',['api',path],{encoding:'utf8',timeout:120000}));
-   input.recovery=recoveryFromArtifact({plan,repository:env.GITHUB_REPOSITORY,sourceRunId,artifactId,run:api(`repos/${env.GITHUB_REPOSITORY}/actions/runs/${sourceRunId}`),artifact:api(`repos/${env.GITHUB_REPOSITORY}/actions/artifacts/${artifactId}`),publicationObservation:observed,allowCurrentRunId:env.GITHUB_RUN_ID,recoveryArtifactPrefix:`release-receipts-${plan.candidate_sha}`});
-  }catch(error){input.recovery={available:false,blocked_reason:error.message};}}
+   input.recovery={source_run_id:sourceRunId,artifact_id:artifactId,...recoveryFromArtifact({plan,repository:env.GITHUB_REPOSITORY,sourceRunId,artifactId,run:api(`repos/${env.GITHUB_REPOSITORY}/actions/runs/${sourceRunId}`),artifact:api(`repos/${env.GITHUB_REPOSITORY}/actions/artifacts/${artifactId}`),publicationObservation:observed,allowCurrentRunId:env.GITHUB_RUN_ID,recoveryArtifactPrefix:`release-receipts-${plan.candidate_sha}`})};
+  }catch(error){input.recovery={available:false,source_run_id:sourceRunId,artifact_id:artifactId,blocked_reason:error.message};}}
+  else if(observed.recovery.state!=='repairable')input.recovery={...input.recovery,available:false,blocked_reason:observed.recovery.reason};
+ }else{
+  input.recovery={...input.recovery,available:false,blocked_reason:input.recovery?.blocked_reason||'The original sealed payload is unavailable or unverified'};
  }
- targets.npm=bindNpmReceipt(targets.npm,plan,cwd,sealedDirectory);
+ targets.npm=bindNpmReceipt(targets.npm,plan,cwd,sealedDirectory,inspected?.files);
  if(targets.npm.channel_blocked===true){
   input.recovery={...input.recovery,available:false,blocked_reason:'The latest registry channel is not confirmed; recovery preserves shared channels and cannot repair this gap automatically.'};
   delete input.recovery.command;

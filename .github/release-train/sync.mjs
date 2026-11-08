@@ -1,12 +1,26 @@
 // Controlled vendoring: validate the complete old tree before making any changes.
 import {optionValues} from './cli-options.mjs';
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
-import {dirname,join,resolve} from 'node:path';
+import {existsSync,realpathSync,lstatSync,mkdirSync,readdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {dirname,join,resolve,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const sourceDirectory=dirname(fileURLToPath(import.meta.url));
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 function files(directory){return readdirSync(directory).sort().map(name=>{if(!lstatSync(join(directory,name)).isFile())throw Error(`Unknown non-file entry: ${name}`);return name;});}
+function provenance(source,revision,content){
+ if(revision==='working-tree')return {source_kind:'working-tree',source_revision:revision};
+ if(revision.startsWith('synthetic:')&&revision.length>10)return {source_kind:'synthetic',source_revision:revision};
+ try{
+  const git=(...args)=>execFileSync('git',['-C',source,...args],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  const sha=git('rev-parse','--verify','--end-of-options',`${revision}^{commit}`),root=realpathSync(git('rev-parse','--show-toplevel'));
+  const directory=relative(root,realpathSync(source)).split('\\').join('/');
+  const tree=execFileSync('git',['-C',root,'ls-tree','-r','-z','--name-only',sha,'--',directory?directory+'/':'.'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).split('\0').filter(Boolean).filter(path=>path.endsWith('.mjs'));
+  const expected=Object.fromEntries(tree.map(path=>[directory?path.slice(directory.length+1):path,execFileSync('git',['-C',root,'show',`${sha}:${path}`],{stdio:['ignore','pipe','pipe']})]));
+  if(JSON.stringify(Object.keys(expected).sort())!==JSON.stringify(Object.keys(content).sort())||Object.keys(content).some(name=>hash(content[name])!==hash(expected[name])))throw Error('bytes differ');
+  return {source_kind:'git',source_revision:sha};
+ }catch{throw Error('Selected source revision does not match runtime files and bytes');}
+}
 export function syncRuntime({destination,source=sourceDirectory,revision='working-tree',check=false,compareSource=false}={}){
  if(!destination)throw Error('Destination is required');
  destination=resolve(destination);source=resolve(source);
@@ -33,7 +47,7 @@ export function syncRuntime({destination,source=sourceDirectory,revision='workin
  const names=files(source).filter(name=>name.endsWith('.mjs'));
  const content=Object.fromEntries(names.map(name=>[name,readFileSync(join(source,name))]));
  const digests=Object.fromEntries(names.map(name=>[name,hash(content[name])]));
- const manifest={schema_version:1,source_revision:revision,content_hash:hash(JSON.stringify(digests)),files:digests};
+ const manifest={schema_version:1,...provenance(source,revision,content),content_hash:hash(JSON.stringify(digests)),files:digests};
  if(check){if(JSON.stringify(previous.files)!==JSON.stringify(digests))throw Error('Generated runtime differs from selected source');return previous;}
  mkdirSync(destination,{recursive:true});
  for(const name of Object.keys(previous?.files||{}))if(!digests[name])rmSync(join(destination,name));
@@ -43,7 +57,7 @@ export function syncRuntime({destination,source=sourceDirectory,revision='workin
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const args=process.argv.slice(2),operation=args.shift();
- const value=optionValues(args,['--consumer','--destination','--source','--revision'],['--compare-source']);
+ const value=optionValues(args,['--consumer','--destination','--source','--revision'],['--compare-source'],{allowUnknown:false});
  if(!['sync','check'].includes(operation))throw Error('Usage: sync.mjs sync|check --consumer ROOT [--source DIRECTORY --revision REVISION]');
  const consumer=value('--consumer');
  syncRuntime({destination:value('--destination')||(consumer?join(consumer,'.github/release-train'):undefined),source:value('--source'),revision:value('--revision'),check:operation==='check',compareSource:args.includes('--compare-source')});

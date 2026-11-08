@@ -103,7 +103,10 @@ export function writeResult(outputPath, input, { summaryPath = process.env.GITHU
     const lines = [`## ${headline}`,'',`Next: ${showRecovery&&recovery.available&&recovery.wait_for_run_completion?'After the original run completes: ':''}${action}`,'',`Version: ${cell(result.version)||'none'} · Candidate: \`${result.candidate_sha.slice(0,7)}\` · Observed: ${cell(result.observed_at)}`,'',`Analysis: ${cell(result.analysis)}; verification: ${cell(result.verification)}; publication enabled: ${result.enabled}`,'','| Target | Result | Evidence |','| --- | --- | --- |',...rows,''];
     if(result.failure_stage)lines.push(`Failed stage: ${cell(result.failure_stage)}`,'');
     for(const error of result.errors)lines.push(`- ${cell(typeof error==='string'?error:error.message??error.code)}`);
-    if(showRecovery&&!recovery.available)lines.push('',`Recovery unavailable: ${cell(recovery.blocked_reason)}`);
+    if(showRecovery&&!recovery.available){
+      lines.push('',`Recovery unavailable: ${cell(recovery.blocked_reason)}`);
+      if(/^[1-9]\d*$/.test(String(recovery.source_run_id||''))&&/^[1-9]\d*$/.test(String(recovery.artifact_id||'')))lines.push(`Original run: ${cell(recovery.source_run_id)}; artifact: ${cell(recovery.artifact_id)}`);
+    }
     else if(showRecovery)lines.push('',nativePending?'Recovery scope: GitHub only.':`Recovery: ${recovery.command || action}`,`Original run: ${cell(recovery.source_run_id)}; artifact: ${cell(recovery.artifact_id)}; source attempt: ${cell(recovery.source_attempt)}; expires: ${cell(recovery.expires_at)}`);
     lines.push('','<details><summary>Technical evidence</summary>','','```json',JSON.stringify(result,null,2),'```','','</details>');
     appendFileSync(summaryPath,lines.join('\n')+'\n');
