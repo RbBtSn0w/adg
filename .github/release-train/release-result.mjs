@@ -108,7 +108,7 @@ export function writeResult(outputPath, input, { summaryPath = process.env.GITHU
       if(/^[1-9]\d*$/.test(String(recovery.source_run_id||''))&&/^[1-9]\d*$/.test(String(recovery.artifact_id||'')))lines.push(`Original run: ${cell(recovery.source_run_id)}; artifact: ${cell(recovery.artifact_id)}`);
     }
     else if(showRecovery)lines.push('',nativePending?'Recovery scope: GitHub only.':`Recovery: ${recovery.command || action}`,`Original run: ${cell(recovery.source_run_id)}; artifact: ${cell(recovery.artifact_id)}; source attempt: ${cell(recovery.source_attempt)}; expires: ${cell(recovery.expires_at)}`);
-    if(showRecovery&&recovery.available&&recovery.wait_for_run_completion)lines.push('Recovery prerequisite: Start recovery only after the original run has completed.');
+    if(showRecovery&&recovery.available&&recovery.wait_for_run_completion)lines.push('', 'Recovery prerequisite: Start recovery only after the original run has completed.');
     lines.push('','<details><summary>Technical evidence</summary>','','```json',JSON.stringify(result,null,2),'```','','</details>');
     appendFileSync(summaryPath,lines.join('\n')+'\n');
   }
