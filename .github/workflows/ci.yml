@@ -50,6 +50,16 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+      - name: Use npm 12 for supported toolchains
+        if: matrix.node-version != '22.18.0' && matrix.node-version != 25
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Show selected Node and npm
+        run: |
+          node --version
+          npm --version
       - run: npm ci --no-audit --no-fund
       - run: npm run check:vendor-deps
       - run: npm run check:docs

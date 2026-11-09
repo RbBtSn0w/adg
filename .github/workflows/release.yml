@@ -72,7 +72,10 @@ jobs:
           node-version: '24'
 
       - name: Use trusted-publishing npm
-        run: npm install -g npm@12.2.2 --ignore-scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
@@ -116,7 +119,7 @@ jobs:
           mkdir -p release-input
           cp release-plan.json release-input/analysis.json
           npm pack --ignore-scripts --json --pack-destination release-input > "$RUNNER_TEMP/pack.json"
-          node -e 'const fs=require("fs"),path=require("path");const rows=JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,"pack.json")));if(rows.length!==1)throw Error("Expected one package");fs.renameSync(path.join("release-input",rows[0].filename),"release-input/package.tgz");'
+          node .github/release-train/npm-pack.mjs "$RUNNER_TEMP/pack.json" package.json release-input/package.tgz
           npx --no-install publint release-input/package.tgz --strict
           (cd release-input && shasum -a 256 package.tgz > package.tgz.sha256)
           npm run test:package -- "$PWD/release-input/package.tgz"
@@ -179,7 +182,10 @@ jobs:
           node-version: '24'
 
       - name: Use trusted-publishing npm
-        run: npm install -g npm@12.2.2 --ignore-scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
@@ -355,7 +361,10 @@ jobs:
         with:
           node-version: '24'
       - name: Use trusted-publishing npm
-        run: npm install -g npm@12.2.2 --ignore-scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Install recovery tooling without lifecycle scripts
         run: npm ci --no-audit --no-fund --ignore-scripts
       - name: Prepare original sealed recovery once
