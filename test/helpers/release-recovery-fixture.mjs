@@ -27,6 +27,7 @@ function release(){const mutated=fs.existsSync(path.join(state,'draft-published'
 if(args[0]==='api') {
  const url=args[1];
  if(url.includes('/actions/artifacts?name=release-recovery-intent-12-34'))console.log(JSON.stringify([{artifacts:[{id:78,name:'release-recovery-intent-12-34',expired:false,workflow_run:{id:56}},...(mode==='prior-recovery-request'?[{id:77,name:'release-recovery-intent-12-34',expired:false,workflow_run:{id:55}}]:[])]}]));
+ else if(url.endsWith('/runs/55'))console.log(JSON.stringify({id:55,repository:{full_name:'owner/repo'},path:'.github/workflows/release.yml',head_branch:'main',event:'workflow_dispatch'}));
  else if(url.endsWith('/runs/12')){if(mode==='stale-source-read-error'){console.error('original run unavailable');process.exit(22);}process.stdout.write(read('run.json'));}
  else if(url.endsWith('/artifacts/34'))process.stdout.write(read('artifact.json'));
  else if(url.endsWith('/artifacts/34/zip'))process.stdout.write(read('original.zip'));

@@ -39,3 +39,16 @@ test('channel deferral cannot turn ordinary publication into a successful partia
 });
 
 function fastBudget(){let clock=0;return createNpmObservationBudget({timeoutMs:5000,intervalMs:2500,now:()=>clock,sleep:async ms=>{clock+=ms;}});}
+
+
+for(const mode of ['invalid','read-error'])test('recovery preserves request facts and clears stale channel evidence: '+mode,async()=>{
+ const {cwd,context}=await fixture(mode);
+ const metadata=JSON.parse(readFileSync(join(cwd,'release-input/final.json'),'utf8'));
+ metadata.source_run_id='12';writeFileSync(join(cwd,'release-input/final.json'),JSON.stringify(metadata));
+ mkdirSync(join(cwd,'release-input/receipts'),{recursive:true});
+ writeFileSync(join(cwd,'release-input/receipts/npm.json'),JSON.stringify({...metadata,status:'completed',request_started_at:'2026-11-09T01:00:00Z',publication_accepted:true,accepted_at:'2026-11-09T01:01:00Z',latest_version:metadata.version,channel_observed_at:'2026-11-09T01:02:00Z'}));
+ await assert.rejects(publish({recovery:true,observationBudget:fastBudget()},context),/latest|channel|dist-tags/);
+ const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json'),'utf8'));
+ assert.equal(receipt.status,'unknown');assert.equal(receipt.publication_accepted,true);assert.equal(receipt.request_started_at,'2026-11-09T01:00:00Z');
+ assert.equal(receipt.latest_version,undefined);assert.equal(receipt.channel_observed_at,undefined);
+});

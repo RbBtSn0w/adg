@@ -255,3 +255,27 @@ archive digest, payload and remote effects before offering a retry command.
 Malformed producer JSON becomes a `report-inputs` failure while other valid
 observations, the final JSON and Summary survive. During GitHub asset reconciliation,
 the final readback rechecks the same release ID, original notes and stable visibility.
+
+
+### Recovery request evidence and one-shot intents
+
+Use the original publication artifact containing the sealed bytes and request
+receipts. A structured E404 does not prove that no request was sent: accepted or
+uncertain requests are observed without uploading again. Missing original request
+evidence cannot authorize a recovery upload.
+
+The recovery workflow records an immutable Actions intent before invoking its
+trusted inspection/publishing code. This intentionally consumes an original
+`not-run` authorization once. A failure during inspection, authentication or a
+read before the actual upload can therefore leave a conservative intent behind.
+Later recoveries observe the original bytes but cannot consume that authorization
+again. A same-run job rerun can encounter the immutable artifact name; a new
+recover dispatch with the same original IDs still observes prior intents.
+
+If visibility never arrives and the request cannot be proven unsent, keep the
+target unconfirmed. Do not delete intent artifacts, force publication, change
+latest or overwrite a version to bypass this condition. Diagnose the original
+run and retain its evidence; use a genuine forward fix through the normal verified
+main/semantic-release path when the old delivery cannot be safely completed.
+Normal scheduled publication retains its automated path; this restriction applies
+to uncertain recovery, not a recurring approval.

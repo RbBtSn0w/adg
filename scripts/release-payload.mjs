@@ -1,4 +1,4 @@
-import {createNpmObservationBudget,npmRequestState,parseNpmIntegrity,allowRecoveryRequest} from '../.github/release-train/npm-view.mjs';
+import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from '../.github/release-train/npm-view.mjs';
 import {verifyLatest,assertNoKnownNewerLatest,sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
@@ -64,7 +64,6 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     writeFileSync(npmrc, target === 'github-packages' ? '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}\n' : '');
     const runEnv = { ...env, NPM_CONFIG_IGNORE_SCRIPTS: 'true', NPM_CONFIG_USERCONFIG: npmrc };
     const tagOptions = () => ({cwd:input,env:runEnv,registry,timeout:commandTimeout()});
-    const distributionTag=_options.recovery?recoveryTag(metadata,tagOptions()):'latest';
     const args = ['view', `${metadata.name}@${metadata.version}`, 'dist.integrity', '--json', '--registry', registry];
     const readIntegrity = (timeout) => {
       const view = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout:Math.min(120000,timeout) });
@@ -72,8 +71,9 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     };
     const prior=existsSync(receiptPath)?JSON.parse(readFileSync(receiptPath,'utf8')):undefined;
     const requestState=npmRequestState(metadata,prior);
-    let publicationEvidence=prior||{};
-    if(prior)writeFileSync(receiptPath,JSON.stringify({...prior,status:'unknown',bytes_verified:false,channel_blocked:false,reason:'Rechecking the original request; availability is not confirmed'}));
+    let publicationEvidence=npmRequestFacts(metadata,prior);
+    if(prior)writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:false,channel_blocked:false,reason:'Rechecking the original request; availability is not confirmed'}));
+    const distributionTag=_options.recovery?recoveryTag(metadata,tagOptions()):'latest';
     const visible=readIntegrity(commandTimeout());
     if(visible===null&&_options.recovery&&requestState==='unconfirmed')throw Object.assign(Error(`${target}: original request evidence is missing; cannot authorize retransmission`),{code:'NPM_REQUEST_UNCONFIRMED'});
     const canSend=visible===null&&requestState!=='observe'&&(!_options.recovery||allowRecoveryRequest({env,timeout:commandTimeout()}));

@@ -1,4 +1,4 @@
-import {createNpmObservationBudget,npmRequestState,parseNpmIntegrity,allowRecoveryRequest} from './npm-view.mjs';
+import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from './npm-view.mjs';
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
 import {verifyLatest,sealedTagFormat,assertNoKnownNewerLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
@@ -64,16 +64,15 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
  if(metadata.sha256!==digest(archive)||metadata.integrity!=='sha512-'+digest(archive,'sha512'))throw Error('Sealed final npm archive differs');
  const registry='https://registry.npmjs.org';
  const tagOptions={cwd,env,registry};
- const distributionTag=recover?recoveryTag(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):'latest';
  const receiptPath=join(input,'receipts/npm.json');
- const base={...prior,status:'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
- delete base.latest_version;delete base.channel_observed_at;delete base.channel_blocked;
+ const base={...npmRequestFacts(metadata,prior),status:'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
  const record=fields=>{Object.assign(base,fields,{observed_at:new Date().toISOString()});mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(receiptPath,JSON.stringify(base)+'\n');return base;};
  const lookup=timeout=>{
   const observed=spawnSync('npm',['view',`${metadata.name}@${metadata.version}`,'dist.integrity','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:Math.min(120000,timeout)});
   return parseNpmIntegrity(observed,metadata.integrity);
  };
  if(prior)record({status:'unknown',bytes_verified:false,reason:'Rechecking the original request; availability is not confirmed'});
+ const distributionTag=recover?recoveryTag(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):'latest';
  const observed=lookup(observationBudget.assertRemaining());
  if(observed===null&&recover&&requestState==='unconfirmed'){record({reason:'Original registry request evidence is missing; E404 cannot authorize retransmission'});throw Object.assign(Error(base.reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
  const canSend=observed===null&&requestState!=='observe'&&(!recover||allowRecoveryRequest({env,timeout:observationBudget.assertRemaining()}));
