@@ -72,7 +72,7 @@ jobs:
           node-version: '24'
 
       - name: Use trusted-publishing npm
-        run: npm install -g npm@11.21.0 --ignore-scripts
+        run: npm install -g npm@12.2.2 --ignore-scripts
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
@@ -179,7 +179,7 @@ jobs:
           node-version: '24'
 
       - name: Use trusted-publishing npm
-        run: npm install -g npm@11.21.0 --ignore-scripts
+        run: npm install -g npm@12.2.2 --ignore-scripts
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
@@ -355,10 +355,84 @@ jobs:
         with:
           node-version: '24'
       - name: Use trusted-publishing npm
-        run: npm install -g npm@11.21.0 --ignore-scripts
+        run: npm install -g npm@12.2.2 --ignore-scripts
       - name: Install recovery tooling without lifecycle scripts
         run: npm ci --no-audit --no-fund --ignore-scripts
-      - name: Recover original sealed targets
+      - name: Prepare original sealed recovery once
+        id: recovery_prepare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RECOVERY_PHASE: prepare
+        run: node scripts/release-recover.mjs
+      - name: Inspect npm before recording intent
+        id: preflight_npm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RECOVERY_PHASE: preflight
+          RECOVERY_TARGET: npm
+        run: node scripts/release-recover.mjs
+      - name: Preserve immutable npm request intent
+        id: intent_npm
+        if: steps.preflight_npm.outputs.intent_needed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-recovery-intent-${{ inputs.source_run_id }}-npm
+          path: ${{ runner.temp }}/release-recovery-intent-npm.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Recover original npm bytes and observe channel
+        id: registry_npm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RECOVERY_PHASE: registry
+          RECOVERY_TARGET: npm
+          RECOVERY_INTENT_ARTIFACT_ID: ${{ steps.intent_npm.outputs.artifact-id }}
+        run: node scripts/release-recover.mjs
+      - name: Inspect github-packages before recording intent
+        id: preflight_github_packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RECOVERY_PHASE: preflight
+          RECOVERY_TARGET: github-packages
+        run: node scripts/release-recover.mjs
+      - name: Preserve immutable github-packages request intent
+        id: intent_github_packages
+        if: steps.preflight_github_packages.outputs.intent_needed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-recovery-intent-${{ inputs.source_run_id }}-github-packages
+          path: ${{ runner.temp }}/release-recovery-intent-github-packages.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Recover original github-packages bytes and observe channel
+        id: registry_github_packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RECOVERY_PHASE: registry
+          RECOVERY_TARGET: github-packages
+          RECOVERY_INTENT_ARTIFACT_ID: ${{ steps.intent_github_packages.outputs.artifact-id }}
+        run: node scripts/release-recover.mjs
+      - name: Reconcile GitHub and require every original target
         id: publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -366,59 +440,8 @@ jobs:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           ARTIFACT_ID: ${{ inputs.artifact_id }}
           RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+          RECOVERY_PHASE: finalize
         run: node scripts/release-recover.mjs
-      - name: Create release bot token
-        if: steps.publish.outcome == 'success'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: release-bot
-        with:
-          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
-          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
-          owner: RbBtSn0w
-          repositories: homebrew-tap
-          permission-contents: write
-      - name: Checkout homebrew tap
-        if: steps.publish.outcome == 'success'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: RbBtSn0w/homebrew-tap
-          token: ${{ steps.release-bot.outputs.token }}
-          ref: main
-          path: homebrew-tap
-      - name: Update homebrew formula
-        if: steps.publish.outcome == 'success'
-        env:
-          RELEASE_ARCHIVE: ${{ github.workspace }}/release-input/final.tgz
-          HOMEBREW_TAP_DIR: ${{ github.workspace }}/homebrew-tap
-        run: ./scripts/publish-homebrew-tap.sh "$(cat release-input/released-version)"
-      - name: Commit homebrew formula update
-        if: steps.publish.outcome == 'success'
-        working-directory: homebrew-tap
-        run: |
-          version="$(cat ../release-input/released-version)"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Stage first, then check the index — git diff (no --cached) does not
-          # see a brand-new untracked Formula/adg.rb, so the first publish must
-          # not be gated on it.
-          git add Formula/adg.rb
-          if git diff --cached --quiet -- Formula/adg.rb; then
-            echo "No Homebrew formula changes to commit."
-            exit 0
-          fi
-          git commit -m "chore: update adg to ${version}"
-          git push origin HEAD:main
-
-      - name: Record Homebrew receipt
-        if: steps.publish.outcome == 'success'
-        run: node scripts/release-homebrew-receipt.mjs
-      - name: Preserve downstream receipt
-        if: always() && steps.publish.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: homebrew-receipt-${{ github.sha }}-${{ github.run_attempt }}
-          path: release-input/receipts/homebrew.json
-          if-no-files-found: warn
       - name: Record recovery result
         if: always()
         env:

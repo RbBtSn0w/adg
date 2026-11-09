@@ -64,3 +64,70 @@ test('recovery still immediately stops on unverified or conflicting registry byt
   const {cwd,result}=runRecovery(mode);assert.notEqual(result.status,0);for(const file of ['npm.tgz','mirror.tgz','uploaded-final.tgz','draft-published'])assert.equal(existsSync(join(cwd,file)),false,`${mode}: ${file}`);
  }
 });
+
+
+test('original request evidence survives artifact inspection and prevents repeated publication',()=>{
+ for(const mode of ['accepted-request','uncertain-request']){
+  const {cwd,result}=runRecovery(mode);assert.equal(result.status,0,result.stderr);
+  const writes=readFileSync(join(cwd,'registry-writes.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(writes.length,1);assert.ok(writes[0].includes('https://npm.pkg.github.com'));
+  const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json')));
+  assert.equal(receipt.status,'completed');assert.equal(receipt.request_started_at,'2026-11-09T01:00:00Z');
+  assert.equal(receipt.publication_accepted,mode==='accepted-request'?true:undefined);
+ }
+});
+test('missing or foreign original request evidence never authorizes a registry write',()=>{
+ for(const mode of ['receipt-missing','receipt-conflict']){
+  const {cwd,result}=runRecovery(mode);assert.notEqual(result.status,0,mode);
+  assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false,mode);
+ }
+});
+
+
+test('a later recovery cannot reuse the original not-run authorization',()=>{
+ const {cwd,result}=runRecovery('prior-recovery-request');assert.equal(result.status,0,result.stderr);
+ assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false);
+ for(const target of ['npm','github-packages'])assert.equal(JSON.parse(readFileSync(join(cwd,`release-input/receipts/${target}.json`))).status,'completed');
+});
+
+test('phased recovery creates intent only after each successful registry preflight',()=>{
+ const {cwd,result}=runRecovery('missing-assets','v2.0.0',true);assert.equal(result.status,0,result.stderr);
+ for(const target of ['npm','github-packages']){assert.equal(existsSync(join(cwd,'intent-'+target)),true);const receipt=JSON.parse(readFileSync(join(cwd,`release-input/receipts/${target}.json`)));assert.equal(receipt.status,'completed');assert.ok(receipt.request_started_at);}
+ assert.equal(existsSync(join(cwd,'release-input/released-version')),true);
+});
+test('first registry preflight failure preserves not-run and creates no target intents',()=>{
+ const {cwd,result}=runRecovery('registry-read-error','v2.0.0',true);assert.notEqual(result.status,0);
+ for(const target of ['npm','github-packages']){assert.equal(existsSync(join(cwd,'intent-'+target)),false);assert.equal(JSON.parse(readFileSync(join(cwd,`release-input/receipts/${target}.json`))).status,'not-run');}
+});
+test('unverified first request fails before consuming the mirror authorization',()=>{
+ const {cwd,result}=runRecovery('accepted-invisible','v2.0.0',true);assert.notEqual(result.status,0);
+ assert.equal(existsSync(join(cwd,'intent-npm')),true);assert.equal(existsSync(join(cwd,'intent-github-packages')),false);
+ const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json')));assert.equal(receipt.publication_accepted,true);assert.ok(receipt.request_started_at);
+ assert.equal(JSON.parse(readFileSync(join(cwd,'release-input/receipts/github-packages.json'))).status,'not-run');
+});
+test('phased channel failure defers after byte verification and finalization remains incomplete',()=>{
+ const {cwd,result}=runRecovery('channel-npm-only','v2.0.0',true);assert.notEqual(result.status,0);
+ assert.equal(existsSync(join(cwd,'intent-github-packages')),true);assert.equal(JSON.parse(readFileSync(join(cwd,'release-input/receipts/github-packages.json'))).status,'completed');assert.equal(existsSync(join(cwd,'release-input/receipts/github-release.json')),true);assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
+});
+
+test('repeated phased recovery and legacy global intents create no new registry markers',()=>{
+ for(const mode of ['prior-recovery-request','legacy-recovery-intent']){const {cwd,result}=runRecovery(mode,'v2.0.0',true);assert.equal(result.status,0,result.stderr);assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false);for(const target of ['npm','github-packages'])assert.equal(existsSync(join(cwd,'intent-'+target)),false);}
+});
+
+test('visible original bytes recover without legacy request receipts or new intents',()=>{
+ const {cwd,result}=runRecovery('visible-legacy-receipts','v2.0.0',true);assert.equal(result.status,0,result.stderr);assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false);for(const target of ['npm','github-packages'])assert.equal(existsSync(join(cwd,'intent-'+target)),false);
+});
+test('finalization succeeds after registry deadline expires once targets are confirmed',()=>{
+ const {cwd,result}=runRecovery('finalize-expired-budget','v2.0.0',true);assert.equal(result.status,0,result.stderr);assert.equal(existsSync(join(cwd,'release-input/released-version')),true);
+});
+test('later phases reject a prepared payload belonging to a different dispatch',()=>{
+ const {cwd,result}=runRecovery('prepared-dispatch-conflict','v2.0.0',true);assert.notEqual(result.status,0);assert.match(result.stderr,/Prepared recovery differs/);assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false);for(const target of ['npm','github-packages'])assert.equal(existsSync(join(cwd,'intent-'+target)),false);
+});
+
+
+test('standalone finalization rejects receipts without original observation and channel evidence',()=>{
+ for(const key of ['latest_version','channel_observed_at','observed_at','remote_id','bytes_verified']){
+  const {cwd,result}=runRecovery('finalize-invalid-'+key,'v2.0.0',true);
+  assert.notEqual(result.status,0,key);assert.equal(existsSync(join(cwd,'release-input/released-version')),false,key);
+ }
+});

@@ -6,6 +6,7 @@ import {resolve} from 'node:path';
 import {inflateRawSync,crc32} from 'node:zlib';
 import {verifyRecoverySource,verifyRecoveryArtifactRole} from './recovery-source.mjs';
 import {observeGitHub,refineGitHubAssets} from './observe-github.mjs';
+import {npmRequestState} from './npm-view.mjs';
 import {sealedTagFormat} from './npm-channel.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export function validateRecoveryPayload(metadata,archive){
@@ -28,6 +29,9 @@ export function selectRecoveryEntries(entries) {
   }
   const roots = new Set(Object.values(selected).map(entry => entry.includes('/') ? 'release-sealed' : ''));
   if (roots.size !== 1) throw Error('Ambiguous recovery payload root');
+  const prefix=Object.values(selected)[0].startsWith('release-sealed/')?'release-sealed/':'';
+  const receipt=`${prefix}receipts/npm.json`;
+  if(entries.includes(receipt))selected['receipts/npm.json']=receipt;
   return selected;
 }
 
@@ -57,7 +61,7 @@ function observeFiles({plan,files,repository,api,download,tagFormat,observation:
  if(observation.recovery.state!=='repairable')return observation;
  try{
   if(hash(files['final.tgz'])!==plan.sha256)throw Error('Original sealed npm archive differs from its manifest checksum');
-  const expectedAssets=Object.fromEntries(Object.entries(files).map(([name,bytes])=>[name,'sha256:'+hash(bytes)]));
+  const expectedAssets=Object.fromEntries(['final.tgz','final.json'].map(name=>[name,'sha256:'+hash(files[name])]));
   return refineGitHubAssets({observation,expectedAssets,readAsset:download});
  }catch(error){observation.targets.github={status:'unknown',reason:error.message};observation.errors.push(error.message);observation.recovery={...observation.recovery,state:'unknown',reason:error.message};return observation;}
 }
@@ -81,6 +85,7 @@ export function inspectRecovery({env=process.env,cwd=process.cwd()}={}){
  if(!/^sha256:[a-f0-9]{64}$/.test(artifact.digest||'')||artifact.digest!=='sha256:'+hash(raw))throw Error('Original artifact download digest mismatch or unavailable');
  const files=recoveryFiles(raw),metadata=validateRecoveryPayload(JSON.parse(files['final.json']),files['final.tgz']);
  if(metadata.candidate_sha!==source.candidate_sha||metadata.repository!==repository||String(metadata.source_run_id)!==String(sourceRunId))throw Error('Original payload provenance mismatch');
+ if(files['receipts/npm.json'])npmRequestState(metadata,JSON.parse(files['receipts/npm.json']));
  const publicationObservation=observeFiles({plan:metadata,files,repository,api,download:asset=>command('api',`repos/${repository}/releases/assets/${asset.id}`,'-H','Accept: application/octet-stream')});
  return {metadata,files,source,run,artifact,publicationObservation};
 }

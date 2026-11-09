@@ -1,10 +1,10 @@
-import {parseNpmView} from '../.github/release-train/npm-view.mjs';
+import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from '../.github/release-train/npm-view.mjs';
 import {verifyLatest,assertNoKnownNewerLatest,sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 function digest(path) { return createHash('sha512').update(readFileSync(path)).digest('base64'); }
@@ -50,55 +50,71 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     const analysis=JSON.parse(readFileSync(join(input,'analysis.json'),'utf8'));
     if(metadata.candidate_sha!==env.CANDIDATE_SHA||metadata.candidate_sha!==analysis.candidate_sha||metadata.version!==analysis.version||metadata.tag!==analysis.tag||metadata.tag!==nextRelease.gitTag||(nextRelease.gitHead!==undefined&&nextRelease.gitHead!==metadata.candidate_sha)||typeof analysis.notes!=='string'||analysis.notes!==nextRelease.notes)throw Error('Publication identity differs from the original sealed analysis');
   }
+  if(_options.target && !['npm','github-packages'].includes(_options.target))throw Error('Invalid recovery target');
+  if(_options.preflight && (!_options.recovery || !_options.target))throw Error('Preflight requires one recovery target');
   const receipts = join(input, 'receipts'); mkdirSync(receipts, { recursive: true });
   const deferredErrors=[];
+  if(!_options.recovery)for(const target of ['npm','github-packages']){const path=join(receipts,`${target}.json`);if(!existsSync(path))writeFileSync(path,JSON.stringify({...metadata,status:'not-run'}));}
+  // One deadline covers both registries, byte visibility and channel delivery.
+  const observationBudget = _options.observationBudget ?? createNpmObservationBudget();
+  const commandTimeout = () => Math.min(120000, observationBudget.assertRemaining());
   for (const [target, registry] of [['npm', 'https://registry.npmjs.org'], ['github-packages', 'https://npm.pkg.github.com']]) {
+    if(_options.target && _options.target!==target)continue;
+    observationBudget.assertRemaining();
     const receiptPath=join(receipts,`${target}.json`);
-    if(existsSync(receiptPath))unlinkSync(receiptPath);
     const npmrc = join(input, `${target}.npmrc`);
     // Keep the GitHub token out of npmjs requests; npmjs uses trusted publishing.
     writeFileSync(npmrc, target === 'github-packages' ? '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}\n' : '');
     const runEnv = { ...env, NPM_CONFIG_IGNORE_SCRIPTS: 'true', NPM_CONFIG_USERCONFIG: npmrc };
-    const tagOptions={cwd:input,env:runEnv,registry};
-    const distributionTag=_options.recovery?recoveryTag(metadata,tagOptions):'latest';
+    const tagOptions = () => ({cwd:input,env:runEnv,registry,timeout:commandTimeout()});
     const args = ['view', `${metadata.name}@${metadata.version}`, 'dist.integrity', '--json', '--registry', registry];
-    const view = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
-    if (view.error) throw view.error;
-    if (view.status === 0) {
-      if (parseNpmView(view.stdout) !== metadata.integrity) throw Error(`${target}: existing version differs from final archive`);
-    } else {
-      let error; try { error = parseNpmView(view.stdout).error; } catch { /* fail closed below */ }
-      if (error?.code !== 'E404') throw Error(`${target}: registry lookup failed: ${view.stderr}`);
-      // Reject known channel regression; this read is not a compare-and-swap.
-      if(!_options.recovery)assertNoKnownNewerLatest(metadata,tagOptions);
-      execFileSync('npm', ['publish', resolve(archive), '--ignore-scripts', '--access', 'public', '--tag', distributionTag, '--registry', registry, ...(target === 'npm' ? ['--provenance'] : [])], {cwd: input, env: runEnv, stdio: 'inherit', timeout: 120000});
-      let verified = false;
-      let detail = '';
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const actual = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
-        try { verified = !actual.error && actual.status === 0 && parseNpmView(actual.stdout) === metadata.integrity; }
-        catch { /* Malformed or not-yet-visible registry metadata remains unverified. */ }
-        if (verified) break;
-        detail = actual.error?.message || actual.stderr || actual.stdout;
-        if (attempt < 2) await new Promise(done => setTimeout(done, 1000 * (attempt + 1)));
-      }
-      if (!verified) throw Error(`${target}: published integrity could not be verified: ${detail}`);
+    const readIntegrity = (timeout) => {
+      const view = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout:Math.min(120000,timeout) });
+      return parseNpmIntegrity(view,metadata.integrity,target);
+    };
+    const prior=existsSync(receiptPath)?JSON.parse(readFileSync(receiptPath,'utf8')):undefined;
+    const requestState=npmRequestState(metadata,prior);
+    let publicationEvidence=npmRequestFacts(metadata,prior);
+    if(prior&&requestState!=='unsent')writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:false,channel_blocked:false,reason:'Rechecking the original request; availability is not confirmed'}));
+    const distributionTag=_options.recovery?recoveryTag(metadata,tagOptions()):'latest';
+    const visible=readIntegrity(commandTimeout());
+    if(_options.recovery&&requestState==='unconfirmed'&&visible===null)throw Object.assign(Error(`${target}: original request evidence is missing; cannot authorize retransmission`),{code:'NPM_REQUEST_UNCONFIRMED'});
+    if(_options.preflight){
+      if(visible!==null)writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:true,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,reason:'Original bytes observed during this recovery; subsequent absence permits observation only'}));
+      return {intent_needed:visible===null&&requestState==='unsent'&&allowRecoveryRequest({env,target,preflight:true,timeout:commandTimeout()})};
     }
+    const canSend=visible===null&&requestState!=='observe'&&(!_options.recovery||allowRecoveryRequest({env,target,timeout:commandTimeout()}));
+    if (visible === null && canSend) {
+      // Reject known channel regression; this read is not a compare-and-swap.
+      if(!_options.recovery)assertNoKnownNewerLatest(metadata,tagOptions());
+      const pending={...metadata,...publicationEvidence,registry,status:'unknown',request_started_at:new Date().toISOString(),reason:'Publication request started; registry acceptance and availability are not confirmed',observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,url:target==='npm'?`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`:`https://github.com/${metadata.repository}/packages`,bytes_verified:false};
+      // Persist sealed identity before requesting publication: a lost response may still publish.
+      observationBudget.assertRemaining();
+      writeFileSync(receiptPath,JSON.stringify(pending));
+      execFileSync('npm', ['publish', resolve(archive), '--ignore-scripts', '--access', 'public', '--tag', distributionTag, '--registry', registry, ...(target === 'npm' ? ['--provenance'] : [])], {cwd: input, env: runEnv, stdio: 'inherit', timeout:commandTimeout()});
+      publicationEvidence={request_started_at:pending.request_started_at,publication_accepted:true,accepted_at:new Date().toISOString(),reason:'Registry accepted publication; availability is not confirmed'};
+      writeFileSync(receiptPath,JSON.stringify({...pending,...publicationEvidence}));
+    }
+    if(visible===null){if(!canSend)writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:false,reason:'A prior request may already be in progress; observing without another upload'}));await observationBudget.wait(readIntegrity);}
     const bytesObservedAt=new Date().toISOString();
     let channel;
     try{
       // Safe recovery helpers observe latest and retain temporary tags; they never add/remove tags.
-      if(_options.recovery){reconcileLatest(metadata,tagOptions);cleanRecoveryTag(metadata,distributionTag,tagOptions);}
-      channel=verifyLatest(metadata,tagOptions);
+      if(_options.recovery){reconcileLatest(metadata,tagOptions());cleanRecoveryTag(metadata,distributionTag,tagOptions());}
+      if(_options.recovery)channel=verifyLatest(metadata,tagOptions());
+      else channel=await observationBudget.wait(timeout=>{
+        try{return verifyLatest(metadata,{cwd:input,env:runEnv,registry,timeout:Math.min(120000,timeout)});}
+        catch(error){if(error.code==='NPM_CHANNEL_PENDING')return null;throw error;}
+      });
     }catch(error){
-      writeFileSync(receiptPath,JSON.stringify({...metadata,registry,status:'unknown',observed_at:bytesObservedAt,remote_id:`${metadata.name}@${metadata.version}`,url:target==='npm'?`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`:`https://github.com/${metadata.repository}/packages`,bytes_verified:true,channel_blocked:true,reason:`Latest channel is not confirmed: ${error.message}`}));
+      writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,registry,status:'unknown',observed_at:bytesObservedAt,remote_id:`${metadata.name}@${metadata.version}`,url:target==='npm'?`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`:`https://github.com/${metadata.repository}/packages`,bytes_verified:true,channel_blocked:true,reason:`Latest channel is not confirmed: ${error.message}`}));
       // Original-byte recovery can continue safe targets; normal publication remains fail-fast.
       if(!(_options.recovery&&_options.deferChannelErrors))throw error;
       deferredErrors.push(new Error(`${target}: ${error.message}`,{cause:error}));
       continue;
     }
-    writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata, status: 'completed', bytes_verified:true, registry, latest_version:channel.latest_version, channel_observed_at:channel.observed_at, observed_at: new Date().toISOString(), remote_id: `${metadata.name}@${metadata.version}`, url: target === 'npm' ? `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` : `https://github.com/${metadata.repository}/packages`, candidate_sha: metadata.candidate_sha}));
+    writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata,...publicationEvidence, status: 'completed', reason:'Original bytes and channel confirmed', channel_blocked:false, bytes_verified:true, registry, latest_version:channel.latest_version, channel_observed_at:channel.observed_at, observed_at: new Date().toISOString(), remote_id: `${metadata.name}@${metadata.version}`, url: target === 'npm' ? `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` : `https://github.com/${metadata.repository}/packages`, candidate_sha: metadata.candidate_sha}));
   }
-  if(!deferredErrors.length)writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
+  if(!_options.recovery&&!_options.target&&!deferredErrors.length)writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
   return { name: 'npm and GitHub Packages', url: `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`, ...(_options.recovery&&_options.deferChannelErrors?{deferred_errors:deferredErrors}:{}) };
 }

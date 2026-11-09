@@ -1,3 +1,4 @@
+import {createNpmObservationBudget} from '../.github/release-train/npm-view.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
@@ -18,21 +19,36 @@ else console.log(JSON.stringify(metadata.integrity));
 }
 test('matching registry bytes with stale, absent, malformed or unreadable latest cannot complete receipts',async()=>{
  for(const mode of ['stale','missing','invalid','read-error']){
-  const {cwd,context}=await fixture(mode);await assert.rejects(publish({},context),/latest|channel|tag/i);
+  const {cwd,context}=await fixture(mode);await assert.rejects(publish({observationBudget:fastBudget()},context),/latest|channel|tag|availability|observation/i);
   const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json')));assert.equal(receipt.status,'unknown',mode);assert.equal(receipt.bytes_verified,true);assert.equal(receipt.channel_observed_at,undefined);assert.equal(existsSync(join(cwd,'unexpected-write')),false,mode);
  }
 });
 test('normal publication records current or newer latest evidence without changing distribution tags',async()=>{
  for(const mode of ['current','newer']){
-  const {cwd,context}=await fixture(mode);await publish({},context);
+  const {cwd,context}=await fixture(mode);await publish({observationBudget:fastBudget()},context);
   for(const name of ['npm','github-packages']){const receipt=JSON.parse(readFileSync(join(cwd,`release-input/receipts/${name}.json`)));assert.equal(receipt.latest_version,mode==='newer'?'3.0.0':'2.0.0');assert.ok(Number.isFinite(Date.parse(receipt.channel_observed_at)));}
   assert.equal(existsSync(join(cwd,'unexpected-write')),false);
  }
 });
 test('direct product publication requires the explicit publication switch before registry access',async()=>{
- const {cwd,context}=await fixture('current');context.env.RELEASE_ENABLED='false';await assert.rejects(publish({},context),/disabled/i);assert.equal(existsSync(join(cwd,'release-input/receipts')),false);assert.equal(existsSync(join(cwd,'unexpected-write')),false);
+ const {cwd,context}=await fixture('current');context.env.RELEASE_ENABLED='false';await assert.rejects(publish({observationBudget:fastBudget()},context),/disabled/i);assert.equal(existsSync(join(cwd,'release-input/receipts')),false);assert.equal(existsSync(join(cwd,'unexpected-write')),false);
 });
 
 test('channel deferral cannot turn ordinary publication into a successful partial release',async()=>{
- const {cwd,context}=await fixture('stale');await assert.rejects(publish({deferChannelErrors:true},context),/latest|channel/i);assert.equal(existsSync(join(cwd,'release-input/receipts/github-packages.json')),false);assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
+ const {cwd,context}=await fixture('stale');await assert.rejects(publish({deferChannelErrors:true,observationBudget:fastBudget()},context),/latest|channel|availability|observation/i);assert.equal(JSON.parse(readFileSync(join(cwd,'release-input/receipts/github-packages.json'))).status,'not-run');assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
+});
+
+function fastBudget(){let clock=0;return createNpmObservationBudget({timeoutMs:5000,intervalMs:2500,now:()=>clock,sleep:async ms=>{clock+=ms;}});}
+
+
+for(const mode of ['invalid','read-error'])test('recovery preserves request facts and clears stale channel evidence: '+mode,async()=>{
+ const {cwd,context}=await fixture(mode);
+ const metadata=JSON.parse(readFileSync(join(cwd,'release-input/final.json'),'utf8'));
+ metadata.source_run_id='12';writeFileSync(join(cwd,'release-input/final.json'),JSON.stringify(metadata));
+ mkdirSync(join(cwd,'release-input/receipts'),{recursive:true});
+ writeFileSync(join(cwd,'release-input/receipts/npm.json'),JSON.stringify({...metadata,status:'completed',request_started_at:'2026-11-09T01:00:00Z',publication_accepted:true,accepted_at:'2026-11-09T01:01:00Z',latest_version:metadata.version,channel_observed_at:'2026-11-09T01:02:00Z'}));
+ await assert.rejects(publish({recovery:true,observationBudget:fastBudget()},context),/latest|channel|dist-tags/);
+ const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json'),'utf8'));
+ assert.equal(receipt.status,'unknown');assert.equal(receipt.publication_accepted,true);assert.equal(receipt.request_started_at,'2026-11-09T01:00:00Z');
+ assert.equal(receipt.latest_version,undefined);assert.equal(receipt.channel_observed_at,undefined);
 });

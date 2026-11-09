@@ -255,3 +255,42 @@ archive digest, payload and remote effects before offering a retry command.
 Malformed producer JSON becomes a `report-inputs` failure while other valid
 observations, the final JSON and Summary survive. During GitHub asset reconciliation,
 the final readback rechecks the same release ID, original notes and stable visibility.
+
+
+### Recovery request evidence and one-shot intents
+
+Use the original publication artifact containing the sealed bytes and request
+receipts. A structured E404 does not prove that no request was sent: accepted or
+uncertain requests are observed without uploading again. Missing original request
+evidence cannot authorize a recovery upload.
+
+The recovery workflow first inspects and restores the trusted original once.
+Each registry then has a read-only preflight, a conditional immutable intent named
+`release-recovery-intent-<source-run-id>-<target>`, and its own publication and
+observation phase. Visible bytes, uncertain original requests and prior trusted
+intents need no new marker or upload. A failed preflight creates no marker; an
+unverified registry failure stops before the next target's marker. Only a channel
+failure after byte verification can continue to the next target and GitHub.
+All phases share one 15-minute registry observation deadline. Finalization emits
+success only when both registries and GitHub are confirmed.
+
+A marker consumes only that registry's original `not-run` authorization, even
+when a later request or observation fails. Later recoveries observe without
+retransmitting it; an untouched registry retains its independent authorization.
+Legacy global markers conservatively block uploads to both registries. The
+legacy `all` test entry also requires durable intent before any upload.
+
+If visibility never arrives and the request cannot be proven unsent, keep the
+target unconfirmed. Do not delete intent artifacts, force publication, change
+latest or overwrite a version to bypass this condition. Diagnose the original
+run and retain its evidence; use a genuine forward fix through the normal verified
+main/semantic-release path when the old delivery cannot be safely completed.
+Normal scheduled publication retains its automated path; this restriction applies
+to uncertain recovery, not a recurring approval.
+
+
+Recovery preflight retains matching original bytes as observe-only evidence.
+If the next registry lookup temporarily returns E404, recovery waits within the
+shared budget without creating another request intent or publishing again.
+Finalization checks complete payload, remote identity and channel observations;
+it cannot declare delivery from the receipt status alone.

@@ -1,11 +1,11 @@
-import {parseNpmView} from './npm-view.mjs';
+import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from './npm-view.mjs';
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
 import {verifyLatest,sealedTagFormat,assertNoKnownNewerLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
 // Run after @semantic-release/npm prepare. Never rebuild the verified package.
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {copyFileSync,mkdirSync,readFileSync,readdirSync,writeFileSync,rmSync} from 'node:fs';
+import {copyFileSync,mkdirSync,readFileSync,readdirSync,writeFileSync,existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const digest=(path,algorithm='sha256')=>createHash(algorithm).update(readFileSync(path)).digest(algorithm==='sha512'?'base64':'hex');
@@ -49,51 +49,63 @@ export function prepare(options,context){
  const metadata={...plan,tag_format,operation:'release',repository:env.GITHUB_REPOSITORY,source_run_id:env.GITHUB_RUN_ID,name:manifest.name,sha256:digest(archive),integrity:'sha512-'+digest(archive,'sha512')};
  if(!metadata.repository||!/^\d+$/.test(metadata.source_run_id||''))throw Error('Original release provenance is required');
  writeFileSync(join(sealed,'final.json'),JSON.stringify(metadata,null,2)+'\n');
+ mkdirSync(join(sealed,'receipts'),{recursive:true});writeFileSync(join(sealed,'receipts/npm.json'),JSON.stringify({...metadata,status:'not-run',bytes_verified:false})+'\n');
  // semantic-release creates the tag only after every prepare hook has completed.
  const head=execFileSync('git',['rev-parse','HEAD'],{cwd,env,encoding:'utf8'}).trim();
  const live=execFileSync('gh',['api',`repos/${metadata.repository}/git/ref/heads/main`,'--jq','.object.sha'],{cwd,env,encoding:'utf8',timeout:10000}).trim();
  if(head!==plan.candidate_sha||live!==plan.candidate_sha)throw Error('Main changed or could not be read before tag creation');
  assertNoKnownNewerLatest(metadata,{cwd,env,registry:'https://registry.npmjs.org'});
 }
-export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false}={}){
+export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false,preflight=false,publishIfAbsent=false,observationBudget=createNpmObservationBudget()}={}){
  if(recover)assertPublicationEnabled(env);
  const input=join(cwd,'release-sealed'),metadata=read(join(input,'final.json')),archive=join(input,'final.tgz');
- rmSync(join(input,'receipts/npm.json'),{force:true});
+ const priorPath=join(input,'receipts/npm.json');
+ const prior=existsSync(priorPath)?read(priorPath):undefined;
+ const requestState=npmRequestState(metadata,prior);
  if(metadata.sha256!==digest(archive)||metadata.integrity!=='sha512-'+digest(archive,'sha512'))throw Error('Sealed final npm archive differs');
  const registry='https://registry.npmjs.org';
  const tagOptions={cwd,env,registry};
- const distributionTag=recover?recoveryTag(metadata,tagOptions):'latest';
- const lookup=()=>spawnSync('npm',['view',`${metadata.name}@${metadata.version}`,'dist.integrity','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:120000});
- let observed=lookup();
- if(observed.status!==0&&recover){
-  let error;try{error=parseNpmView(observed.stdout).error;}catch{/* fail closed */}
-  if(error?.code!=='E404')throw Error(`npm registry lookup failed: ${observed.stderr}`);
-  execFileSync('npm',['publish',resolve(archive),'--ignore-scripts','--access','public','--provenance','--tag',distributionTag,'--registry',registry],{cwd,env:{...env,NPM_CONFIG_IGNORE_SCRIPTS:'true'},stdio:'inherit',timeout:120000});
+ const receiptPath=join(input,'receipts/npm.json');
+ const base={...npmRequestFacts(metadata,prior),status:requestState==='unsent'?'not-run':'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
+ const record=fields=>{Object.assign(base,fields,{observed_at:new Date().toISOString()});mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(receiptPath,JSON.stringify(base)+'\n');return base;};
+ const lookup=timeout=>{
+  const observed=spawnSync('npm',['view',`${metadata.name}@${metadata.version}`,'dist.integrity','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:Math.min(120000,timeout)});
+  return parseNpmIntegrity(observed,metadata.integrity);
+ };
+ if(prior&&(!preflight||requestState!=='unsent'))record({status:requestState==='unsent'?'not-run':'unknown',bytes_verified:false,reason:requestState==='unsent'?'No publication request has started':'Rechecking the original request; availability is not confirmed'});
+ const distributionTag=recover?recoveryTag(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):'latest';
+ const observed=lookup(observationBudget.assertRemaining());
+ if(observed===null&&recover&&requestState==='unconfirmed'){const reason='Original registry request evidence is missing; E404 cannot authorize retransmission';if(!preflight)record({reason});throw Object.assign(Error(reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
+ if(preflight){
+  if(observed!==null)record({status:'unknown',bytes_verified:true,reason:'Original bytes observed during this recovery; subsequent absence permits observation only'});
+  return {intent_needed:observed===null&&requestState==='unsent'&&allowRecoveryRequest({env,target:'npm',preflight:true,timeout:observationBudget.assertRemaining()})};
  }
- let matched=false;
- for(let attempt=0;attempt<3;attempt++){
-  if(attempt||observed.status!==0)observed=lookup();
-  try{matched=observed.status===0&&parseNpmView(observed.stdout)===metadata.integrity;}catch(error){throw new Error(`npm integrity response could not be interpreted: ${error.message}`,{cause:error});}
-  if(matched)break;
-  if(observed.status===0)throw Error('Existing npm version differs from sealed original bytes');
-  if(attempt<2)await new Promise(done=>setTimeout(done,1000*(attempt+1)));
+ const canSend=observed===null&&requestState!=='observe'&&(!recover||allowRecoveryRequest({env,target:'npm',timeout:observationBudget.assertRemaining()}));
+ if(observed===null&&(recover||publishIfAbsent)&&canSend){
+  assertPublicationEnabled(env);
+  if(!recover)assertNoKnownNewerLatest(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()});
+  const timeout=Math.min(120000,observationBudget.assertRemaining());
+  record({status:'unknown',request_started_at:new Date().toISOString(),reason:'Publication request started; registry acceptance and availability are not confirmed'});
+  execFileSync('npm',['publish',resolve(archive),'--ignore-scripts','--access','public','--provenance','--tag',distributionTag,'--registry',registry],{cwd,env:{...env,NPM_CONFIG_IGNORE_SCRIPTS:'true'},stdio:'inherit',timeout});
+  record({publication_accepted:true,accepted_at:new Date().toISOString(),reason:'Registry accepted publication; availability is not confirmed'});
  }
- if(!matched)throw Error(`npm integrity readback failed: ${observed.stderr||observed.stdout}`);
+ if(observed===null){if(!canSend)record({status:'unknown',reason:'A prior request may already be in progress; observing without another upload'});await observationBudget.wait(lookup);}
+ record({bytes_verified:true});
  let channel;
  try{
-  if(recover){reconcileLatest(metadata,tagOptions);cleanRecoveryTag(metadata,distributionTag,tagOptions);}
-  channel=verifyLatest(metadata,tagOptions);
+  if(recover){reconcileLatest(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()});cleanRecoveryTag(metadata,distributionTag,tagOptions);}
+  channel=recover?verifyLatest(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):await observationBudget.wait(timeout=>{try{return verifyLatest(metadata,{...tagOptions,timeout});}catch(error){if(error.code==='NPM_CHANNEL_PENDING')return null;throw error;}});
  }catch(error){
-  const receipt={status:'unknown',bytes_verified:true,channel_blocked:true,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,reason:error.message};
+  const receipt={...base,status:'unknown',bytes_verified:true,channel_blocked:true,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,reason:error.message};
   mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(join(input,'receipts/npm.json'),JSON.stringify(receipt)+'\n');
   error.publicationReceipt=receipt;
   throw error;
  }
  const latestVersion=channel.latest_version;
- const receipt={status:'completed',channel_observed_at:channel.observed_at,candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,...(latestVersion?{latest_version:latestVersion}:{}),url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,sha256:metadata.sha256};
+ const receipt={...base,status:'completed',reason:'Original bytes and channel confirmed',bytes_verified:true,channel_blocked:false,channel_observed_at:channel.observed_at,candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,...(latestVersion?{latest_version:latestVersion}:{}),url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,sha256:metadata.sha256};
  mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(join(input,'receipts/npm.json'),JSON.stringify(receipt)+'\n');return receipt;
 }
-export async function publish(_options,{cwd,env}){await verifyNpm({cwd,env});}
+export async function publish(_options,{cwd,env}){await verifyNpm({cwd,env,publishIfAbsent:true});}
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  if(process.argv[2]==='seal-plan')sealPlan();
  else throw Error('Usage: npm-release-adapter.mjs seal-plan');
