@@ -11,7 +11,7 @@ function readTags(metadata,{cwd=process.cwd(),env=process.env,registry='https://
  const result=spawnSync('npm',['view',metadata.name,'dist-tags','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:120000});
  if(result.error)throw result.error;
  if(result.status!==0){let error;try{error=parseNpmView(result.stdout)?.error;}catch{}if(allowAbsent&&error?.code==='E404')return null;throw Error('npm latest dist-tags readback failed');}
- let tags;try{tags=parseNpmView(result.stdout);}catch(error){throw new Error(`npm latest dist-tags readback was not valid JSON: ${error.message}`,{cause:error});}
+ let tags;try{tags=parseNpmView(result.stdout);}catch(error){throw new Error(`npm latest dist-tags response could not be interpreted: ${error.message}`,{cause:error});}
  if(!tags||typeof tags!=='object'||Array.isArray(tags))throw Error('npm latest dist-tags readback was not an object');
  return tags;
 }

@@ -73,7 +73,7 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
  let matched=false;
  for(let attempt=0;attempt<3;attempt++){
   if(attempt||observed.status!==0)observed=lookup();
-  try{matched=observed.status===0&&parseNpmView(observed.stdout)===metadata.integrity;}catch{/* unknown remains failed */}
+  try{matched=observed.status===0&&parseNpmView(observed.stdout)===metadata.integrity;}catch(error){throw new Error(`npm integrity response could not be interpreted: ${error.message}`,{cause:error});}
   if(matched)break;
   if(observed.status===0)throw Error('Existing npm version differs from sealed original bytes');
   if(attempt<2)await new Promise(done=>setTimeout(done,1000*(attempt+1)));
