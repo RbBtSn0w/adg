@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_kind": "git",
-  "source_revision": "ef65a2a71bc9e15364296a4c09f4b55063e6b983",
-  "content_hash": "a01a130946f33c0671897e386f71fa14373742922d249d1ba08922f3db3d91bb",
+  "source_revision": "3962bbb65d7d1a9a3c72a3ab5087a0c78e2bc62c",
+  "content_hash": "79e9de948e0de52e3c3512154d08a00fecc9e19410e1be95a9ba12bfb9ec37c3",
   "files": {
     "cli-options.mjs": "b02fa325d78d100b16f932150730fe4df31e0face993e56d1ff64602e5f205a5",
     "cli.mjs": "1529c7ea64f70513a1da3e75ec240dcdfbe7bb5786b55291f4a05ca8f2e8e683",
@@ -14,7 +14,7 @@
     "npm-recover.mjs": "6f00c7ac52ec9ba5d605ac636f5c24e1f8c7d748b592d0fecb5871b87e18db2c",
     "npm-recovery-source.mjs": "df9eae3c68c1d314415161cfde48eccb9ea4ecedc303b806226c95abc4e12f7a",
     "npm-recovery-tag.mjs": "d28982d6dc6b4310c409dc2c42fa1cef8f0729e0d8dd3abc72d505b319988868",
-    "npm-release-adapter.mjs": "44b8f1db5814d6cff36047457f4ad81d6fd7a366ee9b85f0baddf61338d8a573",
+    "npm-release-adapter.mjs": "b7b8d6a00e6e3b79f8cdb93117342e23575e8b736387fe79c5b56a5b5994c2f5",
     "npm-release-status.mjs": "bc4053f3bcca092bc4319137883d2a84cc3822261bf9c3fe6e2c8ffd0f921fea",
     "npm-view.mjs": "2120b3be90995896b6ac7801dcc5a28eecdc58887848e70cd99619ae9ac5df7c",
     "observe-github.mjs": "7f7370cc0173253344f46d8e63844a30463b144bd30708b1cbcafb11db6171b7",

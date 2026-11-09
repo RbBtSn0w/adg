@@ -75,7 +75,7 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
  if(prior&&(!preflight||requestState!=='unsent'))record({status:requestState==='unsent'?'not-run':'unknown',bytes_verified:false,reason:requestState==='unsent'?'No publication request has started':'Rechecking the original request; availability is not confirmed'});
  const distributionTag=recover?recoveryTag(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):'latest';
  const observed=lookup(observationBudget.assertRemaining());
- if(observed===null&&recover&&requestState==='unconfirmed'){if(!preflight)record({reason:'Original registry request evidence is missing; E404 cannot authorize retransmission'});throw Object.assign(Error(base.reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
+ if(observed===null&&recover&&requestState==='unconfirmed'){const reason='Original registry request evidence is missing; E404 cannot authorize retransmission';if(!preflight)record({reason});throw Object.assign(Error(reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
  if(preflight)return {intent_needed:observed===null&&requestState==='unsent'&&allowRecoveryRequest({env,target:'npm',preflight:true,timeout:observationBudget.assertRemaining()})};
  const canSend=observed===null&&requestState!=='observe'&&(!recover||allowRecoveryRequest({env,target:'npm',timeout:observationBudget.assertRemaining()}));
  if(observed===null&&(recover||publishIfAbsent)&&canSend){
