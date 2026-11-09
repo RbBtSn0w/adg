@@ -365,7 +365,7 @@ jobs:
         run: node -e 'require("fs").writeFileSync(process.env.RUNNER_TEMP+"/release-recovery-intent.json",JSON.stringify({source_run_id:process.env.SOURCE_RUN_ID,artifact_id:process.env.ARTIFACT_ID,run_id:process.env.GITHUB_RUN_ID}))'
       - name: Preserve immutable recovery request intent
         id: recovery_intent
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-recovery-intent-${{ inputs.source_run_id }}-${{ inputs.artifact_id }}
           path: ${{ runner.temp }}/release-recovery-intent.json
