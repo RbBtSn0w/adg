@@ -22,16 +22,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Exercise the declared minimum plus the current three Node.js release
-          # lines. Ubuntu, macOS, and Windows are all first-class compatibility targets.
+          # Exercise each supported Node line, including the exact 22.x and 24.x
+          # minimums. Ubuntu, macOS, and Windows remain compatibility targets.
           - os: ubuntu-latest
-            node-version: 22.18.0
+            node-version: 22.22.2
           - os: ubuntu-latest
-            node-version: 24
+            node-version: 24.15.0
             package-smoke: true
           - os: ubuntu-latest
-            node-version: 25
-          - os: ubuntu-latest
             node-version: 26
           - os: macos-latest
             node-version: 24
@@ -39,8 +37,6 @@ jobs:
             node-version: 26
           - os: windows-latest
             node-version: 24
-          - os: windows-latest
-            node-version: 25
           - os: windows-latest
             node-version: 26
     steps:
@@ -50,8 +46,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-      - name: Use npm 12 for supported toolchains
-        if: matrix.node-version != '22.18.0' && matrix.node-version != 25
+      - name: Use npm 12
         shell: bash
         run: |
           npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2

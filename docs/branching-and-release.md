@@ -294,3 +294,16 @@ If the next registry lookup temporarily returns E404, recovery waits within the
 shared budget without creating another request intent or publishing again.
 Finalization checks complete payload, remote identity and channel observations;
 it cannot declare delivery from the receipt status alone.
+
+## Node support and CI package manager
+
+The supported runtime range is `^22.22.2 || ^24.15.0 || >=26`, aligned with the
+selected npm 12.2.2 toolchain. Node 22.18, Node 23 and Node 25 are no longer
+supported. This compatibility change is recorded as breaking release metadata;
+semantic-release remains responsible for the next version. Existing releases
+retain their original runtime declarations.
+
+All CI matrix entries, PR commit validation and release jobs select npm 12.2.2
+from a runner-temporary installation. The matrix covers exact Node 22.22.2 and
+24.15.0 minimums plus Node 26, with current Node 24/26 on macOS and Windows.
+No old-runtime package-manager exception remains.
