@@ -73,11 +73,12 @@ export function reconcileGitHub(metadata, notes, input = 'release-sealed') {
 }
 export async function recover() {
   if (process.env.RELEASE_ENABLED !== 'true') throw Error('Publication remains disabled');
-  for(const name of ['npm.json','github-release.json'])rmSync(join('release-sealed','receipts',name),{force:true});
+  rmSync(join('release-sealed','receipts'),{recursive:true,force:true});
   const {metadata,files,source,publicationObservation}=inspectRecovery();
   if(publicationObservation.recovery.state!=='repairable')throw Error(`GitHub recovery preflight blocked: ${publicationObservation.recovery.reason}`);
   mkdirSync('release-sealed', { recursive: true });
   for (const name of ['final.json', 'final.tgz']) writeFileSync(join('release-sealed', name), files[name]);
+  if(files['receipts/npm.json']){mkdirSync('release-sealed/receipts',{recursive:true});writeFileSync('release-sealed/receipts/npm.json',files['receipts/npm.json']);}
   writeFileSync('release-sealed/recovery.json', JSON.stringify(source));
   process.env.CANDIDATE_SHA = metadata.candidate_sha;
   let channelError;

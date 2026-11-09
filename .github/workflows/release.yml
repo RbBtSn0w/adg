@@ -358,9 +358,23 @@ jobs:
         run: npm install -g npm@12.2.2 --ignore-scripts
       - name: Install recovery tooling without lifecycle scripts
         run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Record original recovery request intent
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+        run: node -e 'require("fs").writeFileSync(process.env.RUNNER_TEMP+"/release-recovery-intent.json",JSON.stringify({source_run_id:process.env.SOURCE_RUN_ID,artifact_id:process.env.ARTIFACT_ID,run_id:process.env.GITHUB_RUN_ID}))'
+      - name: Preserve immutable recovery request intent
+        id: recovery_intent
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-recovery-intent-${{ inputs.source_run_id }}-${{ inputs.artifact_id }}
+          path: ${{ runner.temp }}/release-recovery-intent.json
+          retention-days: 90
+          if-no-files-found: error
       - name: Recover original sealed targets
         id: publish
         env:
+          RECOVERY_INTENT_ARTIFACT_ID: ${{ steps.recovery_intent.outputs.artifact-id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}

@@ -19,7 +19,7 @@ else console.log(JSON.stringify(metadata.integrity));
 }
 test('matching registry bytes with stale, absent, malformed or unreadable latest cannot complete receipts',async()=>{
  for(const mode of ['stale','missing','invalid','read-error']){
-  const {cwd,context}=await fixture(mode);await assert.rejects(publish({observationBudget:fastBudget()},context),/latest|channel|tag|availability/i);
+  const {cwd,context}=await fixture(mode);await assert.rejects(publish({observationBudget:fastBudget()},context),/latest|channel|tag|availability|observation/i);
   const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json')));assert.equal(receipt.status,'unknown',mode);assert.equal(receipt.bytes_verified,true);assert.equal(receipt.channel_observed_at,undefined);assert.equal(existsSync(join(cwd,'unexpected-write')),false,mode);
  }
 });
@@ -35,7 +35,7 @@ test('direct product publication requires the explicit publication switch before
 });
 
 test('channel deferral cannot turn ordinary publication into a successful partial release',async()=>{
- const {cwd,context}=await fixture('stale');await assert.rejects(publish({deferChannelErrors:true,observationBudget:fastBudget()},context),/latest|channel|availability/i);assert.equal(existsSync(join(cwd,'release-input/receipts/github-packages.json')),false);assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
+ const {cwd,context}=await fixture('stale');await assert.rejects(publish({deferChannelErrors:true,observationBudget:fastBudget()},context),/latest|channel|availability|observation/i);assert.equal(JSON.parse(readFileSync(join(cwd,'release-input/receipts/github-packages.json'))).status,'not-run');assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
 });
 
 function fastBudget(){let clock=0;return createNpmObservationBudget({timeoutMs:5000,intervalMs:2500,now:()=>clock,sleep:async ms=>{clock+=ms;}});}

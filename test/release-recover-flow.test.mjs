@@ -64,3 +64,28 @@ test('recovery still immediately stops on unverified or conflicting registry byt
   const {cwd,result}=runRecovery(mode);assert.notEqual(result.status,0);for(const file of ['npm.tgz','mirror.tgz','uploaded-final.tgz','draft-published'])assert.equal(existsSync(join(cwd,file)),false,`${mode}: ${file}`);
  }
 });
+
+
+test('original request evidence survives artifact inspection and prevents repeated publication',()=>{
+ for(const mode of ['accepted-request','uncertain-request']){
+  const {cwd,result}=runRecovery(mode);assert.equal(result.status,0,result.stderr);
+  const writes=readFileSync(join(cwd,'registry-writes.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(writes.length,1);assert.ok(writes[0].includes('https://npm.pkg.github.com'));
+  const receipt=JSON.parse(readFileSync(join(cwd,'release-input/receipts/npm.json')));
+  assert.equal(receipt.status,'completed');assert.equal(receipt.request_started_at,'2026-11-09T01:00:00Z');
+  assert.equal(receipt.publication_accepted,mode==='accepted-request'?true:undefined);
+ }
+});
+test('missing or foreign original request evidence never authorizes a registry write',()=>{
+ for(const mode of ['receipt-missing','receipt-conflict']){
+  const {cwd,result}=runRecovery(mode);assert.notEqual(result.status,0,mode);
+  assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false,mode);
+ }
+});
+
+
+test('a later recovery cannot reuse the original not-run authorization',()=>{
+ const {cwd,result}=runRecovery('prior-recovery-request');assert.equal(result.status,0,result.stderr);
+ assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false);
+ for(const target of ['npm','github-packages'])assert.equal(JSON.parse(readFileSync(join(cwd,`release-input/receipts/${target}.json`))).status,'completed');
+});

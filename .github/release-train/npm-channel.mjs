@@ -12,7 +12,7 @@ function readTags(metadata,{cwd=process.cwd(),env=process.env,registry='https://
  if(result.error)throw result.error;
  if(result.status!==0){let error;try{error=parseNpmView(result.stdout)?.error;}catch{}if(allowAbsent&&error?.code==='E404')return null;throw Error('npm latest dist-tags readback failed');}
  let tags;try{tags=parseNpmView(result.stdout);}catch(error){throw new Error(`npm latest dist-tags response could not be interpreted: ${error.message}`,{cause:error});}
- if(!tags||typeof tags!=='object'||Array.isArray(tags)||Object.values(tags).some(value=>typeof value!=='string'))throw Error('npm latest dist-tags readback was not an object');
+ if(!tags||typeof tags!=='object'||Array.isArray(tags)||Object.values(tags).some(value=>typeof value!=='string'))throw Error('npm latest dist-tags readback was not an object with string values');
  return tags;
 }
 export function verifyLatest(metadata,options){

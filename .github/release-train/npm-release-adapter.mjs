@@ -1,11 +1,11 @@
-import {parseNpmView,createNpmObservationBudget} from './npm-view.mjs';
+import {createNpmObservationBudget,npmRequestState,parseNpmIntegrity,allowRecoveryRequest} from './npm-view.mjs';
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
 import {verifyLatest,sealedTagFormat,assertNoKnownNewerLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
 // Run after @semantic-release/npm prepare. Never rebuild the verified package.
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {copyFileSync,mkdirSync,readFileSync,readdirSync,writeFileSync,rmSync} from 'node:fs';
+import {copyFileSync,mkdirSync,readFileSync,readdirSync,writeFileSync,existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const digest=(path,algorithm='sha256')=>createHash(algorithm).update(readFileSync(path)).digest(algorithm==='sha512'?'base64':'hex');
@@ -58,24 +58,26 @@ export function prepare(options,context){
 export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false,publishIfAbsent=false,observationBudget=createNpmObservationBudget()}={}){
  if(recover)assertPublicationEnabled(env);
  const input=join(cwd,'release-sealed'),metadata=read(join(input,'final.json')),archive=join(input,'final.tgz');
- rmSync(join(input,'receipts/npm.json'),{force:true});
+ const priorPath=join(input,'receipts/npm.json');
+ const prior=existsSync(priorPath)?read(priorPath):undefined;
+ const requestState=npmRequestState(metadata,prior);
  if(metadata.sha256!==digest(archive)||metadata.integrity!=='sha512-'+digest(archive,'sha512'))throw Error('Sealed final npm archive differs');
  const registry='https://registry.npmjs.org';
  const tagOptions={cwd,env,registry};
  const distributionTag=recover?recoveryTag(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):'latest';
  const receiptPath=join(input,'receipts/npm.json');
- const base={status:'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
+ const base={...prior,status:'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
+ delete base.latest_version;delete base.channel_observed_at;delete base.channel_blocked;
  const record=fields=>{Object.assign(base,fields,{observed_at:new Date().toISOString()});mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(receiptPath,JSON.stringify(base)+'\n');return base;};
  const lookup=timeout=>{
   const observed=spawnSync('npm',['view',`${metadata.name}@${metadata.version}`,'dist.integrity','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:Math.min(120000,timeout)});
-  if(observed.error)throw observed.error;
-  let value;try{value=parseNpmView(observed.stdout);}catch(error){throw new Error(`npm integrity response could not be interpreted: ${error.message}`,{cause:error});}
-  if(observed.status!==0){if(value?.error?.code==='E404')return null;throw Error(`npm registry lookup failed: ${observed.stderr||observed.stdout}`);}
-  if(value!==metadata.integrity)throw Error('Existing npm version differs from sealed original bytes');
-  return true;
+  return parseNpmIntegrity(observed,metadata.integrity);
  };
+ if(prior)record({status:'unknown',bytes_verified:false,reason:'Rechecking the original request; availability is not confirmed'});
  const observed=lookup(observationBudget.assertRemaining());
- if(observed===null&&(recover||publishIfAbsent)){
+ if(observed===null&&recover&&requestState==='unconfirmed'){record({reason:'Original registry request evidence is missing; E404 cannot authorize retransmission'});throw Object.assign(Error(base.reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
+ const canSend=observed===null&&requestState!=='observe'&&(!recover||allowRecoveryRequest({env,timeout:observationBudget.assertRemaining()}));
+ if(observed===null&&(recover||publishIfAbsent)&&canSend){
   assertPublicationEnabled(env);
   if(!recover)assertNoKnownNewerLatest(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()});
   const timeout=Math.min(120000,observationBudget.assertRemaining());
@@ -83,7 +85,7 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
   execFileSync('npm',['publish',resolve(archive),'--ignore-scripts','--access','public','--provenance','--tag',distributionTag,'--registry',registry],{cwd,env:{...env,NPM_CONFIG_IGNORE_SCRIPTS:'true'},stdio:'inherit',timeout});
   record({publication_accepted:true,accepted_at:new Date().toISOString(),reason:'Registry accepted publication; availability is not confirmed'});
  }
- if(observed===null)await observationBudget.wait(lookup);
+ if(observed===null){if(!canSend)record({reason:'A prior request may already be in progress; observing without another upload'});await observationBudget.wait(lookup);}
  record({bytes_verified:true});
  let channel;
  try{
@@ -96,7 +98,7 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
   throw error;
  }
  const latestVersion=channel.latest_version;
- const receipt={...base,status:'completed',reason:'Original bytes and channel confirmed',bytes_verified:true,channel_observed_at:channel.observed_at,candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,...(latestVersion?{latest_version:latestVersion}:{}),url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,sha256:metadata.sha256};
+ const receipt={...base,status:'completed',reason:'Original bytes and channel confirmed',bytes_verified:true,channel_blocked:false,channel_observed_at:channel.observed_at,candidate_sha:metadata.candidate_sha,version:metadata.version,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,...(latestVersion?{latest_version:latestVersion}:{}),url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`,sha256:metadata.sha256};
  mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(join(input,'receipts/npm.json'),JSON.stringify(receipt)+'\n');return receipt;
 }
 export async function publish(_options,{cwd,env}){await verifyNpm({cwd,env,publishIfAbsent:true});}

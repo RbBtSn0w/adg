@@ -35,7 +35,7 @@ test('summary distinguishes disabled, no-release and partial targets',()=>{
 
 test('recovery reads only controlled ZIP members and rejects traversal, duplicate and ambiguous members', () => {
  const entries = ['final.json','final.tgz','analysis.json','receipts/npm.json'];
- assert.deepEqual(selectRecoveryEntries(entries), {'final.json':'final.json','final.tgz':'final.tgz','analysis.json':'analysis.json'});
+ assert.deepEqual(selectRecoveryEntries(entries), {'final.json':'final.json','final.tgz':'final.tgz','analysis.json':'analysis.json','receipts/npm.json':'receipts/npm.json'});
  for (const extra of ['../escape','/absolute','directory\\escape','final.json','release-input/final.json']) assert.throws(()=>selectRecoveryEntries([...entries,extra]));
  assert.throws(()=>selectRecoveryEntries(['final.json','release-input/final.tgz','analysis.json']));
  // Other ZIP entries, including symlinks, are never extracted or followed.
