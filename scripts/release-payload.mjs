@@ -50,6 +50,8 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     const analysis=JSON.parse(readFileSync(join(input,'analysis.json'),'utf8'));
     if(metadata.candidate_sha!==env.CANDIDATE_SHA||metadata.candidate_sha!==analysis.candidate_sha||metadata.version!==analysis.version||metadata.tag!==analysis.tag||metadata.tag!==nextRelease.gitTag||(nextRelease.gitHead!==undefined&&nextRelease.gitHead!==metadata.candidate_sha)||typeof analysis.notes!=='string'||analysis.notes!==nextRelease.notes)throw Error('Publication identity differs from the original sealed analysis');
   }
+  if(_options.target && !['npm','github-packages'].includes(_options.target))throw Error('Invalid recovery target');
+  if(_options.preflight && (!_options.recovery || !_options.target))throw Error('Preflight requires one recovery target');
   const receipts = join(input, 'receipts'); mkdirSync(receipts, { recursive: true });
   const deferredErrors=[];
   if(!_options.recovery)for(const target of ['npm','github-packages']){const path=join(receipts,`${target}.json`);if(!existsSync(path))writeFileSync(path,JSON.stringify({...metadata,status:'not-run'}));}
@@ -57,6 +59,7 @@ export async function publish(_options, { cwd, env, nextRelease }) {
   const observationBudget = _options.observationBudget ?? createNpmObservationBudget();
   const commandTimeout = () => Math.min(120000, observationBudget.assertRemaining());
   for (const [target, registry] of [['npm', 'https://registry.npmjs.org'], ['github-packages', 'https://npm.pkg.github.com']]) {
+    if(_options.target && _options.target!==target)continue;
     observationBudget.assertRemaining();
     const receiptPath=join(receipts,`${target}.json`);
     const npmrc = join(input, `${target}.npmrc`);
@@ -72,11 +75,12 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     const prior=existsSync(receiptPath)?JSON.parse(readFileSync(receiptPath,'utf8')):undefined;
     const requestState=npmRequestState(metadata,prior);
     let publicationEvidence=npmRequestFacts(metadata,prior);
-    if(prior)writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:false,channel_blocked:false,reason:'Rechecking the original request; availability is not confirmed'}));
+    if(prior&&requestState!=='unsent')writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:false,channel_blocked:false,reason:'Rechecking the original request; availability is not confirmed'}));
     const distributionTag=_options.recovery?recoveryTag(metadata,tagOptions()):'latest';
     const visible=readIntegrity(commandTimeout());
-    if(visible===null&&_options.recovery&&requestState==='unconfirmed')throw Object.assign(Error(`${target}: original request evidence is missing; cannot authorize retransmission`),{code:'NPM_REQUEST_UNCONFIRMED'});
-    const canSend=visible===null&&requestState!=='observe'&&(!_options.recovery||allowRecoveryRequest({env,timeout:commandTimeout()}));
+    if(_options.recovery&&requestState==='unconfirmed'&&visible===null)throw Object.assign(Error(`${target}: original request evidence is missing; cannot authorize retransmission`),{code:'NPM_REQUEST_UNCONFIRMED'});
+    if(_options.preflight)return {intent_needed:visible===null&&requestState==='unsent'&&allowRecoveryRequest({env,target,preflight:true,timeout:commandTimeout()})};
+    const canSend=visible===null&&requestState!=='observe'&&(!_options.recovery||allowRecoveryRequest({env,target,timeout:commandTimeout()}));
     if (visible === null && canSend) {
       // Reject known channel regression; this read is not a compare-and-swap.
       if(!_options.recovery)assertNoKnownNewerLatest(metadata,tagOptions());
@@ -85,7 +89,7 @@ export async function publish(_options, { cwd, env, nextRelease }) {
       observationBudget.assertRemaining();
       writeFileSync(receiptPath,JSON.stringify(pending));
       execFileSync('npm', ['publish', resolve(archive), '--ignore-scripts', '--access', 'public', '--tag', distributionTag, '--registry', registry, ...(target === 'npm' ? ['--provenance'] : [])], {cwd: input, env: runEnv, stdio: 'inherit', timeout:commandTimeout()});
-      publicationEvidence={publication_accepted:true,accepted_at:new Date().toISOString(),reason:'Registry accepted publication; availability is not confirmed'};
+      publicationEvidence={request_started_at:pending.request_started_at,publication_accepted:true,accepted_at:new Date().toISOString(),reason:'Registry accepted publication; availability is not confirmed'};
       writeFileSync(receiptPath,JSON.stringify({...pending,...publicationEvidence}));
     }
     if(visible===null){if(!canSend)writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:false,reason:'A prior request may already be in progress; observing without another upload'}));await observationBudget.wait(readIntegrity);}
@@ -108,6 +112,6 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     }
     writeFileSync(join(receipts, `${target}.json`), JSON.stringify({...metadata,...publicationEvidence, status: 'completed', reason:'Original bytes and channel confirmed', channel_blocked:false, bytes_verified:true, registry, latest_version:channel.latest_version, channel_observed_at:channel.observed_at, observed_at: new Date().toISOString(), remote_id: `${metadata.name}@${metadata.version}`, url: target === 'npm' ? `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}` : `https://github.com/${metadata.repository}/packages`, candidate_sha: metadata.candidate_sha}));
   }
-  if(!deferredErrors.length)writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
+  if(!_options.recovery&&!_options.target&&!deferredErrors.length)writeFileSync(join(input, 'released-version'), `${nextRelease.version}\n`);
   return { name: 'npm and GitHub Packages', url: `https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`, ...(_options.recovery&&_options.deferChannelErrors?{deferred_errors:deferredErrors}:{}) };
 }

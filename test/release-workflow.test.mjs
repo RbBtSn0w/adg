@@ -65,3 +65,10 @@ test('publication authority is explicitly passed into the writer process environ
  assert.equal(step('release','publish').env.RELEASE_ENABLED,'${{ vars.RELEASE_ENABLED }}');
  assert.equal(step('recover','publish').env.RELEASE_ENABLED,'${{ vars.RELEASE_ENABLED }}');
 });
+
+test('recovery markers are conditional per target, between preflight and publication',()=>{
+ const steps=workflow.jobs.recover.steps;const index=id=>steps.findIndex(s=>s.id===id);
+ assert.ok(index('recovery_prepare')<index('preflight_npm'));
+ for(const id of ['npm','github_packages']){const marker=step('recover','intent_'+id);assert.equal(marker.if,"steps.preflight_"+id+".outputs.intent_needed == 'true'");assert.ok(index('preflight_'+id)<index('intent_'+id));assert.ok(index('intent_'+id)<index('registry_'+id));}
+ assert.ok(index('registry_npm')<index('preflight_github_packages'));assert.ok(index('registry_github_packages')<index('publish'));assert.ok(steps.every(s=>!s['continue-on-error']));assert.equal(step('recover','publish').env.RECOVERY_PHASE,'finalize');
+});

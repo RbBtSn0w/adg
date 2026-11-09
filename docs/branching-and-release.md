@@ -264,13 +264,21 @@ receipts. A structured E404 does not prove that no request was sent: accepted or
 uncertain requests are observed without uploading again. Missing original request
 evidence cannot authorize a recovery upload.
 
-The recovery workflow records an immutable Actions intent before invoking its
-trusted inspection/publishing code. This intentionally consumes an original
-`not-run` authorization once. A failure during inspection, authentication or a
-read before the actual upload can therefore leave a conservative intent behind.
-Later recoveries observe the original bytes but cannot consume that authorization
-again. A same-run job rerun can encounter the immutable artifact name; a new
-recover dispatch with the same original IDs still observes prior intents.
+The recovery workflow first inspects and restores the trusted original once.
+Each registry then has a read-only preflight, a conditional immutable intent named
+`release-recovery-intent-<source-run-id>-<target>`, and its own publication and
+observation phase. Visible bytes, uncertain original requests and prior trusted
+intents need no new marker or upload. A failed preflight creates no marker; an
+unverified registry failure stops before the next target's marker. Only a channel
+failure after byte verification can continue to the next target and GitHub.
+All phases share one 15-minute registry observation deadline. Finalization emits
+success only when both registries and GitHub are confirmed.
+
+A marker consumes only that registry's original `not-run` authorization, even
+when a later request or observation fails. Later recoveries observe without
+retransmitting it; an untouched registry retains its independent authorization.
+Legacy global markers conservatively block uploads to both registries. The
+legacy `all` test entry also requires durable intent before any upload.
 
 If visibility never arrives and the request cannot be proven unsent, keep the
 target unconfirmed. Do not delete intent artifacts, force publication, change

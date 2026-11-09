@@ -1,9 +1,9 @@
-import {npmRequestState} from '../.github/release-train/npm-view.mjs';
+import {npmRequestState,createNpmObservationBudget,startRecoveryObservationBudget,recoveryObservationBudget} from '../.github/release-train/npm-view.mjs';
 import {sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 // Recovery uses current trusted workflow code and the original sealed publication bytes.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -122,19 +122,51 @@ export function inspectRecovery({repository=process.env.GITHUB_REPOSITORY,source
     return {source,sourceAttempt,run,artifact,metadata,analysis,files,publicationObservation,expectedAssets};
   }finally{rmSync(temporary,{recursive:true,force:true});}
 }
-export async function recover() {
-  if(process.env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
+export function prepareRecovery() {
   rmSync(join('release-input','receipts'),{recursive:true,force:true});
+  rmSync(join('release-input','released-version'),{force:true});
   const original=inspectRecovery();
-  const {source,sourceAttempt,artifact,metadata,analysis,files,publicationObservation}=original;
+  const {source,sourceAttempt,artifact,metadata,files,publicationObservation}=original;
   if(publicationObservation.recovery.state!=='repairable')throw Error(`Recovery blocked before registry writes: ${publicationObservation.recovery.reason}`);
   mkdirSync('release-input',{recursive:true});
   for(const [name,bytes]of Object.entries(files)){mkdirSync('release-input/receipts',{recursive:true});writeFileSync(join('release-input',name),bytes);}
   writeFileSync('release-input/recovery.json',JSON.stringify({...source,tag:metadata.tag,repository:metadata.repository,source_attempt:sourceAttempt,digest:artifact.digest,expires_at:artifact.expires_at}));
-  process.env.CANDIDATE_SHA=metadata.candidate_sha;
-  const publication=await publish({recovery:true,deferChannelErrors:true},{cwd:process.cwd(),env:process.env,nextRelease:{version:metadata.version}});
-  const errors=[...(publication.deferred_errors||[])];
-  try{reconcileGitHub(metadata,analysis.notes);}catch(error){errors.push(error);}
-  if(errors.length)throw new AggregateError(errors,'Original recovery remains incomplete; inspect target receipts');
 }
+export function finalizeRecovery(metadata,analysis,errors=[]) {
+  try{reconcileGitHub(metadata,analysis.notes);}catch(error){errors.push(error);}
+  for(const target of ['npm','github-packages']){
+    const receipt=JSON.parse(readFileSync(join('release-input','receipts',target+'.json'),'utf8'));
+    npmRequestState(metadata,receipt);
+    if(receipt.status!=='completed'||receipt.bytes_verified!==true||receipt.channel_blocked)errors.push(Error(`${target}: ${receipt.reason||'Original recovery remains incomplete'}`));
+  }
+  if(errors.length)throw new AggregateError(errors,'Original recovery remains incomplete; inspect target receipts');
+  writeFileSync('release-input/released-version',metadata.version+'\n');
+}
+export async function recover() {
+  if(process.env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
+  const phase=process.env.RECOVERY_PHASE||'all';
+  if(!['prepare','preflight','registry','finalize','all'].includes(phase))throw Error('Invalid recovery phase');
+  if(phase==='prepare'||phase==='all')prepareRecovery();
+  if(phase==='prepare'){startRecoveryObservationBudget(process.env);return;}
+  const metadata=JSON.parse(readFileSync('release-input/final.json','utf8'));
+  const analysis=JSON.parse(readFileSync('release-input/analysis.json','utf8'));
+  validatePayload(metadata,analysis,'release-input/final.tgz');
+  const prepared=JSON.parse(readFileSync('release-input/recovery.json','utf8'));
+  if(String(prepared.source_run_id)!==process.env.SOURCE_RUN_ID||String(prepared.artifact_id)!==process.env.ARTIFACT_ID||prepared.candidate_sha!==metadata.candidate_sha||prepared.repository!==process.env.GITHUB_REPOSITORY||metadata.repository!==prepared.repository||String(metadata.source_run_id)!==String(prepared.source_run_id))throw Error('Prepared recovery differs from original dispatch identity');
+  process.env.CANDIDATE_SHA=metadata.candidate_sha;
+  const context={cwd:process.cwd(),env:process.env,nextRelease:{version:metadata.version}};
+  if(phase==='finalize'){finalizeRecovery(metadata,analysis);return;}
+  const observationBudget=phase==='all'?createNpmObservationBudget():recoveryObservationBudget(process.env);
+  const target=process.env.RECOVERY_TARGET;
+  if(phase!=='all'&&!['npm','github-packages'].includes(target))throw Error('Recovery phase requires one registry target');
+  if(phase==='preflight'){
+    const result=await publish({recovery:true,target,preflight:true,observationBudget},context);
+    if(process.env.GITHUB_OUTPUT)appendFileSync(process.env.GITHUB_OUTPUT,'intent_needed='+String(result.intent_needed)+'\n');
+    if(result.intent_needed)writeFileSync(join(process.env.RUNNER_TEMP,'release-recovery-intent-'+target+'.json'),JSON.stringify({source_run_id:process.env.SOURCE_RUN_ID,artifact_id:process.env.ARTIFACT_ID,run_id:process.env.GITHUB_RUN_ID,target}));
+    return result;
+  }
+  const publication=await publish({recovery:true,deferChannelErrors:true,observationBudget,...(phase==='registry'?{target}:{})},context);
+  if(phase==='all')finalizeRecovery(metadata,analysis,[...(publication.deferred_errors||[])]);
+}
+
 if(process.argv[1]&&process.argv[1]!=='-'&&realpathSync(resolve(process.argv[1]))===realpathSync(fileURLToPath(import.meta.url)))await recover();

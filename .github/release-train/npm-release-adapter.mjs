@@ -49,13 +49,14 @@ export function prepare(options,context){
  const metadata={...plan,tag_format,operation:'release',repository:env.GITHUB_REPOSITORY,source_run_id:env.GITHUB_RUN_ID,name:manifest.name,sha256:digest(archive),integrity:'sha512-'+digest(archive,'sha512')};
  if(!metadata.repository||!/^\d+$/.test(metadata.source_run_id||''))throw Error('Original release provenance is required');
  writeFileSync(join(sealed,'final.json'),JSON.stringify(metadata,null,2)+'\n');
+ mkdirSync(join(sealed,'receipts'),{recursive:true});writeFileSync(join(sealed,'receipts/npm.json'),JSON.stringify({...metadata,status:'not-run',bytes_verified:false})+'\n');
  // semantic-release creates the tag only after every prepare hook has completed.
  const head=execFileSync('git',['rev-parse','HEAD'],{cwd,env,encoding:'utf8'}).trim();
  const live=execFileSync('gh',['api',`repos/${metadata.repository}/git/ref/heads/main`,'--jq','.object.sha'],{cwd,env,encoding:'utf8',timeout:10000}).trim();
  if(head!==plan.candidate_sha||live!==plan.candidate_sha)throw Error('Main changed or could not be read before tag creation');
  assertNoKnownNewerLatest(metadata,{cwd,env,registry:'https://registry.npmjs.org'});
 }
-export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false,publishIfAbsent=false,observationBudget=createNpmObservationBudget()}={}){
+export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false,preflight=false,publishIfAbsent=false,observationBudget=createNpmObservationBudget()}={}){
  if(recover)assertPublicationEnabled(env);
  const input=join(cwd,'release-sealed'),metadata=read(join(input,'final.json')),archive=join(input,'final.tgz');
  const priorPath=join(input,'receipts/npm.json');
@@ -65,26 +66,27 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
  const registry='https://registry.npmjs.org';
  const tagOptions={cwd,env,registry};
  const receiptPath=join(input,'receipts/npm.json');
- const base={...npmRequestFacts(metadata,prior),status:'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
+ const base={...npmRequestFacts(metadata,prior),status:requestState==='unsent'?'not-run':'unknown',bytes_verified:false,candidate_sha:metadata.candidate_sha,version:metadata.version,sha256:metadata.sha256,remote_id:`${metadata.name}@${metadata.version}`,url:`https://www.npmjs.com/package/${metadata.name}/v/${metadata.version}`};
  const record=fields=>{Object.assign(base,fields,{observed_at:new Date().toISOString()});mkdirSync(join(input,'receipts'),{recursive:true});writeFileSync(receiptPath,JSON.stringify(base)+'\n');return base;};
  const lookup=timeout=>{
   const observed=spawnSync('npm',['view',`${metadata.name}@${metadata.version}`,'dist.integrity','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:Math.min(120000,timeout)});
   return parseNpmIntegrity(observed,metadata.integrity);
  };
- if(prior)record({status:'unknown',bytes_verified:false,reason:'Rechecking the original request; availability is not confirmed'});
+ if(prior&&(!preflight||requestState!=='unsent'))record({status:requestState==='unsent'?'not-run':'unknown',bytes_verified:false,reason:requestState==='unsent'?'No publication request has started':'Rechecking the original request; availability is not confirmed'});
  const distributionTag=recover?recoveryTag(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()}):'latest';
  const observed=lookup(observationBudget.assertRemaining());
- if(observed===null&&recover&&requestState==='unconfirmed'){record({reason:'Original registry request evidence is missing; E404 cannot authorize retransmission'});throw Object.assign(Error(base.reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
- const canSend=observed===null&&requestState!=='observe'&&(!recover||allowRecoveryRequest({env,timeout:observationBudget.assertRemaining()}));
+ if(observed===null&&recover&&requestState==='unconfirmed'){if(!preflight)record({reason:'Original registry request evidence is missing; E404 cannot authorize retransmission'});throw Object.assign(Error(base.reason),{code:'NPM_REQUEST_UNCONFIRMED'});}
+ if(preflight)return {intent_needed:observed===null&&requestState==='unsent'&&allowRecoveryRequest({env,target:'npm',preflight:true,timeout:observationBudget.assertRemaining()})};
+ const canSend=observed===null&&requestState!=='observe'&&(!recover||allowRecoveryRequest({env,target:'npm',timeout:observationBudget.assertRemaining()}));
  if(observed===null&&(recover||publishIfAbsent)&&canSend){
   assertPublicationEnabled(env);
   if(!recover)assertNoKnownNewerLatest(metadata,{...tagOptions,timeout:observationBudget.assertRemaining()});
   const timeout=Math.min(120000,observationBudget.assertRemaining());
-  record({request_started_at:new Date().toISOString(),reason:'Publication request started; registry acceptance and availability are not confirmed'});
+  record({status:'unknown',request_started_at:new Date().toISOString(),reason:'Publication request started; registry acceptance and availability are not confirmed'});
   execFileSync('npm',['publish',resolve(archive),'--ignore-scripts','--access','public','--provenance','--tag',distributionTag,'--registry',registry],{cwd,env:{...env,NPM_CONFIG_IGNORE_SCRIPTS:'true'},stdio:'inherit',timeout});
   record({publication_accepted:true,accepted_at:new Date().toISOString(),reason:'Registry accepted publication; availability is not confirmed'});
  }
- if(observed===null){if(!canSend)record({reason:'A prior request may already be in progress; observing without another upload'});await observationBudget.wait(lookup);}
+ if(observed===null){if(!canSend)record({status:'unknown',reason:'A prior request may already be in progress; observing without another upload'});await observationBudget.wait(lookup);}
  record({bytes_verified:true});
  let channel;
  try{

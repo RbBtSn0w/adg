@@ -45,7 +45,7 @@ test('accepted publications wait through byte and channel lag without republishi
  const {cwd,context}=await fixture('lag'),observationBudget=budget();await publish({observationBudget},context);
  assert.equal(calls(cwd).filter(call=>call.args[0]==='publish').length,2);
  assert.equal(observationBudget.ticks,12);
- for(const target of ['npm','github-packages']){const value=receipt(cwd,target);assert.equal(value.status,'completed');assert.equal(value.publication_accepted,true);assert.ok(value.accepted_at);assert.equal(value.bytes_verified,true);}
+ for(const target of ['npm','github-packages']){const value=receipt(cwd,target);assert.equal(value.status,'completed');assert.equal(value.publication_accepted,true);assert.ok(value.accepted_at);assert.ok(value.request_started_at);assert.equal(value.bytes_verified,true);}
 });
 test('a shared deadline retains accepted identity and prevents later registry publication',async()=>{
  const {cwd,context}=await fixture('lag');await assert.rejects(publish({observationBudget:budget(6)},context),/deadline/);
@@ -60,4 +60,18 @@ for(const mode of ['auth','malformed','mismatch'])test(mode+' after publish fail
  const {cwd,context}=await fixture(mode),observationBudget=budget();await assert.rejects(publish({observationBudget},context));
  assert.equal(observationBudget.ticks,0);assert.equal(calls(cwd).filter(call=>call.args[0]==='publish').length,1);
  assert.equal(JSON.parse(readFileSync(join(cwd,'npm'))).bytes,1);assert.equal(receipt(cwd).publication_accepted,true);
+});
+
+test('target-only publication leaves the other target untouched and emits no global marker',async()=>{
+ const {cwd,context}=await fixture('lag');await publish({target:'npm',observationBudget:budget()},context);
+ assert.equal(calls(cwd).filter(call=>call.target==='github-packages').length,0);assert.equal(receipt(cwd,'github-packages').status,'not-run');assert.equal(existsSync(join(cwd,'release-input/released-version')),false);
+});
+test('lookup failure preserves original not-run request evidence',async()=>{
+ const {cwd,context}=await fixture('lag');const meta=JSON.parse(readFileSync(join(cwd,'release-input/final.json')));mkdirSync(join(cwd,'release-input/receipts'));writeFileSync(join(cwd,'release-input/receipts/npm.json'),JSON.stringify({...meta,status:'not-run'}));writeFileSync(join(cwd,'bin/npm'),'#!/bin/sh\nexit 42\n',{mode:0o755});
+ await assert.rejects(publish({recovery:true,target:'npm',preflight:true,observationBudget:budget()},context));assert.equal(receipt(cwd).status,'not-run');
+});
+
+test('preflight read failure invalidates a prior completed observation while preserving request facts',async()=>{
+ const {cwd,context}=await fixture('lag');const meta=JSON.parse(readFileSync(join(cwd,'release-input/final.json')));mkdirSync(join(cwd,'release-input/receipts'));writeFileSync(join(cwd,'release-input/receipts/npm.json'),JSON.stringify({...meta,status:'completed',latest_version:'2.0.0',bytes_verified:true,request_started_at:'2026-11-09T01:00:00Z',publication_accepted:true,accepted_at:'2026-11-09T01:00:01Z'}));writeFileSync(join(cwd,'bin/npm'),'#!/bin/sh\nexit 42\n',{mode:0o755});
+ await assert.rejects(publish({recovery:true,target:'npm',preflight:true,observationBudget:budget()},context));const value=receipt(cwd);assert.equal(value.status,'unknown');assert.equal(value.bytes_verified,false);assert.equal(value.latest_version,undefined);assert.equal(value.request_started_at,'2026-11-09T01:00:00Z');assert.equal(value.publication_accepted,true);assert.equal(existsSync(join(cwd,'npm')),false);
 });
