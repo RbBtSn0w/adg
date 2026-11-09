@@ -10,6 +10,7 @@ async function fixture(mode){
  const env=releaseEnv(cwd),nextRelease=releaseDecision(cwd,'2.0.0');await prepare({}, {cwd,env,nextRelease});const original=readFileSync(join(cwd,'release-input/final.tgz'));
  const latest=mode==='newer'||mode==='existing'?'9.0.0':mode==='same'?'2.0.0':'1.0.0';writeFileSync(join(cwd,'tags.json'),JSON.stringify({npm:mode==='missing'||mode==='package-missing'?null:latest,github:mode==='mirror-newer'?'9.0.0':mode==='missing'||mode==='package-missing'?null:latest}));
  const bin=join(cwd,'bin');mkdirSync(bin);writeFileSync(join(bin,'npm'),`#!/usr/bin/env node
+const log=console.log;console.log=value=>log(process.env.NPM_VIEW_ARRAY==='true'?JSON.stringify([JSON.parse(value)]):value);
 const fs=require('fs'),path=require('path'),args=process.argv.slice(2),state=process.env.STATE,mode=process.env.MODE,metadata=JSON.parse(fs.readFileSync(path.join(state,'release-input/final.json'))),target=args.at(-1).includes('github')?'github':'npm',marker=path.join(state,'published-'+target+'.tgz'),tagsFile=path.join(state,'tags.json'),tags=JSON.parse(fs.readFileSync(tagsFile));
 fs.appendFileSync(path.join(state,'calls.jsonl'),JSON.stringify({target,args})+'\\n');
 if(args[0]==='view'&&args[2]==='dist-tags'){
@@ -39,4 +40,13 @@ test('known-newer prewrite check is applied independently before each registry w
 });
 test('an already matching version remains read-only and can observe a newer latest',async()=>{
  const {cwd,context}=await fixture('existing');await publish({},context);assert.equal(existsSync(join(cwd,'published-npm.tgz')),false);assert.deepEqual(JSON.parse(readFileSync(join(cwd,'tags.json'))),{npm:'9.0.0',github:'9.0.0'});const calls=readFileSync(join(cwd,'calls.jsonl'),'utf8').trim().split('\n').map(JSON.parse);assert.equal(calls.filter(call=>call.args[0]==='view'&&call.args[2]==='dist-tags').length,2);
+});
+
+
+test('npm 12 array responses preserve byte verification and both normal registry publications',async()=>{
+ for(const mode of ['older','package-missing','existing']){
+  const {cwd,context,original}=await fixture(mode);context.env.NPM_VIEW_ARRAY='true';await publish({},context);
+  for(const target of ['npm','github-packages'])assert.equal(JSON.parse(readFileSync(join(cwd,`release-input/receipts/${target}.json`))).status,'completed');
+  if(mode!=='existing')for(const target of ['npm','github'])assert.deepEqual(readFileSync(join(cwd,`published-${target}.tgz`)),original);
+ }
 });

@@ -1,10 +1,11 @@
+import {parseNpmView} from './npm-view.mjs';
 // Recovery may restore immutable bytes under its own tag; channel aliases are read-only.
 import {spawnSync} from 'node:child_process';
 import {verifyLatest} from './npm-channel.mjs';
 function tags(metadata,{cwd,env,registry}){
  const result=spawnSync('npm',['view',metadata.name,'dist-tags','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:120000});
  if(result.error)throw result.error;
- let value;try{value=JSON.parse(result.stdout);}catch{throw Error('npm dist-tags lookup was not valid JSON');}
+ let value;try{value=parseNpmView(result.stdout);}catch(error){throw new Error(`npm dist-tags response could not be interpreted: ${error.message}`,{cause:error});}
  if(result.status!==0){if(value?.error?.code==='E404')return {};throw Error('npm dist-tags lookup failed');}
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('npm dist-tags lookup was not an object');
  return value;

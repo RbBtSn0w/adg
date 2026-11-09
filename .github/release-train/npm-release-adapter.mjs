@@ -1,3 +1,4 @@
+import {parseNpmView} from './npm-view.mjs';
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
 import {verifyLatest,sealedTagFormat,assertNoKnownNewerLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
@@ -65,14 +66,14 @@ export async function verifyNpm({cwd=process.cwd(),env=process.env,recover=false
  const lookup=()=>spawnSync('npm',['view',`${metadata.name}@${metadata.version}`,'dist.integrity','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:120000});
  let observed=lookup();
  if(observed.status!==0&&recover){
-  let error;try{error=JSON.parse(observed.stdout).error;}catch{/* fail closed */}
+  let error;try{error=parseNpmView(observed.stdout).error;}catch{/* fail closed */}
   if(error?.code!=='E404')throw Error(`npm registry lookup failed: ${observed.stderr}`);
   execFileSync('npm',['publish',resolve(archive),'--ignore-scripts','--access','public','--provenance','--tag',distributionTag,'--registry',registry],{cwd,env:{...env,NPM_CONFIG_IGNORE_SCRIPTS:'true'},stdio:'inherit',timeout:120000});
  }
  let matched=false;
  for(let attempt=0;attempt<3;attempt++){
   if(attempt||observed.status!==0)observed=lookup();
-  try{matched=observed.status===0&&JSON.parse(observed.stdout)===metadata.integrity;}catch{/* unknown remains failed */}
+  try{matched=observed.status===0&&parseNpmView(observed.stdout)===metadata.integrity;}catch(error){throw new Error(`npm integrity response could not be interpreted: ${error.message}`,{cause:error});}
   if(matched)break;
   if(observed.status===0)throw Error('Existing npm version differs from sealed original bytes');
   if(attempt<2)await new Promise(done=>setTimeout(done,1000*(attempt+1)));
