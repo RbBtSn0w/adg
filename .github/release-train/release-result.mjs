@@ -100,7 +100,7 @@ export function writeResult(outputPath, input, { summaryPath = process.env.GITHU
     const noAction=['completed','no-release'].includes(result.publication);
     const showRecovery=!noAction&&result.publication!=='disabled';
     const action = noAction?'No action needed.':result.verification==='failed'&&result.publication==='disabled'?'Correct the failed verification and validate a fresh candidate. Publication remains disabled.':result.publication==='disabled'&&result.failure_stage?'Inspect the failed report stage and restore its original evidence. Publication remains disabled.':nativePending?'Inspect the native Cloud and TestFlight evidence links for outstanding delivery stages.':showRecovery&&recovery.available?(recovery.command || `gh workflow run release.yml --ref main -f operation=recover -f source_run_id=${recovery.source_run_id} -f artifact_id=${recovery.artifact_id}`):result.publication==='disabled'?'No publication was attempted. Initial activation remains separate.':'Inspect the failed stage and remote receipts before starting another release.';
-    const lines = [`## ${headline}`,'',`Next: ${showRecovery&&recovery.available&&recovery.wait_for_run_completion?'After the original run completes: ':''}${action}`,'',`Version: ${cell(result.version)||'none'} · Candidate: \`${result.candidate_sha.slice(0,7)}\` · Observed: ${cell(result.observed_at)}`,'',`Analysis: ${cell(result.analysis)}; verification: ${cell(result.verification)}; publication enabled: ${result.enabled}`,'','| Target | Result | Evidence |','| --- | --- | --- |',...rows,''];
+    const lines = [`## ${headline}`,'',`Next: ${action}`,'',`Version: ${cell(result.version)||'none'} · Candidate: \`${result.candidate_sha.slice(0,7)}\` · Observed: ${cell(result.observed_at)}`,'',`Analysis: ${cell(result.analysis)}; verification: ${cell(result.verification)}; publication enabled: ${result.enabled}`,'','| Target | Result | Evidence |','| --- | --- | --- |',...rows,''];
     if(result.failure_stage)lines.push(`Failed stage: ${cell(result.failure_stage)}`,'');
     for(const error of result.errors)lines.push(`- ${cell(typeof error==='string'?error:error.message??error.code)}`);
     if(showRecovery&&!recovery.available){
@@ -108,6 +108,7 @@ export function writeResult(outputPath, input, { summaryPath = process.env.GITHU
       if(/^[1-9]\d*$/.test(String(recovery.source_run_id||''))&&/^[1-9]\d*$/.test(String(recovery.artifact_id||'')))lines.push(`Original run: ${cell(recovery.source_run_id)}; artifact: ${cell(recovery.artifact_id)}`);
     }
     else if(showRecovery)lines.push('',nativePending?'Recovery scope: GitHub only.':`Recovery: ${recovery.command || action}`,`Original run: ${cell(recovery.source_run_id)}; artifact: ${cell(recovery.artifact_id)}; source attempt: ${cell(recovery.source_attempt)}; expires: ${cell(recovery.expires_at)}`);
+    if(showRecovery&&recovery.available&&recovery.wait_for_run_completion)lines.push('', 'Recovery prerequisite: Start recovery only after the original run has completed.');
     lines.push('','<details><summary>Technical evidence</summary>','','```json',JSON.stringify(result,null,2),'```','','</details>');
     appendFileSync(summaryPath,lines.join('\n')+'\n');
   }
