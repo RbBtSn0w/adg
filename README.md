@@ -50,6 +50,8 @@ selected with `--plugin` or `--all`.
 
 # Install and quick start
 
+Requires Node.js `^22.22.2 || ^24.15.0 || >=26`. CI and release tooling use npm 12.2.2.
+
 Install the CLI once, then run `adg` from anywhere:
 
 ```bash
@@ -442,8 +444,8 @@ private discovery path:
 # Developing from source
 
 For working on the CLI itself, or testing a plugin before release. The CLI runs
-directly on **Node ≥ 22.18** via native TypeScript type-stripping — **no build
-step**.
+directly on the supported Node.js versions above via native TypeScript
+type-stripping — **no build step**.
 
 ```bash
 git clone <this-repo> && cd adg

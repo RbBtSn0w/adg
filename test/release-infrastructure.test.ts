@@ -35,8 +35,24 @@ test("configured semantic-release plugins render notes and preserve release clas
 
 test("CI covers the minimum Node runtime and repository release gates", () => {
   const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
-  const pkg = JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts?: Record<string, string> };
-  assert.match(workflow, /node-version:\s*["']?22\.18\.0["']?/);
+  const pkg = JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts?: Record<string, string>; engines: { node: string } };
+  assert.equal(pkg.engines.node, "^22.22.2 || ^24.15.0 || >=26");
+  const lock = JSON.parse(readFileSync(resolve("package-lock.json"), "utf8"));
+  assert.equal(lock.packages[""].engines.node, pkg.engines.node);
+  const jobs = YAML.parse(workflow).jobs;
+  const versions = jobs.test.strategy.matrix.include.map((entry: { "node-version": string | number }) => String(entry["node-version"]));
+  assert.ok(versions.includes("22.22.2"));
+  assert.ok(versions.includes("24.15.0"));
+  assert.ok(versions.every((version: string) => ["22.22.2", "24.15.0", "24", "26"].includes(version)));
+  for (const file of [".github/workflows/ci.yml", ".github/workflows/pr-commit-semantics.yml"]) {
+    const definition = YAML.parse(readFileSync(file, "utf8"));
+    for (const job of Object.values(definition.jobs) as Array<{ steps: Array<{ name?: string; run?: string; if?: string }> }>) {
+      const bootstrap = job.steps.find(step => step.run?.includes("npm@12.2.2"));
+      assert.ok(bootstrap, `${file} must select npm 12`);
+      assert.equal(bootstrap.if, undefined, "all CI matrix entries use npm 12");
+      assert.match(bootstrap.run!, /--prefix "\$RUNNER_TEMP\/release-npm"/);
+    }
+  }
   assert.match(workflow, /npm run check:docs/);
   assert.match(workflow, /npm run test:package/);
   assert.match(workflow, /npm run check:vendor-upstream/);

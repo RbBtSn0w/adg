@@ -26,10 +26,11 @@ change declarations. Direct pushes to main are not part of the contribution flow
 5. Open a **Pull Request with base branch `main`** and fill in the PR template.
 6. Wait for CI and code review. A maintainer merges once both pass.
 
-CI runs the full check sequence (`npm ci`, dependency/audit checks, typecheck,
-build, and tests) on Ubuntu and Windows with the current three Node.js release
-lines: Node 24, 25, and 26. The Windows lanes are required guards for
-path-separator and shell-quoting behavior.
+CI uses npm 12.2.2 in every lane. Ubuntu covers the exact Node 22.22.2 and
+24.15.0 minimums plus Node 26; macOS and Windows cover current Node 24 and 26.
+The Windows lanes guard path separators and shell quoting. All lanes run frozen
+installation, dependency checks, typecheck, build and tests; the canonical Ubuntu
+Node 24.15.0 lane also runs the production audit and packed CLI checks.
 
 ## Test conventions
 
