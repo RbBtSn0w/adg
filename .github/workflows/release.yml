@@ -72,7 +72,10 @@ jobs:
           node-version: '24'
 
       - name: Use trusted-publishing npm
-        run: npm install -g npm@12.2.2 --ignore-scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
@@ -179,7 +182,10 @@ jobs:
           node-version: '24'
 
       - name: Use trusted-publishing npm
-        run: npm install -g npm@12.2.2 --ignore-scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
@@ -355,7 +361,10 @@ jobs:
         with:
           node-version: '24'
       - name: Use trusted-publishing npm
-        run: npm install -g npm@12.2.2 --ignore-scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Install recovery tooling without lifecycle scripts
         run: npm ci --no-audit --no-fund --ignore-scripts
       - name: Prepare original sealed recovery once

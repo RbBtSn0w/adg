@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_kind": "git",
-  "source_revision": "7ad294a0d7c59990eecb2b26ef1589c0826ec7cc",
+  "source_revision": "50645f5cff9fa38e17a84cc0950564dd069a53b9",
   "content_hash": "d757df8c2808789f156974e1940920a8ad5d1bbabb981a1a0765028b552dee4a",
   "files": {
     "cli-options.mjs": "b02fa325d78d100b16f932150730fe4df31e0face993e56d1ff64602e5f205a5",
