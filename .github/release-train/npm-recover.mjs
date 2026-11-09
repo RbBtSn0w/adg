@@ -1,3 +1,4 @@
+import {assertNpmReceiptConfirmed} from './npm-channel.mjs';
 import {startRecoveryObservationBudget,recoveryObservationBudget} from './npm-view.mjs';
 // Recovery uses current trusted workflow code and the original sealed publication bytes.
 import { execFileSync } from 'node:child_process';
@@ -107,7 +108,7 @@ export async function recover() {
   }
   reconcileGitHub(metadata,metadata.notes);
   const receipt=JSON.parse(readFileSync('release-sealed/receipts/npm.json','utf8'));
-  if(receipt.status!=='completed'||receipt.candidate_sha!==metadata.candidate_sha||receipt.version!==metadata.version||receipt.sha256!==metadata.sha256)throw Error('Original recovery remains incomplete; inspect npm channel receipt');
+  assertNpmReceiptConfirmed(metadata,receipt);
 }
 
 if (process.argv[1] && process.argv[1]!=='-' && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) await recover();

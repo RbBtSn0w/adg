@@ -79,7 +79,10 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     const distributionTag=_options.recovery?recoveryTag(metadata,tagOptions()):'latest';
     const visible=readIntegrity(commandTimeout());
     if(_options.recovery&&requestState==='unconfirmed'&&visible===null)throw Object.assign(Error(`${target}: original request evidence is missing; cannot authorize retransmission`),{code:'NPM_REQUEST_UNCONFIRMED'});
-    if(_options.preflight)return {intent_needed:visible===null&&requestState==='unsent'&&allowRecoveryRequest({env,target,preflight:true,timeout:commandTimeout()})};
+    if(_options.preflight){
+      if(visible!==null)writeFileSync(receiptPath,JSON.stringify({...metadata,...publicationEvidence,status:'unknown',bytes_verified:true,observed_at:new Date().toISOString(),remote_id:`${metadata.name}@${metadata.version}`,reason:'Original bytes observed during this recovery; subsequent absence permits observation only'}));
+      return {intent_needed:visible===null&&requestState==='unsent'&&allowRecoveryRequest({env,target,preflight:true,timeout:commandTimeout()})};
+    }
     const canSend=visible===null&&requestState!=='observe'&&(!_options.recovery||allowRecoveryRequest({env,target,timeout:commandTimeout()}));
     if (visible === null && canSend) {
       // Reject known channel regression; this read is not a compare-and-swap.

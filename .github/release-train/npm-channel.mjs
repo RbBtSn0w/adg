@@ -1,4 +1,4 @@
-import {parseNpmView} from './npm-view.mjs';
+import {parseNpmView,npmRequestState} from './npm-view.mjs';
 // Observe channel delivery independently of immutable package integrity.
 import {spawnSync} from 'node:child_process';
 export function validateLatestVersion(metadata,latestVersion){
@@ -50,4 +50,16 @@ export function sealedTagFormat(metadata){
  if(tokens.length!==1||literal.includes('${')||literal.includes('<%'))throw Error('Unsupported tag template: only direct version interpolation is accepted');
  if(canonical.replace('${version}',version)!==tag)throw Error('Original configured tag format differs from the sealed tag');
  return canonical;
+}
+
+// Finalization consumes observations, never a job-success flag or request intent.
+export function assertNpmReceiptConfirmed(metadata,receipt){
+ npmRequestState(metadata,receipt);
+ const timestamp=value=>typeof value==='string'&&Number.isFinite(Date.parse(value));
+ if(receipt?.status!=='completed'||receipt.bytes_verified!==true||receipt.channel_blocked===true
+    ||(metadata.sha256!==undefined&&receipt.sha256!==metadata.sha256)
+    ||!timestamp(receipt.observed_at)||!timestamp(receipt.channel_observed_at)
+    ||(metadata.name?receipt.remote_id!==`${metadata.name}@${metadata.version}`:!receipt.remote_id))throw Error('Original registry receipt lacks confirmed payload and channel evidence');
+ validateLatestVersion(metadata,receipt.latest_version);
+ return receipt;
 }

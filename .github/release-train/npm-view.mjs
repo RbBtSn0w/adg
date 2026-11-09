@@ -68,7 +68,7 @@ export function allowRecoveryRequest({env = process.env, target='npm', preflight
  const currentId=env.RECOVERY_INTENT_ARTIFACT_ID||env[target==='npm'?'RECOVERY_INTENT_NPM_ID':'RECOVERY_INTENT_GITHUB_PACKAGES_ID'];
  const targetName=`release-recovery-intent-${env.SOURCE_RUN_ID}-${target}`;
  const legacyName=`release-recovery-intent-${env.SOURCE_RUN_ID}-${env.ARTIFACT_ID}`;
- let current=false,prior=false;
+ let current=false;
  for(const name of [targetName,legacyName]){
   remaining();const pages=read(`repos/${env.GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=100`);
   if(!Array.isArray(pages)||!pages.length||pages.some(page=>!Array.isArray(page.artifacts)))throw Error('Recovery request intent listing is unverifiable');
@@ -80,10 +80,9 @@ export function allowRecoveryRequest({env = process.env, target='npm', preflight
    }
    remaining();const run=readRun(`repos/${env.GITHUB_REPOSITORY}/actions/runs/${artifact.workflow_run.id}`);
    if(!run||String(run.id)!==String(artifact.workflow_run.id)||run.repository?.full_name?.toLowerCase()!==env.GITHUB_REPOSITORY.toLowerCase()||typeof run.path!=='string'||typeof run.head_branch!=='string'||typeof run.event!=='string')throw Error('Prior recovery intent provenance is unverifiable');
-   if(run.path==='.github/workflows/release.yml'&&run.head_branch==='main'&&run.event==='workflow_dispatch')prior=true;
+   if(run.path==='.github/workflows/release.yml'&&run.head_branch==='main'&&run.event==='workflow_dispatch')return false;
   }
  }
- if(prior)return false;
  if(preflight)return true;
  if(!/^[1-9]\d*$/.test(String(currentId||''))||!current)throw Error('Current immutable recovery request intent is missing or foreign');
  return true;

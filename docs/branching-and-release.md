@@ -287,3 +287,10 @@ run and retain its evidence; use a genuine forward fix through the normal verifi
 main/semantic-release path when the old delivery cannot be safely completed.
 Normal scheduled publication retains its automated path; this restriction applies
 to uncertain recovery, not a recurring approval.
+
+
+Recovery preflight retains matching original bytes as observe-only evidence.
+If the next registry lookup temporarily returns E404, recovery waits within the
+shared budget without creating another request intent or publishing again.
+Finalization checks complete payload, remote identity and channel observations;
+it cannot declare delivery from the receipt status alone.

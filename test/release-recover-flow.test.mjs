@@ -123,3 +123,11 @@ test('finalization succeeds after registry deadline expires once targets are con
 test('later phases reject a prepared payload belonging to a different dispatch',()=>{
  const {cwd,result}=runRecovery('prepared-dispatch-conflict','v2.0.0',true);assert.notEqual(result.status,0);assert.match(result.stderr,/Prepared recovery differs/);assert.equal(existsSync(join(cwd,'registry-writes.jsonl')),false);for(const target of ['npm','github-packages'])assert.equal(existsSync(join(cwd,'intent-'+target)),false);
 });
+
+
+test('standalone finalization rejects receipts without original observation and channel evidence',()=>{
+ for(const key of ['latest_version','channel_observed_at','observed_at','remote_id','bytes_verified']){
+  const {cwd,result}=runRecovery('finalize-invalid-'+key,'v2.0.0',true);
+  assert.notEqual(result.status,0,key);assert.equal(existsSync(join(cwd,'release-input/released-version')),false,key);
+ }
+});

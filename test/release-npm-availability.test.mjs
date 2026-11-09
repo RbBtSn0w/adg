@@ -75,3 +75,22 @@ test('preflight read failure invalidates a prior completed observation while pre
  const {cwd,context}=await fixture('lag');const meta=JSON.parse(readFileSync(join(cwd,'release-input/final.json')));mkdirSync(join(cwd,'release-input/receipts'));writeFileSync(join(cwd,'release-input/receipts/npm.json'),JSON.stringify({...meta,status:'completed',latest_version:'2.0.0',bytes_verified:true,request_started_at:'2026-11-09T01:00:00Z',publication_accepted:true,accepted_at:'2026-11-09T01:00:01Z'}));writeFileSync(join(cwd,'bin/npm'),'#!/bin/sh\nexit 42\n',{mode:0o755});
  await assert.rejects(publish({recovery:true,target:'npm',preflight:true,observationBudget:budget()},context));const value=receipt(cwd);assert.equal(value.status,'unknown');assert.equal(value.bytes_verified,false);assert.equal(value.latest_version,undefined);assert.equal(value.request_started_at,'2026-11-09T01:00:00Z');assert.equal(value.publication_accepted,true);assert.equal(existsSync(join(cwd,'npm')),false);
 });
+
+
+test('preflight matching bytes remain observe-only when the next registry read is absent',async()=>{
+ const {cwd,context}=await fixture('lag');const meta=JSON.parse(readFileSync(join(cwd,'release-input/final.json')));
+ meta.source_run_id='12';writeFileSync(join(cwd,'release-input/final.json'),JSON.stringify(meta));
+  mkdirSync(join(cwd,'release-input/receipts'));writeFileSync(join(cwd,'release-input/receipts/npm.json'),JSON.stringify({...meta,status:'not-run'}));
+ writeFileSync(join(cwd,'visible'),'yes');
+ writeFileSync(join(cwd,'bin/npm'),`#!${process.execPath}
+const fs=require('node:fs'),path=require('node:path');
+if(process.argv[2]!=='view')throw Error('Unexpected upload');
+if(process.argv[4]==='dist-tags')console.log(JSON.stringify({latest:'2.0.0'}));
+else if(fs.existsSync(path.join(process.env.STATE,'visible')))console.log(JSON.stringify(JSON.parse(fs.readFileSync(path.join(process.env.STATE,'release-input/final.json'))).integrity));
+else{console.log(JSON.stringify({error:{code:'E404'}}));process.exit(1);}
+`,{mode:0o755});
+ const result=await publish({recovery:true,target:'npm',preflight:true,observationBudget:budget()},context);assert.equal(result.intent_needed,false);
+ const {unlinkSync}=await import('node:fs');unlinkSync(join(cwd,'visible'));let waits=0;
+ await publish({recovery:true,target:'npm',observationBudget:{assertRemaining:()=>30000,async wait(read){assert.equal(await read(30000),null);waits++;writeFileSync(join(cwd,'visible'),'yes');return read(15000);}}},context);
+ assert.equal(waits,1);assert.equal(receipt(cwd).status,'completed');assert.equal(receipt(cwd).request_started_at,undefined);
+});
