@@ -1,3 +1,4 @@
+import {parseNpmView} from '../.github/release-train/npm-view.mjs';
 import {verifyLatest,assertNoKnownNewerLatest,sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
@@ -64,9 +65,9 @@ export async function publish(_options, { cwd, env, nextRelease }) {
     const view = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
     if (view.error) throw view.error;
     if (view.status === 0) {
-      if (JSON.parse(view.stdout) !== metadata.integrity) throw Error(`${target}: existing version differs from final archive`);
+      if (parseNpmView(view.stdout) !== metadata.integrity) throw Error(`${target}: existing version differs from final archive`);
     } else {
-      let error; try { error = JSON.parse(view.stdout).error; } catch { /* fail closed below */ }
+      let error; try { error = parseNpmView(view.stdout).error; } catch { /* fail closed below */ }
       if (error?.code !== 'E404') throw Error(`${target}: registry lookup failed: ${view.stderr}`);
       // Reject known channel regression; this read is not a compare-and-swap.
       if(!_options.recovery)assertNoKnownNewerLatest(metadata,tagOptions);
@@ -75,7 +76,7 @@ export async function publish(_options, { cwd, env, nextRelease }) {
       let detail = '';
       for (let attempt = 0; attempt < 3; attempt++) {
         const actual = spawnSync('npm', args, { cwd: input, env: runEnv, encoding: 'utf8', timeout: 120000 });
-        try { verified = !actual.error && actual.status === 0 && JSON.parse(actual.stdout) === metadata.integrity; }
+        try { verified = !actual.error && actual.status === 0 && parseNpmView(actual.stdout) === metadata.integrity; }
         catch { /* Malformed or not-yet-visible registry metadata remains unverified. */ }
         if (verified) break;
         detail = actual.error?.message || actual.stderr || actual.stdout;
