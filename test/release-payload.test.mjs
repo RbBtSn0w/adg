@@ -2,7 +2,7 @@ import { releaseEnv, releaseDecision } from './helpers/release-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prepare, publish } from '../scripts/release-payload.mjs';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -32,6 +32,6 @@ else {if(process.env.MODE==='mirror-failed'&&target==='github'){console.error('m
   const context={cwd,env:{...releaseEnv(cwd),PATH:bin+':'+releaseEnv(cwd).PATH,STATE:cwd,MODE:mode,CANDIDATE_SHA:'a'.repeat(40)},nextRelease: releaseDecision(cwd, '1.1.0')};
   if(['mismatch','lookup-failed','mirror-failed'].includes(mode)) await assert.rejects(publish({},context));else await publish({},context);
   if(mode==='missing'){assert.equal(readFileSync(join(cwd,'npm'),'utf8'),join(input,'final.tgz'));assert.equal(readFileSync(join(cwd,'github'),'utf8'),join(input,'final.tgz'));}
-  if(mode==='mirror-failed'){assert.ok(readFileSync(join(input,'receipts/npm.json'),'utf8'));assert.equal(existsSync(join(input,'receipts/github-packages.json')),false);}
+  if(mode==='mirror-failed'){assert.ok(readFileSync(join(input,'receipts/npm.json'),'utf8'));assert.equal(JSON.parse(readFileSync(join(input,'receipts/github-packages.json'))).status,'unknown');}
  }
 });

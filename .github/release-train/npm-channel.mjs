@@ -4,19 +4,20 @@ import {spawnSync} from 'node:child_process';
 export function validateLatestVersion(metadata,latestVersion){
  const tuple=value=>{if(typeof value!=='string'||!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value))throw Error('npm latest channel version is unverifiable');return value.split('.').map(BigInt);};
  const expected=tuple(metadata.version),observed=tuple(latestVersion);
- for(let index=0;index<3;index++){if(observed[index]>expected[index])return latestVersion;if(observed[index]<expected[index])throw Error('npm latest channel is older than the sealed publication');}
+ for(let index=0;index<3;index++){if(observed[index]>expected[index])return latestVersion;if(observed[index]<expected[index])throw Object.assign(Error('npm latest channel is older than the sealed publication'),{code:'NPM_CHANNEL_PENDING'});}
  return latestVersion;
 }
-function readTags(metadata,{cwd=process.cwd(),env=process.env,registry='https://registry.npmjs.org'}={},allowAbsent=false){
- const result=spawnSync('npm',['view',metadata.name,'dist-tags','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:120000});
+function readTags(metadata,{cwd=process.cwd(),env=process.env,registry='https://registry.npmjs.org',timeout=120000}={},allowAbsent=false){
+ const result=spawnSync('npm',['view',metadata.name,'dist-tags','--json','--registry',registry],{cwd,env,encoding:'utf8',timeout:Math.min(120000,timeout)});
  if(result.error)throw result.error;
  if(result.status!==0){let error;try{error=parseNpmView(result.stdout)?.error;}catch{}if(allowAbsent&&error?.code==='E404')return null;throw Error('npm latest dist-tags readback failed');}
  let tags;try{tags=parseNpmView(result.stdout);}catch(error){throw new Error(`npm latest dist-tags response could not be interpreted: ${error.message}`,{cause:error});}
- if(!tags||typeof tags!=='object'||Array.isArray(tags))throw Error('npm latest dist-tags readback was not an object');
+ if(!tags||typeof tags!=='object'||Array.isArray(tags)||Object.values(tags).some(value=>typeof value!=='string'))throw Error('npm latest dist-tags readback was not an object');
  return tags;
 }
 export function verifyLatest(metadata,options){
- const tags=readTags(metadata,options);
+ const tags=readTags(metadata,options,true);
+ if(tags?.latest===undefined)throw Object.assign(Error('npm latest channel is not yet visible'),{code:'NPM_CHANNEL_PENDING'});
  return {latest_version:validateLatestVersion(metadata,tags.latest),observed_at:new Date().toISOString()};
 }
 export function assertNoKnownNewerLatest(metadata,options){
