@@ -80,6 +80,8 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
 
+      - name: Check synchronized release implementation
+        run: node .github/release-train/sync.mjs check --consumer .
       - name: Check release pipeline and configured schedule
         env:
           RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
@@ -115,7 +117,7 @@ jobs:
           npm run typecheck
           npm run build
           npm test
-          node --test test/release-*.test.mjs
+          npm run test:release
 
       - name: Pack and validate actual package
         if: steps.analyze.outputs.release == 'true'
@@ -375,6 +377,8 @@ jobs:
           echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Install recovery tooling without lifecycle scripts
         run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Check synchronized release implementation
+        run: node .github/release-train/sync.mjs check --consumer .
       - name: Prepare original sealed recovery once
         id: recovery_prepare
         env:

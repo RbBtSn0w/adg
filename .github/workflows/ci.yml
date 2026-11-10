@@ -56,6 +56,26 @@ jobs:
           node --version
           npm --version
       - run: npm ci --no-audit --no-fund
+      - name: Install the cadence parser
+        if: matrix.package-smoke == true
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
+        run: npm install --prefix "$RELEASE_TOOLS" --ignore-scripts --no-audit --no-fund --save-exact yaml@2.9.1
+      - name: Check the actual release contract
+        id: release_contracts
+        if: matrix.package-smoke == true
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
+        run: |
+          node --version
+          npm --version
+          node .github/release-train/sync.mjs check --consumer .
+          node .github/release-train/pipeline-contract.mjs check
+          node .github/release-train/cadence.mjs check
+      - name: Run release regressions
+        if: matrix.package-smoke == true
+        run: npm run test:release
+
       - run: npm run check:vendor-deps
       - run: npm run check:docs
       - run: npm run check:test-isolation
