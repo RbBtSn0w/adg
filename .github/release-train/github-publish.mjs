@@ -1,5 +1,6 @@
 // Publication succeeds only when semantic-release returns the original verified release.
 import {assertPublicationEnabled,publicationGuard} from './publication-guard.mjs';
+import {validateOriginalPlan} from './release-entrypoint.mjs';
 import {readFileSync} from 'node:fs';
 import {join,resolve,isAbsolute} from 'node:path';
 import {createRequire} from 'node:module';
@@ -7,6 +8,7 @@ import {pathToFileURL,fileURLToPath} from 'node:url';
 export async function publishVerified({cwd=process.cwd(),env=process.env,engine,profile='github'}={}) {
   assertPublicationEnabled(env);
   const plan=JSON.parse(readFileSync(join(cwd,profile==='npm'?'release-input/release-plan.json':'release-plan.json'),'utf8'));
+  validateOriginalPlan(plan);
   if(plan.schema_version!==1||plan.verification!=='passed'||plan.release_needed!==true||plan.candidate_sha!==env.CANDIDATE_SHA)
     throw new Error('Publication requires the sealed verified candidate');
   const config=JSON.parse(readFileSync(join(cwd,'.releaserc.json'),'utf8'));

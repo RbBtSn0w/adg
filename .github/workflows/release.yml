@@ -3,8 +3,8 @@ run-name: ${{ inputs.operation == 'recover' && format('Recover release · run {0
 
 on:
   schedule:
-    # Friday 15:00 Asia/Singapore (UTC+8) -> 07:00 UTC.
-    - cron: '0 7 * * 5'
+    - cron: "0 15 * * 5"
+      timezone: "Asia/Singapore"
   workflow_dispatch:
     inputs:
       operation:
@@ -79,6 +79,14 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: Check release pipeline and configured schedule
+        env:
+          RELEASE_TOOLS: ${{ runner.temp }}/release-cadence
+        run: |
+          npm install --prefix "$RELEASE_TOOLS" --ignore-scripts --no-audit --no-fund --save-exact yaml@2.9.1
+          node .github/release-train/pipeline-contract.mjs check
+          node .github/release-train/cadence.mjs check
 
       - name: Stop ambiguous all-job retries before analysis
         id: retry-guard

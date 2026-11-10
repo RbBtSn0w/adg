@@ -1,4 +1,5 @@
 import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from './npm-view.mjs';
+import {validateOriginalPlan} from './release-entrypoint.mjs';
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
 import {verifyLatest,sealedTagFormat,assertNoKnownNewerLatest} from './npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from './npm-recovery-tag.mjs';
@@ -12,6 +13,7 @@ export const digest=(path,algorithm='sha256')=>createHash(algorithm).update(read
 const read=path=>JSON.parse(readFileSync(path,'utf8'));
 function selected(cwd){
  const plan=read(join(cwd,'release-input/release-plan.json'));
+ validateOriginalPlan(plan);
  if(plan.schema_version!==1||plan.verification!=='passed'||plan.release_needed!==true)throw Error('Publication requires a verified release plan');
  return plan;
 }

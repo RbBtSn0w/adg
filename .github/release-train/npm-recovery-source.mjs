@@ -1,3 +1,4 @@
+import {validateOriginalPlan} from './release-entrypoint.mjs';
 // Read-only inspection of original immutable recovery evidence; never run payload code.
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -10,6 +11,7 @@ import {npmRequestState} from './npm-view.mjs';
 import {sealedTagFormat} from './npm-channel.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export function validateRecoveryPayload(metadata,archive){
+ validateOriginalPlan(metadata);
  const bytes=Buffer.isBuffer(archive)?archive:readFileSync(archive);
  if(metadata.schema_version!==1||metadata.verification!=='passed'||metadata.release_needed!==true||metadata.operation!=='release')throw Error('Original verified release plan is required');
  if(!/^[a-f0-9]{40}$/.test(metadata.candidate_sha||'')||!/^\d+\.\d+\.\d+$/.test(metadata.version||'')||!metadata.tag||!metadata.name||typeof metadata.notes!=='string')throw Error('Invalid original release identity');

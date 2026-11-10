@@ -1,3 +1,4 @@
+import { validateOriginalPlan } from '../.github/release-train/release-entrypoint.mjs';
 // Merge explicit immutable producer observations without discarding healthy evidence.
 import {existsSync,readdirSync,readFileSync,statSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
@@ -25,8 +26,8 @@ function observations(root){
 }
 const sources=observations('release-observations').sort((a,b)=>Number(Boolean(a.artifacts?.length||a.recovery?.source_run_id))-Number(Boolean(b.artifacts?.length||b.recovery?.source_run_id)));
 const config=existsSync('.github/release-train.json')?JSON.parse(readFileSync('.github/release-train.json')):{};
-const intended=config.intended_targets||['npm','github-packages','github-release',...(process.env.RELEASE_HOMEBREW==='true'?['homebrew']:[])];
-const targets=Object.fromEntries(intended.map(name=>[name,{status:'not-run'}]));
+let intended=config.intended_targets||['npm','github-packages','github-release',...(process.env.RELEASE_HOMEBREW==='true'?['homebrew']:[])];
+const targets={};
 let result={candidate_sha:process.env.GITHUB_SHA,baseline_tag:null,version:null,verification:'not-run',recovery:null,artifacts:[]};
 for(const source of sources){
  if(source.version||source.recovery||!result.baseline_tag)result={...result,...source};
@@ -54,10 +55,18 @@ if(dispatch){
   try{
    inspectedOriginal=inspectRecovery({repository:process.env.GITHUB_REPOSITORY,sourceRunId:dispatch.source_run_id,artifactId:dispatch.artifact_id});
    const {source,sourceAttempt,metadata,analysis,expectedAssets}=inspectedOriginal;
-   result={...result,candidate_sha:metadata.candidate_sha,version:metadata.version,baseline_tag:analysis.baseline_tag??metadata.baseline_tag??null,artifacts:[{...source,source_attempt:sourceAttempt,tag:metadata.tag,tag_format:metadata.tag_format??analysis.tag_format,repository:metadata.repository,sha256:metadata.sha256,notes:analysis.notes,expected_assets:expectedAssets}]};
+   result={...result,candidate_sha:metadata.candidate_sha,version:metadata.version,baseline_tag:analysis.baseline_tag??metadata.baseline_tag??null,artifacts:[{...source,source_attempt:sourceAttempt,tag:metadata.tag,tag_format:metadata.tag_format??analysis.tag_format,repository:metadata.repository,sha256:metadata.sha256,notes:analysis.notes,...(analysis.pipeline?{pipeline:analysis.pipeline}:{}),expected_assets:expectedAssets}]};
   }catch(error){inspectionFailed=true;result.recovery={...dispatch,available:false,identity_verified:false,blocked_reason:error.message};}
  }
 }
+const retainedPlan=inspectedOriginal?.analysis||result.artifacts?.find(artifact=>artifact.pipeline);
+const plan=retainedPlan?{...retainedPlan,candidate_sha:result.candidate_sha,version:result.version}:undefined;
+const originalPipeline=validateOriginalPlan(plan);
+if(originalPipeline)intended=originalPipeline.pipeline.goals.map(goal=>goal.id);
+else if(process.env.FINAL_OPERATION==='recover'&&Array.isArray(result.intended_targets))intended=[...result.intended_targets];
+for(const id of intended)targets[id]??={status:'not-run'};
+// A historical recovery without an envelope keeps its legacy goal contract.
+const resultConfig=process.env.FINAL_OPERATION==='recover'&&!originalPipeline?{schema_version:1}:config;
 const sealed=result.artifacts?.find(artifact=>artifact.artifact_id)||result.artifacts?.find(artifact=>/^[a-f0-9]{64}$/.test(artifact.sha256||''));
 for(const [name,receipt]of Object.entries(targets)){
  targets[name]=receiptObservation(receipt,{candidate_sha:result.candidate_sha,version:result.version,sha256:sealed?.sha256},name);
@@ -83,5 +92,5 @@ if(blockedChannels.length){
  result.recovery={...result.recovery,available:false,channel_recovery:'observe-only',blocked_reason:`${blockedChannels.join(', ')} latest channel is unconfirmed. Recovery never changes latest or removes temporary tags; retain the original payload until channel delivery is verified.`};
  result.errors=[...(result.errors||[]),...blockedChannels.map(name=>({message:`${name}: ${targets[name].reason||'Latest channel is unconfirmed'}`}))];
 }
-const final=writeResult('release-result.json',{...result,publication:undefined,schema_version:2,enabled:process.env.RELEASE_ENABLED==='true',concluded:true,intended_targets:intended,targets,failure_stage:infrastructure.length?'report-inputs':failure?.[0]||result.failure_stage||null,errors:[...infrastructure.map(message=>({message})),...(result.errors||[]),...(failure?[{message:`${failure[0]} job ${failure[1]}; inspect its Actions log`}]:[])]});
+const final=writeResult('release-result.json',{...result,publication:undefined,schema_version:2,enabled:process.env.RELEASE_ENABLED==='true',concluded:true,intended_targets:intended,targets,failure_stage:infrastructure.length?'report-inputs':failure?.[0]||result.failure_stage||null,errors:[...infrastructure.map(message=>({message})),...(result.errors||[]),...(failure?[{message:`${failure[0]} job ${failure[1]}; inspect its Actions log`}]:[])]},{config:resultConfig,plan});
 process.exitCode=reportExitCode(final);

@@ -1,3 +1,4 @@
+import { validateOriginalPlan } from '../.github/release-train/release-entrypoint.mjs';
 import {assertNpmReceiptConfirmed} from '../.github/release-train/npm-channel.mjs';
 import {npmRequestState,createNpmObservationBudget,startRecoveryObservationBudget,recoveryObservationBudget} from '../.github/release-train/npm-view.mjs';
 import {sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
@@ -13,6 +14,9 @@ import {observeRelease} from './release-observe.mjs';
 import { publish } from './release-payload.mjs';
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 export function validatePayload(metadata, analysis, archive) {
+  validateOriginalPlan(metadata);
+  validateOriginalPlan(analysis);
+  if (metadata.pipeline?.digest !== analysis.pipeline?.digest) throw Error('Original sealed pipeline differs from verified analysis');
   if (sealedTagFormat({...metadata,tag_format:metadata.tag_format??analysis.tag_format}) !== sealedTagFormat(analysis)) throw Error('Sealed tag format mismatch');
   metadata.tag_format = sealedTagFormat(analysis);
   if (metadata.candidate_sha !== analysis.candidate_sha || metadata.version !== analysis.version || metadata.tag !== analysis.tag || metadata.sha256 !== sha256(archive)) throw Error('Sealed release payload mismatch');

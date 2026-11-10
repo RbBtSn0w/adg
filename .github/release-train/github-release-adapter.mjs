@@ -1,5 +1,6 @@
 // Guard semantic-release's actual decision before it can create any tag or release.
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
+import {validateOriginalPlan} from './release-entrypoint.mjs';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -10,6 +11,7 @@ import {execFileSync} from 'node:child_process';
 function planFor({env=process.env,cwd=process.cwd()}) {
   if(env.RELEASE_PLAN_REQUIRED!=='true') return null;
   const plan=JSON.parse(readFileSync(join(cwd,'release-plan.json'),'utf8'));
+  validateOriginalPlan(plan);
   if(plan.schema_version!==1||plan.verification!=='passed'||plan.release_needed!==true) throw new Error('Publication requires the sealed verified release plan');
   return plan;
 }
@@ -28,13 +30,14 @@ export function prepare(_options,context) {
 export function sealPlan({cwd=process.cwd(),env=process.env}={}) {
   const path=join(cwd,'release-plan.json');
   const plan=JSON.parse(readFileSync(path,'utf8'));
+  validateOriginalPlan(plan);
   if(env.PRODUCT_CHECK_STATUS!=='success'||plan.candidate_sha!==env.CANDIDATE_SHA||plan.release_needed!==true)
     throw new Error('Seal requires successful product checks for the exact original candidate');
   plan.verification='passed';
   writeFileSync(path,JSON.stringify(plan,null,2)+'\n');
   return plan;
 }
-export function reportStatus({cwd=process.cwd(),env=process.env,extraTargets={}}={}) {
+export function reportStatus({cwd=process.cwd(),env=process.env,extraTargets={},config={}}={}) {
   const path=join(cwd,'release-plan.json');
   let plan={},readError=null;
   try {if(existsSync(path))plan=JSON.parse(readFileSync(path,'utf8'));}
@@ -61,7 +64,7 @@ export function reportStatus({cwd=process.cwd(),env=process.env,extraTargets={}}
     targets:{...observation.targets,...extraTargets},
     failure_stage:readError?'artifact-read':failed?'verification':env.RELEASE_STATUS==='failure'?'github-publication':env.RECOVERY_STATUS==='failure'?'recovery':null,
     artifacts:[],recovery,errors:[...(readError?[readError]:[]),...observation.errors]},
-    {summaryPath:env.GITHUB_STEP_SUMMARY});
+    {summaryPath:env.GITHUB_STEP_SUMMARY,config,plan});
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   if(process.argv[2]==='seal')sealPlan();

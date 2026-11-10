@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "profile": "npm",
   "intended_targets": [
     "npm",
@@ -7,5 +7,170 @@
     "github-release",
     "homebrew"
   ],
-  "workflow": ".github/workflows/release.yml"
+  "workflow": ".github/workflows/release.yml",
+  "protocol_version": 1,
+  "cadence": {
+    "schedule": {
+      "enabled": true,
+      "cron": "0 15 * * 5",
+      "timezone": "Asia/Singapore"
+    },
+    "manual": {
+      "enabled": true
+    }
+  },
+  "pipeline": {
+    "stages": [
+      {
+        "id": "validate",
+        "implementation": "product",
+        "operation": "execute",
+        "effect": "local",
+        "depends_on": [],
+        "inputs": [],
+        "outputs": [
+          {
+            "role": "package",
+            "kind": "files"
+          }
+        ],
+        "execution": {
+          "provider": "github-actions",
+          "job": "verify"
+        },
+        "when": "release-needed"
+      },
+      {
+        "id": "engine",
+        "implementation": "semantic-release",
+        "operation": "execute",
+        "effect": "write",
+        "depends_on": [
+          "validate"
+        ],
+        "inputs": [],
+        "outputs": [
+          {
+            "role": "release-source",
+            "kind": "source"
+          }
+        ],
+        "execution": {
+          "provider": "github-actions",
+          "job": "release"
+        },
+        "when": "release-needed"
+      },
+      {
+        "id": "npm",
+        "implementation": "registry",
+        "operation": "execute",
+        "effect": "write",
+        "depends_on": [
+          "engine"
+        ],
+        "inputs": [
+          {
+            "from_stage": "validate",
+            "role": "package",
+            "kind": "files"
+          }
+        ],
+        "outputs": [],
+        "execution": {
+          "provider": "github-actions",
+          "job": "release"
+        },
+        "when": "release-needed"
+      },
+      {
+        "id": "github-packages",
+        "implementation": "registry",
+        "operation": "execute",
+        "effect": "write",
+        "depends_on": [
+          "npm"
+        ],
+        "inputs": [
+          {
+            "from_stage": "validate",
+            "role": "package",
+            "kind": "files"
+          }
+        ],
+        "outputs": [],
+        "execution": {
+          "provider": "github-actions",
+          "job": "release"
+        },
+        "when": "release-needed"
+      },
+      {
+        "id": "github-release",
+        "implementation": "github",
+        "operation": "execute",
+        "effect": "write",
+        "depends_on": [
+          "github-packages"
+        ],
+        "inputs": [],
+        "outputs": [],
+        "execution": {
+          "provider": "github-actions",
+          "job": "release"
+        },
+        "when": "release-needed"
+      },
+      {
+        "id": "homebrew",
+        "implementation": "homebrew",
+        "operation": "execute",
+        "effect": "write",
+        "depends_on": [
+          "github-release"
+        ],
+        "inputs": [],
+        "outputs": [],
+        "execution": {
+          "provider": "github-actions",
+          "job": "release"
+        },
+        "when": "release-needed"
+      }
+    ],
+    "goals": [
+      {
+        "id": "npm",
+        "stages": [
+          "npm"
+        ],
+        "asynchronous": false,
+        "recovery": "supported"
+      },
+      {
+        "id": "github-packages",
+        "stages": [
+          "github-packages"
+        ],
+        "asynchronous": false,
+        "recovery": "supported"
+      },
+      {
+        "id": "github-release",
+        "stages": [
+          "github-release"
+        ],
+        "asynchronous": false,
+        "recovery": "supported"
+      },
+      {
+        "id": "homebrew",
+        "stages": [
+          "homebrew"
+        ],
+        "asynchronous": false,
+        "recovery": "supported"
+      }
+    ]
+  }
 }
