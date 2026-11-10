@@ -1,35 +1,38 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-
-import { runAdd } from "../vendor/skills/src/add.ts";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 test("skills add installs a hosted SKILL.md download without cloning", async () => {
   const project = await mkdtemp(join(tmpdir(), "adg-direct-download-"));
-  const originalCwd = process.cwd();
-  const originalFetch = globalThis.fetch;
-  const originalTelemetry = process.env.DISABLE_TELEMETRY;
-  const directUrl = "https://raw.githubusercontent.com/example/skills/main/SKILL.md";
-
   try {
-    process.chdir(project);
-    process.env.DISABLE_TELEMETRY = "1";
-    globalThis.fetch = async (input) => {
-      assert.equal(String(input), directUrl);
-      return new Response(
-        "---\nname: direct-download\ndescription: Direct download fixture\n---\n\n# Direct download\n",
-        { status: 200 },
-      );
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      DISABLE_TELEMETRY: "1",
+      CLAUDE_CONFIG_DIR: join(project, "claude-home"),
+      CODEX_HOME: join(project, "codex-home"),
+      GEMINI_HOME: join(project, "gemini-home"),
     };
-
-    await runAdd([directUrl], {
-      agent: ["codex"],
-      copy: true,
-      global: false,
-      yes: true,
+    delete env.NODE_TEST_CONTEXT;
+    await Promise.all(
+      ["claude-home", "codex-home", "gemini-home"].map((name) => mkdir(join(project, name))),
+    );
+    const fixture = fileURLToPath(
+      new URL("./fixtures/skills-direct-download-child.ts", import.meta.url),
+    );
+    const result = spawnSync(process.execPath, [fixture], {
+      cwd: project,
+      env,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10_000,
     });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    assert.match(result.stdout, /Installation complete/);
 
     const installed = await readFile(
       join(project, ".agents", "skills", "direct-download", "SKILL.md"),
@@ -37,10 +40,6 @@ test("skills add installs a hosted SKILL.md download without cloning", async () 
     );
     assert.match(installed, /# Direct download/);
   } finally {
-    globalThis.fetch = originalFetch;
-    if (originalTelemetry === undefined) delete process.env.DISABLE_TELEMETRY;
-    else process.env.DISABLE_TELEMETRY = originalTelemetry;
-    process.chdir(originalCwd);
     await rm(project, { recursive: true, force: true });
   }
 });
