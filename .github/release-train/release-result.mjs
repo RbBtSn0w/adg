@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {withPipelineResult} from './pipeline-contract.mjs';
+import {inspectReportPlan} from './release-entrypoint.mjs';
 
 export const supportedPipelineProtocols = Object.freeze([1]);
 
@@ -135,8 +136,21 @@ export function recoveryMetadata(value) {
   return {...metadata, available:valid, blocked_reason:valid?null:(value.blocked_reason || 'Recovery requires a verified original tag and unexpired immutable producer metadata')};
 }
 const cell = value => String(value ?? '').replaceAll('|', '\\|').replaceAll('\n', ' ').replaceAll('\r', ' ');
+// Input rejection is monotonic across producer reports, regardless of merge order.
+export function collectReportInputErrors(sources) {
+  return sources.filter(source=>source.failure_stage==='report-inputs').flatMap(source=>
+    source.errors?.length?source.errors.map(error=>({message:typeof error==='string'?error:error.message||'Producer reported invalid release inputs'})):[{message:'Producer reported invalid release inputs'}]);
+}
 export function writeResult(outputPath, input, { summaryPath = process.env.GITHUB_STEP_SUMMARY, config, plan } = {}) {
-  const result = createResult(config||plan?withPipelineResult(input,{config,plan}):input);
+  const {error}=inspectReportPlan(plan);
+  let projected;
+  if(error) {
+    const recovery={...input.recovery,available:false,identity_verified:false,blocked_reason:error};
+    delete recovery.command;
+    projected={...input,pipeline:undefined,presentation:undefined,asynchronous:false,verification:'failed',failure_stage:'report-inputs',recovery,
+      artifacts:(input.artifacts||[]).map(({pipeline,...artifact})=>artifact),errors:[...(input.errors||[]),{message:error}]};
+  } else projected=config||plan?withPipelineResult(input,{config,plan}):input;
+  const result = createResult(projected);
   mkdirSync(dirname(resolve(outputPath)), { recursive: true });
   writeFileSync(outputPath, JSON.stringify(result, null, 2) + '\n');
   if (summaryPath) {

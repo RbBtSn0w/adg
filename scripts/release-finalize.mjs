@@ -1,9 +1,9 @@
-import { validateOriginalPlan } from '../.github/release-train/release-entrypoint.mjs';
+import { inspectReportPlan } from '../.github/release-train/release-entrypoint.mjs';
 // Merge explicit immutable producer observations without discarding healthy evidence.
 import {existsSync,readdirSync,readFileSync,statSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {join,relative} from 'node:path';
-import {writeResult,reportExitCode} from '../.github/release-train/release-result.mjs';
+import {writeResult,reportExitCode,collectReportInputErrors} from '../.github/release-train/release-result.mjs';
 import {recoveryFromArtifact} from '../.github/release-train/observe-github.mjs';
 import {observeRelease} from './release-observe.mjs';
 import {inspectRecovery} from './release-recover.mjs';
@@ -36,22 +36,26 @@ for(const source of sources){
   if(observation.status!=='not-run'&&targets[name]?.status!=='completed')targets[name]=observation;
  }
 }
+const producerErrors=collectReportInputErrors(sources);
+if(producerErrors.length)result.verification='failed';
 const stages=[['verification',process.env.FINAL_VERIFY_RESULT],['audit',process.env.FINAL_AUDIT_RESULT],['publication',process.env.FINAL_RELEASE_RESULT],['recovery',process.env.FINAL_RECOVER_RESULT]];
 const failure=stages.find(([,status])=>['failure','cancelled'].includes(status));
 if(stages.slice(0,2).some(([,status])=>['failure','cancelled'].includes(status)))result.verification='failed';
-if(process.env.FINAL_OPERATION==='recover'&&process.env.RELEASE_ENABLED!=='true')result.verification='not-run';
-const infrastructure=[...observationErrors];
+if(!producerErrors.length&&process.env.FINAL_OPERATION==='recover'&&process.env.RELEASE_ENABLED!=='true')result.verification='not-run';
+const infrastructure=[...observationErrors,...producerErrors.map(error=>error.message)];
 for(const producer of ['VERIFY','RELEASE','RECOVER','DISABLED_RECOVERY']){
  const id=process.env[`FINAL_${producer}_ARTIFACT_ID`],outcome=process.env[`FINAL_${producer}_DOWNLOAD_OUTCOME`],status=process.env[`FINAL_${producer}_RESULT`];
  if(outcome==='failure'||outcome==='cancelled')infrastructure.push(`${producer.toLowerCase()} producer artifact download ${outcome}`);
  else if(id!==undefined&&status&&status!=='skipped'&&!id)infrastructure.push(`${producer.toLowerCase()} producer did not retain a result artifact ID`);
 }
+const producerEvidence = result.artifacts?.find((artifact) => artifact.pipeline);
+const producerPlan = producerEvidence ? {...producerEvidence,candidate_sha:result.candidate_sha,version:result.version} : undefined;
 let inspectedOriginal=null,inspectionFailed=false;
 const dispatch=process.env.FINAL_OPERATION==='recover'&&(process.env.SOURCE_RUN_ID||process.env.ARTIFACT_ID)?{source_run_id:process.env.SOURCE_RUN_ID||null,artifact_id:process.env.ARTIFACT_ID||null}:null;
 if(dispatch){
  // Dispatch values are diagnostics until the original run, payload and effects pass readback.
  result.recovery={...dispatch,available:false,identity_verified:false,blocked_reason:'Original dispatch identities have not been verified'};
- if(process.env.RELEASE_ENABLED==='true'){
+ if(process.env.RELEASE_ENABLED==='true'&&!producerErrors.length&&!inspectReportPlan(producerPlan).error){
   try{
    inspectedOriginal=inspectRecovery({repository:process.env.GITHUB_REPOSITORY,sourceRunId:dispatch.source_run_id,artifactId:dispatch.artifact_id});
    const {source,sourceAttempt,metadata,analysis,expectedAssets}=inspectedOriginal;
@@ -61,18 +65,18 @@ if(dispatch){
 }
 const retainedPlan=inspectedOriginal?.analysis||result.artifacts?.find(artifact=>artifact.pipeline);
 const plan=retainedPlan?{...retainedPlan,candidate_sha:result.candidate_sha,version:result.version}:undefined;
-const originalPipeline=validateOriginalPlan(plan);
+const {original:originalPipeline,error:planError}=inspectReportPlan(plan);
 if(originalPipeline)intended=originalPipeline.pipeline.goals.map(goal=>goal.id);
 else if(process.env.FINAL_OPERATION==='recover'&&Array.isArray(result.intended_targets))intended=[...result.intended_targets];
 for(const id of intended)targets[id]??={status:'not-run'};
 // A historical recovery without an envelope keeps its legacy goal contract.
-const resultConfig=process.env.FINAL_OPERATION==='recover'&&!originalPipeline?{schema_version:1}:config;
+const resultConfig=producerErrors.length||process.env.FINAL_OPERATION==='recover'&&!originalPipeline?{schema_version:1}:config;
 const sealed=result.artifacts?.find(artifact=>artifact.artifact_id)||result.artifacts?.find(artifact=>/^[a-f0-9]{64}$/.test(artifact.sha256||''));
 for(const [name,receipt]of Object.entries(targets)){
  targets[name]=receiptObservation(receipt,{candidate_sha:result.candidate_sha,version:result.version,sha256:sealed?.sha256},name);
 }
 const gh=endpoint=>JSON.parse(execFileSync('gh',['api',endpoint],{encoding:'utf8',timeout:20000}));
-if(process.env.RELEASE_ENABLED==='true'&&result.version&&!Object.values(targets).every(target=>target.status==='completed')&&!inspectionFailed){
+if(process.env.RELEASE_ENABLED==='true'&&result.version&&!Object.values(targets).every(target=>target.status==='completed')&&!inspectionFailed&&!planError&&!producerErrors.length){
  const original=dispatch||(result.recovery?.source_run_id?result.recovery:sealed);
  result.recovery={...original,available:false,blocked_reason:'Original sealed artifact and tag have not been confirmed.'};
  if(original?.artifact_id&&original?.source_run_id){
@@ -92,5 +96,5 @@ if(blockedChannels.length){
  result.recovery={...result.recovery,available:false,channel_recovery:'observe-only',blocked_reason:`${blockedChannels.join(', ')} latest channel is unconfirmed. Recovery never changes latest or removes temporary tags; retain the original payload until channel delivery is verified.`};
  result.errors=[...(result.errors||[]),...blockedChannels.map(name=>({message:`${name}: ${targets[name].reason||'Latest channel is unconfirmed'}`}))];
 }
-const final=writeResult('release-result.json',{...result,publication:undefined,schema_version:2,enabled:process.env.RELEASE_ENABLED==='true',concluded:true,intended_targets:intended,targets,failure_stage:infrastructure.length?'report-inputs':failure?.[0]||result.failure_stage||null,errors:[...infrastructure.map(message=>({message})),...(result.errors||[]),...(failure?[{message:`${failure[0]} job ${failure[1]}; inspect its Actions log`}]:[])]},{config:resultConfig,plan});
+const final=writeResult('release-result.json',{...result,publication:undefined,schema_version:2,enabled:process.env.RELEASE_ENABLED==='true',concluded:true,intended_targets:intended,targets,failure_stage:infrastructure.length?'report-inputs':failure?.[0]||result.failure_stage||null,errors:[...infrastructure.map(message=>({message})),...(result.errors||[]),...(failure?[{message:`${failure[0]} job ${failure[1]}; inspect its Actions log`}]:[])]},{config:resultConfig,plan:producerErrors.length?undefined:plan});
 process.exitCode=reportExitCode(final);

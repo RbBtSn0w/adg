@@ -1,13 +1,14 @@
 import {existsSync,readdirSync,readFileSync,statSync} from 'node:fs';
 import {join,resolve,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {writeResult} from './release-result.mjs';
+import {writeResult,collectReportInputErrors} from './release-result.mjs';
 import {recoveryFromArtifact} from './observe-github.mjs';
 import {observeNpmGitHub,inspectRecovery} from './npm-recovery-source.mjs';
 export {observeNpmGitHub} from './npm-recovery-source.mjs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {validateLatestVersion,sealedTagFormat} from './npm-channel.mjs';
+import {inspectReportPlan} from './release-entrypoint.mjs';
 const read=path=>existsSync(path)?JSON.parse(readFileSync(path,'utf8')):null;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 function bindNpmReceipt(receipt,plan,cwd,sealedDirectory='release-sealed',sealedFiles){
@@ -58,6 +59,9 @@ export function finalStatus({cwd=process.cwd(),env=process.env,config=read(join(
   if(source.verification==='passed'&&input.verification!=='failed')input.verification='passed';
   for(const [name,target]of Object.entries(source.targets))if(target.status!=='not-run'&&targets[name]?.status!=='completed')targets[name]=source.schema_version===1&&target.status==='completed'?{...target,status:'unknown',reason:'Historical schema-v1 result cannot confirm publication'}:target;
  }
+ const producerErrors=collectReportInputErrors(sources);
+ inputErrors.push(...producerErrors);
+ if(producerErrors.length)input.verification='failed';
  let sealedDirectory='release-sealed';
  if(!existsSync(join(cwd,sealedDirectory,'final.json'))&&env.SOURCE_RUN_ID&&env.ARTIFACT_ID){
   const recovered='release-observations/recover/release-sealed';
@@ -73,11 +77,11 @@ export function finalStatus({cwd=process.cwd(),env=process.env,config=read(join(
  const validIds=/^[1-9]\d*$/.test(env.SOURCE_RUN_ID||'')&&/^[1-9]\d*$/.test(env.ARTIFACT_ID||'');
  if(requested){
   input.recovery={available:false,...(validIds?{source_run_id:env.SOURCE_RUN_ID,artifact_id:env.ARTIFACT_ID}:{}),blocked_reason:validIds?'Original recovery evidence has not been verified':'Recovery requires positive original run and artifact IDs'};
-  if(!plan&&validIds)try{
+  if(!plan&&validIds&&!producerErrors.length)try{
    inspected=inspectRecovery({cwd,env:{...process.env,...env}});plan=inspected.metadata;input.verification='passed';input.analysis='release';
   }catch(error){input.recovery.blocked_reason=error.message;}
  }
- if(plan){
+ if(plan&&!producerErrors.length&&!inspectReportPlan(plan).error){
   input={...input,candidate_sha:plan.candidate_sha,version:plan.version,baseline_tag:plan.baseline_tag};
   const observed=inspected?.publicationObservation??observeNpmGitHub({cwd,env:{...process.env,...env},plan,inputDirectory:sealedDirectory});
   targets.github=observed.targets.github;
@@ -100,7 +104,7 @@ export function finalStatus({cwd=process.cwd(),env=process.env,config=read(join(
  }
  const failure=[['verification',env.VERIFY_JOB_STATUS],['release',env.RELEASE_JOB_STATUS],['recover',env.RECOVER_JOB_STATUS]].find(([,value])=>['failure','cancelled'].includes(value));
  if(failure?.[0]==='verification')input.verification='failed';
- return writeResult(join(cwd,'release-result.json'),{...input,schema_version:2,intended_targets:['npm','github'],concluded:true,publication:undefined,enabled:env.RELEASE_ENABLED==='true',targets,failure_stage:failure?.[0]||(inputErrors.length?'report-inputs':input.failure_stage)||null,errors:[...(input.errors||[]),...inputErrors,...(failure?[{message:`${failure[0]} job ${failure[1]}`}]:[])]},{config:requested&&!plan?.pipeline?{}:config,plan});
+ return writeResult(join(cwd,'release-result.json'),{...input,schema_version:2,intended_targets:['npm','github'],concluded:true,publication:undefined,enabled:env.RELEASE_ENABLED==='true',targets,failure_stage:inputErrors.length?'report-inputs':failure?.[0]||input.failure_stage||null,errors:[...(input.errors||[]),...inputErrors,...(failure?[{message:`${failure[0]} job ${failure[1]}`}]:[])]},{config:producerErrors.length||requested&&!plan?.pipeline?{schema_version:1}:config,plan:producerErrors.length?undefined:plan});
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  if(process.argv[2]==='final')finalStatus();else reportStatus({mode:process.argv[2]});

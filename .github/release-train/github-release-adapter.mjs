@@ -1,6 +1,6 @@
 // Guard semantic-release's actual decision before it can create any tag or release.
 import {assertPublicationEnabled,assertSealedRelease} from './publication-guard.mjs';
-import {validateOriginalPlan} from './release-entrypoint.mjs';
+import {validateOriginalPlan,inspectReportPlan} from './release-entrypoint.mjs';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -47,12 +47,13 @@ export function reportStatus({cwd=process.cwd(),env=process.env,extraTargets={},
   if(!plan.candidate_sha&&(env.PLAN_DOWNLOAD_STATUS==='success'||env.RECOVERY_PLAN_DOWNLOAD_STATUS==='success'))
     readError='Release plan artifact did not contain a readable candidate plan.';
   const recovered=env.RECOVERY_STATUS==='success';
+  const planError=inspectReportPlan(plan).error;
   const failed=env.ANALYSIS_STATUS==='failure'||env.PRODUCT_CHECK_STATUS==='failure';
   const verified=(recovered&&Boolean(plan.candidate_sha))||env.PRODUCT_CHECK_STATUS==='success'||(env.ANALYSIS_STATUS==='success'&&plan.release_needed===false);
-  const observation=readError?{targets:{stable_tag:{status:'unknown'},github:{status:'unknown'}},errors:[]}:plan.release_needed?observeGitHub({plan,repository:env.GITHUB_REPOSITORY}):{targets:{stable_tag:{status:'not-run'},github:{status:'not-run'}},errors:[]};
+  const observation=readError||planError?{targets:{stable_tag:{status:'unknown'},github:{status:'unknown'}},errors:[]}:plan.release_needed?observeGitHub({plan,repository:env.GITHUB_REPOSITORY}):{targets:{stable_tag:{status:'not-run'},github:{status:'not-run'}},errors:[]};
   let recovery={available:false,blocked_reason:'Original sealed producer artifact is unavailable'};
   const sourceRunId=env.SOURCE_RUN_ID||env.GITHUB_RUN_ID,artifactId=env.ARTIFACT_ID||env.SEALED_ARTIFACT_ID;
-  if(plan.candidate_sha&&sourceRunId&&artifactId){
+  if(!readError&&!planError&&plan.candidate_sha&&sourceRunId&&artifactId){
     try{
       const api=path=>JSON.parse(execFileSync('gh',['api',path],{encoding:'utf8',timeout:120000}));
       recovery=recoveryFromArtifact({plan,repository:env.GITHUB_REPOSITORY,sourceRunId,artifactId,run:api(`repos/${env.GITHUB_REPOSITORY}/actions/runs/${sourceRunId}`),artifact:api(`repos/${env.GITHUB_REPOSITORY}/actions/artifacts/${artifactId}`),publicationObservation:observation,allowCurrentRunId:env.GITHUB_RUN_ID});

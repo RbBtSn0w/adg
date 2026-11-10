@@ -32,6 +32,11 @@ export function validateOriginalPlan(plan) {
     if(actual!==undefined&&original.identity[name]!==actual)throw Error(`Original pipeline ${name} identity differs from engine record`);
   return original;
 }
+// Reporting retains diagnostics; effectful operations still use strict validation.
+export function inspectReportPlan(plan) {
+  try {return {original:validateOriginalPlan(plan),error:null};}
+  catch(error) {return {original:null,error:`Original pipeline input is invalid: ${error.message}`};}
+}
 export function configurationForOperation(config,profile) {
   const normalized=normalizeConfig(config);
   if(normalized.schema_version===2&&profile&&profile!==normalized.profile)throw Error('Profile override conflicts with versioned composition');

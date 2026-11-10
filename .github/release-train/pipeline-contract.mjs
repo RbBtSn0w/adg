@@ -31,6 +31,15 @@ export function immutable(value) {
 function uniqueIds(values, label) {
   fact(Array.isArray(values) && values.every(identifier) && new Set(values).size === values.length, `Invalid or duplicate ${label}`);
 }
+function externalBindings(value = {}) {
+  fact(object(value), 'External execution bindings must be an object');
+  for(const [provider,jobs] of Object.entries(value)) {
+    fact(identifier(provider), 'Invalid external execution provider');
+    uniqueIds(jobs, 'external execution jobs');
+    fact(jobs.length > 0, 'External execution provider must declare jobs');
+  }
+  return immutable(value);
+}
 function materialRole(role, input) {
   fact(object(role) && identifier(role.role) && materialKinds.has(role.kind), 'Invalid material role');
   if (input) fact(identifier(role.from_stage), 'Input material needs a producer stage');
@@ -85,7 +94,7 @@ export function normalizeConfig(config = {}) {
   }
   fact(config.protocol_version === protocolVersion, 'Unsupported pipeline protocol version');
   fact(config.cadence !== undefined, 'Versioned release configuration requires an explicit cadence');
-  return immutable({...config, cadence: normalizeCadence(config.cadence), pipeline: validatePipeline(config.pipeline, config.intended_targets)});
+  return immutable({...config, cadence: normalizeCadence(config.cadence), external_execution_bindings:externalBindings(config.external_execution_bindings), pipeline: validatePipeline(config.pipeline, config.intended_targets)});
 }
 export function validateIdentity(identity) {
   fact(object(identity) && /^[\w.-]+\/[\w.-]+$/.test(identity.repository || '') && shaPattern.test(identity.candidate_sha || ''), 'Invalid release repository or candidate identity');
@@ -148,6 +157,11 @@ export function withPipelineResult(input, {config = {}, plan} = {}) {
   }
   const pipeline = original?.pipeline ?? normalized.pipeline;
   if (!pipeline) return input;
+  if(!original && Array.isArray(input.intended_targets) && input.intended_targets.some(id=>!pipeline.goals.some(goal=>goal.id===id))) {
+    // A legacy producer can require goals the current composition cannot describe.
+    // Keep its actual required-target path instead of fabricating executable stages.
+    return {...input,intended_targets:[...new Set([...pipeline.goals.map(goal=>goal.id),...input.intended_targets])],asynchronous:false};
+  }
   const intended_targets = pipeline.goals.map(goal => goal.id);
   return {...input, intended_targets, pipeline:{protocol_version:protocolVersion, ...structuredClone(pipeline),
     ...(input.pipeline?.stage_observations?{stage_observations:structuredClone(input.pipeline.stage_observations)}:{}),
@@ -164,13 +178,18 @@ export function validateExecutionBindings(pipeline, available) {
   if(!pipeline)return;
   for(const stage of pipeline.stages) {
     const jobs=available[stage.execution.provider];
-    if(jobs&&!jobs.includes(stage.execution.job))throw Error(`Unknown execution binding for stage ${stage.id}`);
+    if(!Object.hasOwn(available,stage.execution.provider)||!Array.isArray(jobs)||!jobs.includes(stage.execution.job))throw Error(`Unknown execution binding for stage ${stage.id}`);
   }
 }
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   if(process.argv[2]!=='check'||process.argv.length>5)throw Error('Usage: pipeline-contract.mjs check [CONFIG] [WORKFLOW]');
   const config=normalizeConfig(JSON.parse(readFileSync(process.argv[3]||'.github/release-train.json','utf8')));
-  if(config.pipeline)validateExecutionBindings(config.pipeline,{'github-actions':workflowJobIds(readFileSync(process.argv[4]||'.github/workflows/release.yml','utf8'))});
+  if(config.pipeline) {
+    const local={'github-actions':workflowJobIds(readFileSync(process.argv[4]||'.github/workflows/release.yml','utf8'))};
+    for(const provider of Object.keys(config.external_execution_bindings))fact(!Object.hasOwn(local,provider),'External execution cannot override a local provider');
+    validateExecutionBindings(config.pipeline,{...local,...config.external_execution_bindings});
+  }
   process.stdout.write('Release pipeline contract is valid.\n');
+  if(Object.keys(config.external_execution_bindings||{}).length)process.stdout.write('External execution declarations require provider-side verification: '+Object.keys(config.external_execution_bindings).join(', ')+'.\n');
 }
