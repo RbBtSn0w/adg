@@ -163,6 +163,13 @@ export function withPipelineResult(input, {config = {}, plan} = {}) {
     return {...input,intended_targets:[...new Set([...pipeline.goals.map(goal=>goal.id),...input.intended_targets])],asynchronous:false};
   }
   const intended_targets = pipeline.goals.map(goal => goal.id);
+  const unexpected=original&&Array.isArray(input.intended_targets)?input.intended_targets.filter(id=>!intended_targets.includes(id)):[];
+  if(unexpected.length) {
+    // Required targets cannot silently become diagnostic-only observations.
+    const reason='Required report targets are absent from the original plan: '+[...new Set(unexpected)].join(', ');
+    const recovery={...input.recovery,available:false,blocked_reason:reason};delete recovery.command;
+    input={...input,publication:undefined,verification:'failed',failure_stage:'report-inputs',recovery,errors:[...(input.errors||[]),{message:reason}]};
+  }
   return {...input, intended_targets, pipeline:{protocol_version:protocolVersion, ...structuredClone(pipeline),
     ...(input.pipeline?.stage_observations?{stage_observations:structuredClone(input.pipeline.stage_observations)}:{}),
     source:original?'original-plan':'current-configuration', ...(original?{plan_digest:original.digest}:{})},

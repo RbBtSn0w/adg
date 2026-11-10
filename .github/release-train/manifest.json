@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_kind": "git",
-  "source_revision": "658c261d1575f00c835c135f113501c0554f70ff",
-  "content_hash": "f44e74267a734a12f9d1421c1b3ea32f4dd8a3d277ff057fccf23e20e5d5e270",
+  "source_revision": "a168a4c4263e01f0c2c0421e8b601f2c95eba5e7",
+  "content_hash": "f4cc8a6c6a4cd5e32c37ed881e1fdc51217cd86e42241575285f428d02cc653f",
   "files": {
     "cadence.mjs": "07eba06b6d8414c30f3aa46125902c4a3c133742e5dd2eb1d092712df6fc5db8",
     "cli-options.mjs": "b02fa325d78d100b16f932150730fe4df31e0face993e56d1ff64602e5f205a5",
@@ -21,7 +21,7 @@
     "npm-view.mjs": "0dfd09c7a96ca9c560fd95998419d086976578f9dc99e4481a837ec1c9d58b95",
     "observe-github.mjs": "7f7370cc0173253344f46d8e63844a30463b144bd30708b1cbcafb11db6171b7",
     "operation-bindings.mjs": "fcaba03729f843a109b5c42e5692b073285d530e36be92ff83f273ceaa8e4157",
-    "pipeline-contract.mjs": "719bd3677be7657958d635f68082bb417547a0f7094c6178228a7e9d14b511c4",
+    "pipeline-contract.mjs": "a375db98f5570c4443614b6ebb9088ffa5abc0cc4632212db7e24905f266248a",
     "pipeline-runtime.mjs": "b05d11c6308a46cd22253be731fdef2f31052115f17f962824c78027e81b68db",
     "publication-guard.mjs": "8650f1ad9680efa5e72b879ac084ff13107780bacb03ef72e384fa75cdd136e4",
     "recovery-source.mjs": "22d9c4415730ee09225c9dcb7b76712f37c69322b7d7c9a9cc185b3cd0584135",
