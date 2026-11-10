@@ -307,3 +307,26 @@ All CI matrix entries, PR commit validation and release jobs select npm 12.2.2
 from a runner-temporary installation. The matrix covers exact Node 22.22.2 and
 24.15.0 minimums plus Node 26, with current Node 24/26 on macOS and Windows.
 No old-runtime package-manager exception remains.
+
+## Pipeline capability configuration
+
+`.github/release-train.json` owns configuration schema v2 / pipeline protocol v1,
+required goals, existing execution bindings and cadence. The current explicit
+schedule preserves Friday 15:00 Asia/Singapore (07:00 UTC). A new explicit empty
+cadence uses Friday 15:00 Asia/Shanghai; changing cadence is a normal configuration
+change, not a release approval. Runtime dispatch inputs do not change the schedule.
+
+With isolated `yaml@2.9.1` provisioned in `RELEASE_TOOLS`, run the read-only checks:
+
+```bash
+node .github/release-train/pipeline-contract.mjs check
+node .github/release-train/cadence.mjs check
+```
+
+An explicit maintenance `cadence.mjs update` changes only the native schedule
+projection; review that diff. Original plans retain exact identity, notes and goals.
+Reports/recovery use those original goals after configuration or main advances; old
+plans remain compatible and never acquire invented receipts. Public capability
+coordination stays separate from product/platform implementations and existing CI
+job permissions. Activation, credentials and existing delivery destinations are
+unchanged by configuration migration.

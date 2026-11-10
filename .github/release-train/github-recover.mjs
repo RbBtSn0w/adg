@@ -1,3 +1,4 @@
+import {validateOriginalPlan} from './release-entrypoint.mjs';
 // Reconcile original GitHub effects; never retag, rebuild, or replace notes.
 import {assertPublicationEnabled} from './publication-guard.mjs';
 import {execFileSync} from 'node:child_process';
@@ -12,6 +13,7 @@ import {observeGitHub} from './observe-github.mjs';
 const gh=(...args)=>execFileSync('gh',args,{timeout:120000,maxBuffer:32*1024*1024});
 const api=path=>JSON.parse(gh('api',path));
 export function validatePlan(plan,candidate){
+ validateOriginalPlan(plan);
  if(!/^[a-f0-9]{40}$/.test(candidate||'')||plan.schema_version!==1||plan.candidate_sha!==candidate||typeof plan.notes!=='string'||plan.verification!=='passed'||plan.release_needed!==true||!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(plan.version||'')||plan.tag!==`v${plan.version}`)throw Error('Recovery requires original verified stable plan identity and notes');
  return plan;
 }

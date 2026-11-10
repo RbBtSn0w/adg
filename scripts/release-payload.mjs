@@ -1,3 +1,4 @@
+import { validateOriginalPlan } from '../.github/release-train/release-entrypoint.mjs';
 import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from '../.github/release-train/npm-view.mjs';
 import {verifyLatest,assertNoKnownNewerLatest,sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
@@ -25,6 +26,7 @@ export async function prepare(_options, { cwd, env = process.env, nextRelease })
   const input = join(cwd, 'release-input'), root = join(input, 'unpacked/package');
   // The verified engine decision is mandatory and immutable across prepare.
   const analysis = JSON.parse(readFileSync(join(input, 'analysis.json'), 'utf8'));
+  validateOriginalPlan(analysis);
   if (!/^[a-f0-9]{40}$/.test(analysis.candidate_sha || '') || analysis.candidate_sha !== env.CANDIDATE_SHA || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(analysis.version || '') || analysis.version !== nextRelease.version || typeof analysis.tag !== 'string' || !analysis.tag || analysis.tag !== nextRelease.gitTag) throw Error('Engine release differs from verified analysis');
   if (typeof analysis.notes !== 'string' || typeof nextRelease.notes !== 'string' || analysis.notes !== nextRelease.notes) throw Error('Release notes changed after analysis; analyze and verify a fresh candidate');
   const tagFormat = sealedTagFormat(analysis);
@@ -36,7 +38,7 @@ export async function prepare(_options, { cwd, env = process.env, nextRelease })
   // Re-archive existing files directly: no npm pack, file filtering, or lifecycle hooks.
   execFileSync('tar', ['-czf', join(input, 'final.tgz'), '-C', join(input, 'unpacked'), 'package']);
   if (before !== JSON.stringify(payload(root))) throw Error('Prepared payload changed');
-  writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}`, sha256: createHash('sha256').update(readFileSync(join(input, 'final.tgz'))).digest('hex'), candidate_sha: env.CANDIDATE_SHA, repository: env.GITHUB_REPOSITORY, source_run_id: env.GITHUB_RUN_ID, source_attempt: env.GITHUB_RUN_ATTEMPT, operation: 'release', tag: nextRelease.gitTag, tag_format: tagFormat, baseline_tag: analysis.baseline_tag || null }));
+  writeFileSync(join(input, 'final.json'), JSON.stringify({ name: manifest.name, version: nextRelease.version, integrity: `sha512-${digest(join(input, 'final.tgz'))}`, sha256: createHash('sha256').update(readFileSync(join(input, 'final.tgz'))).digest('hex'), candidate_sha: env.CANDIDATE_SHA, repository: env.GITHUB_REPOSITORY, source_run_id: env.GITHUB_RUN_ID, source_attempt: env.GITHUB_RUN_ATTEMPT, operation: 'release', tag: nextRelease.gitTag, tag_format: tagFormat, baseline_tag: analysis.baseline_tag || null, notes: analysis.notes, ...(analysis.pipeline ? {pipeline:analysis.pipeline} : {}) }));
   assertLiveMain(cwd, env);
 }
 
@@ -44,6 +46,10 @@ export async function publish(_options, { cwd, env, nextRelease }) {
   if(env.RELEASE_ENABLED!=='true')throw Error('Publication remains disabled');
   const input = join(cwd, 'release-input'), archive = join(input, 'final.tgz');
   const metadata = JSON.parse(readFileSync(join(input, 'final.json'), 'utf8'));
+  validateOriginalPlan(metadata);
+  const originalAnalysis = JSON.parse(readFileSync(join(input, 'analysis.json'), 'utf8'));
+  validateOriginalPlan(originalAnalysis);
+  if (metadata.pipeline?.digest !== originalAnalysis.pipeline?.digest) throw Error('Original sealed pipeline differs from verified analysis');
   if (metadata.version !== nextRelease.version || metadata.integrity !== `sha512-${digest(archive)}`) throw Error('Final artifact mismatch');
   // The tag fixes identity; main may advance while these original bytes are published.
   if(!_options.recovery){

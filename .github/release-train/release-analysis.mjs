@@ -1,5 +1,5 @@
 // Credential-free exact-candidate semantic-release analysis, including non-Node repositories.
-import {sealedTagFormat} from './npm-channel.mjs';
+import {sealedTagFormat} from './release-identity.mjs';
 import {optionValues} from './cli-options.mjs';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync,appendFileSync,mkdirSync} from 'node:fs';

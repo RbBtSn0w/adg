@@ -1,3 +1,4 @@
+import { inspectReportPlan } from '../.github/release-train/release-entrypoint.mjs';
 import {sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 // Product-specific observations. Only channel readback can confirm publication.
 import {createHash} from 'node:crypto';
@@ -9,7 +10,10 @@ const analysis = read('release-input/analysis.json') || read('release-plan.json'
 const metadata = read('release-input/final.json') || {};
 const enabled = process.env.RELEASE_ENABLED === 'true';
 const operation = process.argv[2];
-const intended = read('.github/release-train.json')?.intended_targets || ['npm','github-packages','github-release',...(process.env.RELEASE_HOMEBREW === 'true' ? ['homebrew'] : [])];
+const config = read('.github/release-train.json') || {};
+const plan = metadata.pipeline ? metadata : analysis;
+const {original} = inspectReportPlan(plan);
+const intended = original?.pipeline.goals.map(goal => goal.id) || config.intended_targets || ['npm','github-packages','github-release',...(process.env.RELEASE_HOMEBREW === 'true' ? ['homebrew'] : [])];
 let verification = 'not-run';
 if (operation === 'verify') verification = process.env.ANALYSIS_OUTCOME === 'success' && (!analysis.version || (process.env.VERIFY_OUTCOME === 'success' && process.env.PACKAGE_OUTCOME === 'success')) ? 'passed' : 'failed';
 else if (operation === 'publish') verification = process.env.RESTORE_OUTCOME === 'success' ? 'passed' : 'failed';
@@ -26,9 +30,9 @@ const recovery=read('release-input/recovery.json') || (operation==='recover'&&(p
 const inputErrors = [];
 let sealed = null;
 try {
-sealed = (process.env.SEALED_ARTIFACT_ID || recovery?.artifact_id) && metadata.sha256 ? {artifact_id:process.env.SEALED_ARTIFACT_ID || recovery?.artifact_id,source_run_id:metadata.source_run_id,source_attempt:metadata.source_attempt || process.env.GITHUB_RUN_ATTEMPT,candidate_sha:candidate,tag:metadata.tag,tag_format:sealedTagFormat({...metadata,tag_format:metadata.tag_format??analysis.tag_format}),repository:metadata.repository,sha256:metadata.sha256,notes:analysis.notes,expected_assets:Object.fromEntries(['final.tgz','final.json'].map(name=>[name,'sha256:'+createHash('sha256').update(readFileSync(`release-input/${name}`)).digest('hex')]))} : null;
+sealed = (process.env.SEALED_ARTIFACT_ID || recovery?.artifact_id) && metadata.sha256 ? {artifact_id:process.env.SEALED_ARTIFACT_ID || recovery?.artifact_id,source_run_id:metadata.source_run_id,source_attempt:metadata.source_attempt || process.env.GITHUB_RUN_ATTEMPT,candidate_sha:candidate,tag:metadata.tag,tag_format:sealedTagFormat({...metadata,tag_format:metadata.tag_format??analysis.tag_format}),repository:metadata.repository,sha256:metadata.sha256,notes:analysis.notes,...(original?{pipeline:plan.pipeline}:{}),expected_assets:Object.fromEntries(['final.tgz','final.json'].map(name=>[name,'sha256:'+createHash('sha256').update(readFileSync(`release-input/${name}`)).digest('hex')]))} : null;
 } catch (error) {
  verification = 'failed';
  inputErrors.push({message: `Original sealed tag/artifact input is invalid: ${error.message}`});
 }
-writeResult('release-result.json',{schema_version:2,analysis:analysis.candidate_sha ? (version ? 'success' : 'no-release') : 'unknown',candidate_sha:candidate,baseline_tag:analysis.baseline_tag || null,version,enabled,verification,intended_targets:intended,concluded:true,targets,artifacts:sealed?[sealed]:[],failure_stage:inputErrors.length?'report-inputs':failed?operation:null,recovery,errors:[...inputErrors,...(failed?[{message:process.env.RETRY_GUARD_OUTCOME === 'failure' ? `Analysis retry stopped because prior writes may have created a baseline tag. Read the original Release outcome at ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}/attempts/1; recover its original sealed release, or start a new manual release run for fresh main.` : `${operation} failed; inspect the failing Actions step`}]:[])]},{summaryPath:null});
+writeResult('release-result.json',{schema_version:2,analysis:analysis.candidate_sha ? (version ? 'success' : 'no-release') : 'unknown',candidate_sha:candidate,baseline_tag:analysis.baseline_tag || null,version,enabled,verification,intended_targets:intended,concluded:true,targets,artifacts:sealed?[sealed]:original?[{candidate_sha:candidate,version,pipeline:plan.pipeline,notes:analysis.notes}]:[],failure_stage:inputErrors.length?'report-inputs':failed?operation:null,recovery,errors:[...inputErrors,...(failed?[{message:process.env.RETRY_GUARD_OUTCOME === 'failure' ? `Analysis retry stopped because prior writes may have created a baseline tag. Read the original Release outcome at ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}/attempts/1; recover its original sealed release, or start a new manual release run for fresh main.` : `${operation} failed; inspect the failing Actions step`}]:[])]},{config:operation==='recover'&&!original?{schema_version:1}:config,plan,summaryPath:null});

@@ -1,13 +1,14 @@
 import {existsSync,readdirSync,readFileSync,statSync} from 'node:fs';
 import {join,resolve,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {writeResult} from './release-result.mjs';
+import {writeResult,collectReportInputErrors} from './release-result.mjs';
 import {recoveryFromArtifact} from './observe-github.mjs';
 import {observeNpmGitHub,inspectRecovery} from './npm-recovery-source.mjs';
 export {observeNpmGitHub} from './npm-recovery-source.mjs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {validateLatestVersion,sealedTagFormat} from './npm-channel.mjs';
+import {inspectReportPlan} from './release-entrypoint.mjs';
 const read=path=>existsSync(path)?JSON.parse(readFileSync(path,'utf8')):null;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 function bindNpmReceipt(receipt,plan,cwd,sealedDirectory='release-sealed',sealedFiles){
@@ -22,7 +23,7 @@ function bindNpmReceipt(receipt,plan,cwd,sealedDirectory='release-sealed',sealed
   return receipt;
  }catch(error){return {...receipt,status:'unknown',bytes_verified:bytesVerified,channel_blocked:bytesVerified,reason:error.message};}
 }
-export function reportStatus({cwd=process.cwd(),env=process.env,mode='verify'}={}){
+export function reportStatus({cwd=process.cwd(),env=process.env,mode='verify',config=read(join(cwd,'.github/release-train.json'))||{}}={}){
  const plan=read(join(cwd,'release-sealed/final.json'))||read(join(cwd,'release-input/release-plan.json'))||read(join(cwd,'release-plan.json'))||{};
  let verification='not-run';
  if(mode==='verify')verification=env.ANALYSIS_STATUS==='success'&&plan.schema_version===1&&plan.candidate_sha===env.CANDIDATE_SHA&&typeof plan.release_needed==='boolean'&&(!plan.release_needed||(env.PRODUCT_CHECK_STATUS==='success'&&env.PACKAGE_STATUS==='success'))?'passed':'failed';
@@ -35,7 +36,7 @@ export function reportStatus({cwd=process.cwd(),env=process.env,mode='verify'}={
   targets[name]=(name==='npm'?bindNpmReceipt(receipt,plan,cwd):receipt)||{status:failure&&verification==='passed'&&!unknown?'unknown':'not-run'};
   if(targets[name].status==='unknown')unknown=true;
  }
- return writeResult(join(cwd,'release-result.json'),{schema_version:2,intended_targets:['npm','github'],concluded:mode!=='verify',candidate_sha:plan.candidate_sha||env.CANDIDATE_SHA,analysis:env.ANALYSIS_STATUS==='success'&&typeof plan.release_needed==='boolean'?(plan.release_needed?'release':'no-release'):env.ANALYSIS_STATUS==='failure'?'failed':'unknown',version:plan.version??null,baseline_tag:plan.baseline_tag??null,enabled:env.RELEASE_ENABLED==='true',verification,targets,artifacts:plan.sha256?[{name:'final.tgz',sha256:plan.sha256}]:[],failure_stage:failure,recovery:read(join(cwd,'release-sealed/recovery.json')),errors:failure?[{message:`${failure} failed; inspect its Actions step`}]:[]},{summaryPath:null});
+ return writeResult(join(cwd,'release-result.json'),{schema_version:2,intended_targets:['npm','github'],concluded:mode!=='verify',candidate_sha:plan.candidate_sha||env.CANDIDATE_SHA,analysis:env.ANALYSIS_STATUS==='success'&&typeof plan.release_needed==='boolean'?(plan.release_needed?'release':'no-release'):env.ANALYSIS_STATUS==='failure'?'failed':'unknown',version:plan.version??null,baseline_tag:plan.baseline_tag??null,enabled:env.RELEASE_ENABLED==='true',verification,targets,artifacts:plan.sha256?[{name:'final.tgz',sha256:plan.sha256}]:[],failure_stage:failure,recovery:read(join(cwd,'release-sealed/recovery.json')),errors:failure?[{message:`${failure} failed; inspect its Actions step`}]:[]},{summaryPath:null,config,plan});
 }
 function validObservation(source){
  return object(source)&&object(source.targets)&&Object.values(source.targets).every(target=>object(target)&&['completed','failed','in-progress','not-run','unknown'].includes(target.status))
@@ -48,7 +49,7 @@ function validObservation(source){
   &&(source.errors===undefined||(Array.isArray(source.errors)&&source.errors.every(error=>typeof error==='string'||object(error))));
 }
 function observations(root,cwd,errors){return !existsSync(root)?[]:readdirSync(root).flatMap(name=>{const path=join(root,name);if(statSync(path).isDirectory())return observations(path,cwd,errors);if(name!=='release-result.json')return [];try{const source=read(path);if(!validObservation(source))throw Error('Invalid observation');return [source];}catch{errors.push({message:`Malformed observation: ${relative(cwd,path)}`});return [];}});}
-export function finalStatus({cwd=process.cwd(),env=process.env}={}){
+export function finalStatus({cwd=process.cwd(),env=process.env,config=read(join(cwd,'.github/release-train.json'))||{}}={}){
  const inputErrors=[];
  const sources=observations(join(cwd,'release-observations'),cwd,inputErrors);
  let input={candidate_sha:env.CANDIDATE_SHA,verification:'not-run',version:null,baseline_tag:null,artifacts:[],recovery:null};
@@ -58,6 +59,9 @@ export function finalStatus({cwd=process.cwd(),env=process.env}={}){
   if(source.verification==='passed'&&input.verification!=='failed')input.verification='passed';
   for(const [name,target]of Object.entries(source.targets))if(target.status!=='not-run'&&targets[name]?.status!=='completed')targets[name]=source.schema_version===1&&target.status==='completed'?{...target,status:'unknown',reason:'Historical schema-v1 result cannot confirm publication'}:target;
  }
+ const producerErrors=collectReportInputErrors(sources);
+ inputErrors.push(...producerErrors);
+ if(producerErrors.length)input.verification='failed';
  let sealedDirectory='release-sealed';
  if(!existsSync(join(cwd,sealedDirectory,'final.json'))&&env.SOURCE_RUN_ID&&env.ARTIFACT_ID){
   const recovered='release-observations/recover/release-sealed';
@@ -73,11 +77,11 @@ export function finalStatus({cwd=process.cwd(),env=process.env}={}){
  const validIds=/^[1-9]\d*$/.test(env.SOURCE_RUN_ID||'')&&/^[1-9]\d*$/.test(env.ARTIFACT_ID||'');
  if(requested){
   input.recovery={available:false,...(validIds?{source_run_id:env.SOURCE_RUN_ID,artifact_id:env.ARTIFACT_ID}:{}),blocked_reason:validIds?'Original recovery evidence has not been verified':'Recovery requires positive original run and artifact IDs'};
-  if(!plan&&validIds)try{
+  if(!plan&&validIds&&!producerErrors.length)try{
    inspected=inspectRecovery({cwd,env:{...process.env,...env}});plan=inspected.metadata;input.verification='passed';input.analysis='release';
   }catch(error){input.recovery.blocked_reason=error.message;}
  }
- if(plan){
+ if(plan&&!producerErrors.length&&!inspectReportPlan(plan).error){
   input={...input,candidate_sha:plan.candidate_sha,version:plan.version,baseline_tag:plan.baseline_tag};
   const observed=inspected?.publicationObservation??observeNpmGitHub({cwd,env:{...process.env,...env},plan,inputDirectory:sealedDirectory});
   targets.github=observed.targets.github;
@@ -100,7 +104,7 @@ export function finalStatus({cwd=process.cwd(),env=process.env}={}){
  }
  const failure=[['verification',env.VERIFY_JOB_STATUS],['release',env.RELEASE_JOB_STATUS],['recover',env.RECOVER_JOB_STATUS]].find(([,value])=>['failure','cancelled'].includes(value));
  if(failure?.[0]==='verification')input.verification='failed';
- return writeResult(join(cwd,'release-result.json'),{...input,schema_version:2,intended_targets:['npm','github'],concluded:true,publication:undefined,enabled:env.RELEASE_ENABLED==='true',targets,failure_stage:failure?.[0]||(inputErrors.length?'report-inputs':input.failure_stage)||null,errors:[...(input.errors||[]),...inputErrors,...(failure?[{message:`${failure[0]} job ${failure[1]}`}]:[])]});
+ return writeResult(join(cwd,'release-result.json'),{...input,schema_version:2,intended_targets:['npm','github'],concluded:true,publication:undefined,enabled:env.RELEASE_ENABLED==='true',targets,failure_stage:inputErrors.length?'report-inputs':failure?.[0]||input.failure_stage||null,errors:[...(input.errors||[]),...inputErrors,...(failure?[{message:`${failure[0]} job ${failure[1]}`}]:[])]},{config:producerErrors.length||requested&&!plan?.pipeline?{schema_version:1}:config,plan:producerErrors.length?undefined:plan});
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  if(process.argv[2]==='final')finalStatus();else reportStatus({mode:process.argv[2]});
