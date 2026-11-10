@@ -330,3 +330,13 @@ plans remain compatible and never acquire invented receipts. Public capability
 coordination stays separate from product/platform implementations and existing CI
 job permissions. Activation, credentials and existing delivery destinations are
 unchanged by configuration migration.
+
+## Ordinary CI release contracts
+
+PR/main CI checks generated integrity, actual pipeline job bindings and configured
+cadence in the existing Ubuntu Node 24.15.0 package-smoke matrix entry. CI and release candidate verification share `npm run test:release`, which automatically includes new release test files.
+These checks do not depend on publication enablement or version changes. Product
+test matrices remain independent; the contract environment selects npm 12 explicitly.
+No publishing credentials, OIDC grant or private upstream checkout is needed.
+A green check is evidence only when its log shows the applicable commands and
+release tests ran; source/CI success does not prove channel delivery.

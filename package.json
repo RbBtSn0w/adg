@@ -25,6 +25,7 @@
     "adg": "node ./bin/adg.ts",
     "build": "node scripts/build.mjs",
     "test": "node scripts/run-tests.mjs \"test/**/*.test.ts\" test/cache-sandbox.test.mjs",
+    "test:release": "node --test \"test/release-*.test.mjs\"",
     "test:codex-sandbox": "node --test test/codex-sandbox.test.mjs",
     "test:cache-sandbox": "node --test test/cache-sandbox.test.mjs",
     "check:docs": "node scripts/check-doc-links.mjs",
