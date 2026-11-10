@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_kind": "git",
-  "source_revision": "5e4abf6b8dc656099fe08ebe921f851ac471ca74",
+  "source_revision": "48942538986285a2824060e1153274e9c2a8e48b",
   "content_hash": "3c62d82e05e857c46960912c415bda5902a18381245fd17433277ed4d343fa67",
   "files": {
     "cadence.mjs": "07eba06b6d8414c30f3aa46125902c4a3c133742e5dd2eb1d092712df6fc5db8",
