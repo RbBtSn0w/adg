@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCurrentProcessIdentity, queryProcessIdentity, type ProcessIdentity } from "./process-identity.ts";
 import { recordTelemetryEvent } from "./telemetry.ts";
 
 const ownership = new AsyncLocalStorage<boolean>();
@@ -11,6 +12,22 @@ const defaultMutexDir = join(tmpdir(), `adg-mutation-${process.getuid?.() ?? "us
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+}
+
+function ownerIdentity(path: string, pid: number): ProcessIdentity | undefined {
+  let raw: string;
+  try { raw = readFileSync(join(path, "owner.json"), "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; // Legacy contender.
+    throw error;
+  }
+  try {
+    const owner = JSON.parse(raw);
+    if (owner?.version !== 1 || owner.pid !== pid || owner.identity?.version !== 1
+      || typeof owner.identity.kind !== "string" || !owner.identity.kind
+      || typeof owner.identity.birthToken !== "string" || !owner.identity.birthToken) throw new Error();
+    return owner.identity;
+  } catch { throw new Error("Invalid ADG mutation owner record; inspect stale mutex records before retrying."); }
 }
 
 interface Contender { id: string; ticket?: number; unreadable?: boolean }
@@ -40,7 +57,21 @@ function contenders(root: string): Contender[] {
     // unlink the record of a replacement holder, unlike a shared lock filename.
     if (!alive(Number(match[1]))) {
       rmSync(path, { recursive: true, force: true });
+      recordTelemetryEvent("adg.store.mutex.reclaimed", { reason: "process_exit" });
       return [];
+    }
+    try {
+      const recorded = ownerIdentity(path, Number(match[1]));
+      const current = recorded && queryProcessIdentity(Number(match[1]));
+      if (recorded && current && recorded.kind === current.kind && recorded.version === current.version
+        && recorded.birthToken !== current.birthToken) {
+        rmSync(path, { recursive: true, force: true });
+        recordTelemetryEvent("adg.store.mutex.reclaimed", { reason: "process_identity_changed" });
+        return [];
+      }
+    } catch (error) {
+      if (transientWindowsAccess(error)) return [{ id, unreadable: true }];
+      throw error;
     }
     try {
       const ticket: unknown = JSON.parse(readFileSync(join(path, "ticket.json"), "utf8"));
@@ -79,7 +110,16 @@ export async function withStoreMutex<T>(
   }
   const id = `${process.pid}-${randomUUID()}`;
   const path = join(root, id);
-  mkdirSync(path, { mode: 0o700 });
+  const identity = getCurrentProcessIdentity();
+  const staging = join(root, `.preparing-${id}`);
+  mkdirSync(staging, { mode: 0o700 });
+  try {
+    writeFileSync(join(staging, "owner.json"), JSON.stringify({ version: 1, pid: process.pid, identity }), { mode: 0o600 });
+    // Publish a complete owner atomically; old clients still recognize pid-UUID.
+    renameSync(staging, path);
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
   const started = Date.now();
   const wait = async () => {
     if (Date.now() - started >= timeoutMs) throw new Error("Another ADG mutation is still running; retry after it completes.");

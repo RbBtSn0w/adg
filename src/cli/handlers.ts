@@ -458,7 +458,9 @@ async function runUpdateAcrossScopes(
       scopes.push({ scope: sc.label, result, ...(interrupted ? { cancelled: true } : {}) });
       const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
       const scopeFlag = typeof values.dir === "string" ? `--dir ${quote(sc.dir)}` : sc.agentScope === "user" ? "--global" : "--project";
-      const retryCommand = `adg plugins update${opts.source ? ` ${quote(opts.source)}` : ""} ${scopeFlag}${values.all ? " --all" : ""}${values.repair ? " --repair" : ""}`;
+      const target = typeof values.target === "string" ? values.target : undefined;
+      const retryVerb = target ? "marketplace upgrade" : "update";
+      const retryCommand = `adg plugins ${retryVerb}${opts.source ? ` ${quote(opts.source)}` : ""} ${scopeFlag}${values.all ? " --all" : ""}${values.repair ? " --repair" : ""}${target ? ` --target ${quote(target)}` : ""}`;
       const hasCompletedWork = result.remote.length || result.local.results.length || result.local.missing.length || result.agents.length;
       if (!values.json && (!interrupted || hasCompletedWork)) printUpdateReport(result, values.verbose, retryCommand);
       const counts = updateResultCounts(result);

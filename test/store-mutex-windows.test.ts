@@ -11,7 +11,11 @@ function exercise(platform: string, code: string, release: boolean, malformed = 
   const program = `
     import assert from 'node:assert/strict';
     import fs from 'node:fs';
-    import { syncBuiltinESMExports } from 'node:module';
+    import { registerHooks, syncBuiltinESMExports } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier === './process-identity.ts') return { url: 'data:text/javascript,' + encodeURIComponent('export const getCurrentProcessIdentity = () => ({kind: "test", version: 1, birthToken: "current"}); export const queryProcessIdentity = getCurrentProcessIdentity;'), shortCircuit: true };
+      return next(specifier, context);
+    }});
     import { tmpdir } from 'node:os';
     import { join } from 'node:path';
     const root = fs.mkdtempSync(join(tmpdir(), 'adg-ticket-boundary-'));

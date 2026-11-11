@@ -1,10 +1,10 @@
 import {
   chmodSync, closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync,
-  readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync,
+  readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import type { Agent, AgentScope, AgentSyncResult } from "./agents/types.ts";
 import { LOCK_VERSION, resolveSelectionDependencies, type LockEntry, type PluginLock, type SourceIntent } from "./types.ts";
 import { readLock } from "./lock.ts";
@@ -75,10 +75,19 @@ interface PreparedRecord {
   runtimeRefreshRequired?: boolean;
 }
 
+interface NamespaceAlias {
+  path: string;
+  target: string;
+  parent: string;
+  parentDev: number;
+  parentIno: number;
+}
+
 interface Journal {
   version: 1;
   pluginsDir: string;
   cacheStore?: string;
+  namespaceAliases?: NamespaceAlias[];
   source: string;
   ref?: string;
   revision: string;
@@ -243,6 +252,64 @@ function existingProjectionTargets(dir: string): AdapterTarget[] {
   return ADAPTER_TARGETS.filter((target) => existsSync(join(dir, target === "antigravity" ? "plugin.json" : `.${target}-plugin/plugin.json`)));
 }
 
+function namespaceAliases(store: string): NamespaceAlias[] {
+  const aliases: NamespaceAlias[] = [];
+  let cursor = parse(store).root;
+  for (const part of relative(cursor, store).split(sep).filter(Boolean)) {
+    cursor = join(cursor, part);
+    if (!lstatSync(cursor).isSymbolicLink()) continue;
+    const parent = realpathSync(dirname(cursor));
+    const stat = lstatSync(parent);
+    aliases.push({ path: cursor, target: realpathSync(cursor), parent, parentDev: stat.dev, parentIno: stat.ino });
+  }
+  return aliases;
+}
+
+function missingNamespaceAlias(journal: Journal): NamespaceAlias | undefined {
+  const store = journal.cacheStore;
+  if (!store || store === journal.pluginsDir) return undefined;
+  if (!isAbsolute(store)) throw new Error("Migration cache store identity mismatch");
+  let cursor = parse(store).root;
+  for (const part of relative(cursor, store).split(sep).filter(Boolean)) {
+    cursor = join(cursor, part);
+    try { lstatSync(cursor); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      let alias = journal.namespaceAliases?.find(item => item.path === cursor);
+      // Older receipts did not record alias topology. A direct alias beside the
+      // canonical store is still confined to that same, existing parent.
+      if (!alias && !journal.namespaceAliases && cursor === store
+          && realpathSync(dirname(store)) === realpathSync(dirname(journal.pluginsDir))) {
+        const parent = realpathSync(dirname(store));
+        const stat = lstatSync(parent);
+        alias = { path: store, target: journal.pluginsDir, parent, parentDev: stat.dev, parentIno: stat.ino };
+      }
+      if (!alias || !isAbsolute(alias.target) || !isAbsolute(alias.parent)
+          || realpathSync(dirname(cursor)) !== alias.parent
+          || canonicalStore(resolve(alias.target, relative(cursor, store))) !== journal.pluginsDir) {
+        throw new Error("Migration cache store identity mismatch; restore its original directory alias before retrying");
+      }
+      const parent = lstatSync(alias.parent);
+      if (!parent.isDirectory() || parent.isSymbolicLink() || parent.dev !== alias.parentDev || parent.ino !== alias.parentIno) {
+        throw new Error("Migration cache store parent identity mismatch");
+      }
+      return alias;
+    }
+  }
+  if (realpathSync(store) !== journal.pluginsDir) throw new Error("Migration cache store identity mismatch");
+  return undefined;
+}
+
+function restoreNamespaceAlias(journal: Journal): void {
+  const alias = missingNamespaceAlias(journal);
+  if (!alias) return;
+  // symlinkSync refuses an existing slot, including a concurrently planted
+  // foreign link. Never create missing ancestors or change the native namespace.
+  symlinkSync(alias.target, alias.path, process.platform === "win32" ? "junction" : "dir");
+  syncPath(dirname(alias.path));
+  if (missingNamespaceAlias(journal)) throw new Error("Migration cache store identity mismatch");
+}
+
 function load(path: string): Journal {
   const resolved = resolve(path);
   const base = privateRoot();
@@ -259,9 +326,8 @@ function load(path: string): Journal {
       || dirname(dirname(resolved)) !== rootFor(journal.pluginsDir)) {
     throw new Error("Migration store identity mismatch");
   }
-  if (journal.cacheStore && (!isAbsolute(journal.cacheStore) || (!journal.complete && canonicalStore(journal.cacheStore) !== journal.pluginsDir))) {
-    throw new Error("Migration cache store identity mismatch");
-  }
+  if (journal.cacheStore && !isAbsolute(journal.cacheStore)) throw new Error("Migration cache store identity mismatch");
+  if (!journal.complete) missingNamespaceAlias(journal);
   for (const p of journal.prepared) {
     assertSourceOwner(journal.source, journal.ref, p.entry);
     if (p.dest !== safeDestination(journal.pluginsDir, p.name, p.entry)) throw new Error("Migration destination mismatch");
@@ -466,7 +532,7 @@ export async function prepareMigrationTransaction(options: PrepareMigrationOptio
         syncPath(join(root, "before-marketplace.json"));
       }
       const journal: Journal = {
-        version: 1, pluginsDir, cacheStore: resolve(options.pluginsDir), source: options.source, ref: options.ref, revision: options.revision,
+        version: 1, pluginsDir, cacheStore: resolve(options.pluginsDir), namespaceAliases: namespaceAliases(resolve(options.pluginsDir)), source: options.source, ref: options.ref, revision: options.revision,
         scope: options.scope, prepared, successors: options.successors ? structuredClone(options.successors) : undefined, refreshExisting: options.refreshExisting, retire: options.retire, sourceIntent: options.sourceIntent,
         before, operations, published: false, complete: false,
       };
@@ -786,6 +852,7 @@ export async function publishMigrationTransaction(
       cleanupArtifacts(root);
       return { complete: true, journalPath, failures, agents: [], stateDecisions: [], managedNative };
     }
+    restoreNamespaceAlias(journal);
     if (options.stateDecisions?.length) {
       applyStateDecisions(journal, options.stateDecisions);
       // Persist the user's choice before invoking any native lifecycle action.

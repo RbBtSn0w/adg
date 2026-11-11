@@ -668,3 +668,60 @@ test('a returned failure after install preserves started and uses readback inste
     assert.equal((await publishMigrationTransaction(journal, { targets: [agent] })).complete, true); assert.equal(activations, 1); assert.equal(refreshes, 1); assert.equal(native.has('old'), false);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 });
+
+for (const [parentAlias, legacy] of [[false, false], [true, false], [false, true]]) {
+  test(`pending transaction restores a missing ${parentAlias ? 'parent' : 'store'} alias before offline native replay${legacy ? ' from a legacy receipt' : ''}`, async () => {
+    const f = fixture(); const { symlinkSync, realpathSync } = await import('node:fs');
+    const link = join(f.root, 'namespace');
+    symlinkSync(parentAlias ? f.root : f.live, link, 'dir');
+    const lexical = parentAlias ? join(link, 'live') : link;
+    const native = new Map([['old', true]]); const contexts: string[] = [];
+    const agent: Agent = { id: 'namespaced', displayName: 'Namespaced', adaptTarget: 'claude', detect: () => true, available: () => true,
+      inspectPlugins: ctx => { contexts.push(ctx.pluginsDir); assert.ok(existsSync(join(ctx.pluginsDir, '.plugin-lock.json'))); return [...native].map(([name, enabled]) => ({ id: name, name, installed: true, enabled, version: '1.0.0' })); },
+      activate: ctx => { contexts.push(ctx.pluginsDir); assert.ok(existsSync(join(ctx.pluginsDir, 'next'))); native.set('next', true); return { agent: 'namespaced', affected: ctx.plugins, skipped: false }; },
+      refresh: () => { throw new Error('No refresh for new identity'); },
+      deactivate: ctx => { contexts.push(ctx.pluginsDir); native.delete('old'); return { agent: 'namespaced', affected: ctx.plugins, skipped: false }; } };
+    try {
+      const journal = await prepareMigrationTransaction({ pluginsDir: lexical, source: '(local)', revision: 'fixed', prepared: [{ name: 'next', dir: f.stage, entry: f.entry }], retire: ['old'], scope: 'project', targets: [agent], successors: [{ name: 'next', predecessors: ['old'] }] });
+      assert.equal((await publishMigrationTransaction(journal, { targets: [] })).complete, false);
+      if (legacy) {
+        const receipt = JSON.parse(readFileSync(journal, 'utf8')); delete receipt.namespaceAliases; writeFileSync(journal, JSON.stringify(receipt));
+      }
+      rmSync(link); contexts.length = 0;
+      assert.equal(discoverPendingMigrations(f.live)[0]?.journalPath, journal);
+      assert.equal(existsSync(link), false, 'Discovery must not restore paths');
+      assert.equal((await publishMigrationTransaction(journal, { targets: [agent] })).complete, true);
+      assert.equal(realpathSync(lexical), realpathSync(f.live)); assert.ok(contexts.length > 0);
+      assert.ok(contexts.every(path => path === lexical)); assert.deepEqual([...native], [['next', true]]);
+      assert.ok(JSON.parse(readFileSync(join(f.live, '.plugin-lock.json'), 'utf8')).plugins.unrelated);
+    } finally { rmSync(link, { force: true }); rmSync(f.root, { recursive: true, force: true }); }
+  });
+}
+
+test('pending transaction rejects a lexical alias repointed to another store', async () => {
+  const f = fixture(); const { symlinkSync } = await import('node:fs'); const link = join(f.root, 'namespace'); const foreign = join(f.root, 'foreign');
+  mkdirSync(foreign); writeFileSync(join(foreign, 'sentinel'), 'unchanged'); symlinkSync(f.live, link, 'dir');
+  try {
+    const agent: Agent = { id: 'fake', displayName: 'Fake', adaptTarget: 'claude', detect: () => true, available: () => true,
+      activate: () => { throw new Error('Must not mutate foreign store'); }, refresh: () => { throw new Error('Must not refresh'); }, deactivate: () => { throw new Error('Must not retire'); } };
+    const journal = await prepareMigrationTransaction({ pluginsDir: link, source: '(local)', revision: 'fixed', prepared: [{ name: 'next', dir: f.stage, entry: f.entry }], retire: [], scope: 'project', targets: [agent] });
+    assert.equal((await publishMigrationTransaction(journal, { targets: [] })).complete, false);
+    rmSync(link); symlinkSync(foreign, link, 'dir');
+    assert.throws(() => discoverPendingMigrations(f.live), /identity mismatch/);
+    await assert.rejects(publishMigrationTransaction(journal, { targets: [agent] }), /identity mismatch/);
+    assert.deepEqual((await import('node:fs')).readdirSync(foreign), ['sentinel']); assert.equal(readFileSync(join(foreign, 'sentinel'), 'utf8'), 'unchanged');
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+});
+
+
+test('pending alias recovery refuses a replaced parent directory', async () => {
+  const f = fixture(); const { symlinkSync, renameSync } = await import('node:fs'); const parent = join(f.root, 'namespace-parent');
+  mkdirSync(parent); const link = join(parent, 'alias'); symlinkSync(f.live, link, 'dir');
+  try {
+    const journal = await prepareMigrationTransaction({ pluginsDir: link, source: '(local)', revision: 'fixed', prepared: [{ name: 'next', dir: f.stage, entry: f.entry }], retire: [], scope: 'project' });
+    rmSync(link); renameSync(parent, join(f.root, 'previous-parent')); mkdirSync(parent);
+    assert.throws(() => discoverPendingMigrations(f.live), /parent identity mismatch/);
+    await assert.rejects(publishMigrationTransaction(journal), /parent identity mismatch/);
+    assert.equal(existsSync(link), false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+});

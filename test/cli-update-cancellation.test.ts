@@ -25,7 +25,7 @@ const { runPlugins } = await import("../src/cli/handlers.ts");
 hooks.deregister();
 
 const partial: PluginUpdateResult = { remote: [{ source: "example/completed", updated: ["done"], unchanged: [], deleted: [], available: [] }], local: { results: [], missing: [] }, agents: [] };
-async function capture(args: string[], update: (options: unknown) => Promise<PluginUpdateResult>) {
+async function capture(args: string[], update: (options: unknown) => Promise<PluginUpdateResult>, verb: "update" | "marketplace" = "update") {
   const log = console.log;
   const error = console.error;
   const write = process.stderr.write;
@@ -35,7 +35,7 @@ async function capture(args: string[], update: (options: unknown) => Promise<Plu
   console.log = (...items) => { lines.push(items.join(" ")); };
   console.error = (...items) => { errors.push(items.join(" ")); };
   process.stderr.write = (() => true) as typeof process.stderr.write;
-  try { return { outcome: await runPlugins("update", args), output: lines.join("\n"), errors: errors.join("\n") }; }
+  try { return { outcome: await runPlugins(verb, args), output: lines.join("\n"), errors: errors.join("\n") }; }
   finally { console.log = log; console.error = error; process.stderr.write = write; delete globals[callbackKey]; }
 }
 
@@ -43,6 +43,22 @@ test("action-required --all retry preserves one-shot inclusion and scope", async
   const run = await capture(["example/public", "--global", "--all"], async () => ({ ...partial, remote: [{ source: "example/public", updated: [], unchanged: [], deleted: [], available: [], actionRequired: ["Review history: design:a"] }] }));
   assert.equal(run.outcome.exitCode, 1);
   assert.match(run.output, /adg plugins update[^`]*--global[^`]*--all/);
+});
+
+test("targeted marketplace upgrade retry preserves its target and authorization flags", async () => {
+  const run = await capture(["upgrade", "example/public", "--global", "--target", "codex", "--all", "--repair"], async options => {
+    const actual = options as { targets: string[]; all: boolean; repair: boolean; agentScope: string; source: string };
+    assert.deepEqual(actual.targets, ["codex"]);
+    assert.equal(actual.all, true);
+    assert.equal(actual.repair, true);
+    assert.equal(actual.agentScope, "user");
+    assert.equal(actual.source, "example/public");
+    return { ...partial, remote: [{ source: "example/public", updated: [], unchanged: [], deleted: [], available: [], actionRequired: ["Review ownership:old:demo: current:demo"] }] };
+  }, "marketplace");
+  assert.equal(run.outcome.exitCode, 1);
+  const output = stripVTControlCharacters(run.output);
+  assert.match(output, /adg plugins marketplace upgrade 'example\/public' --global --all --repair --target 'codex'/);
+  assert.doesNotMatch(output, /Run `adg plugins update/);
 });
 
 test("cancelled scope emits its completed sources and accurate JSON counts", async () => {

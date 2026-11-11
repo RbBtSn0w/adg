@@ -218,7 +218,15 @@ newly observed peer can receive a retired plugin's skills only when that plugin
 has its own verified selection or installation evidence. Known historical
 sharing and catalog-only predecessors retain their retirement review.
 
-Frozen installation with npm 12.2.2, type checking, build and all 895 product
+The mutex publishes a complete process-birth record before entering the choosing
+phase. It reclaims a reused PID only when comparable OS identity evidence differs;
+failed queries and legacy records remain conservative. macOS birth evidence has
+second precision, so same-second reuse can still wait. Pending journals preserve
+the original alias topology and restore only proven missing links under the mutex,
+rejecting foreign targets or replaced parents. Targeted alias retries preserve
+their target, source, scope and authorization flags.
+
+Frozen installation with npm 12.2.2, type checking, build and all 927 product
 tests passed locally. The real Windows path is covered by the PR's Windows
 matrix; local Windows handle tests simulate the required access boundary.
 PR checks and subsequent review resolutions bind to the published head.
