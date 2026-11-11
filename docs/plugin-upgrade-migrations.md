@@ -205,7 +205,12 @@ update. Rebuilt projections include mandatory dependencies. Interactive choices
 and default reports describe plugin retention, removal and single-owner
 selection directly.
 
-Frozen installation with npm 12.2.2, type checking, build and all 872 product
+Windows contention also exercises transient ticket-access failures. Unreadable
+existing tickets must remain distinct from unpublished choosing records: number
+allocation waits for a reliable maximum, and uncertain presence never permits
+entry into an occupied mutation. Permission errors and waiting stay bounded.
+
+Frozen installation with npm 12.2.2, type checking, build and all 882 product
 tests passed locally. The real Windows path is covered by the PR's Windows
 matrix; local Windows handle tests simulate the required access boundary.
 PR checks and subsequent review resolutions bind to the published head.

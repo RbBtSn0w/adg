@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { recordTelemetryEvent } from "./telemetry.ts";
@@ -13,10 +13,26 @@ function alive(pid: number): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
 
-interface Contender { id: string; ticket?: number }
+interface Contender { id: string; ticket?: number; unreadable?: boolean }
+
+function transientWindowsAccess(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return process.platform === "win32" && (code === "EPERM" || code === "EACCES");
+}
+
+function contenderPresence(path: string): "present" | "absent" | "unknown" {
+  try { lstatSync(path); return "present"; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    // Windows delete-pending records can deny both reads and metadata access.
+    // Uncertain presence must block; existsSync would incorrectly report false.
+    if (transientWindowsAccess(error)) return "unknown";
+    throw error;
+  }
+}
 
 function contenders(root: string): Contender[] {
-  return readdirSync(root).flatMap((id) => {
+  return readdirSync(root).flatMap<Contender>((id) => {
     const match = id.match(/^(\d+)-[a-f0-9-]{36}$/);
     if (!match) return [];
     const path = join(root, id);
@@ -33,9 +49,12 @@ function contenders(root: string): Contender[] {
       }
       return [{ id, ticket }];
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        // Missing ticket is the choosing phase; the owner may still publish it.
-        return existsSync(path) ? [{ id }] : [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || transientWindowsAccess(error)) {
+        const presence = contenderPresence(path);
+        if (presence === "absent") return [];
+        // Only ENOENT with confirmed directory presence proves the choosing
+        // phase. An unreadable published ticket may belong to an active holder.
+        return [{ id, unreadable: transientWindowsAccess(error) || presence === "unknown" }];
       }
       throw error;
     }
@@ -62,16 +81,26 @@ export async function withStoreMutex<T>(
   const path = join(root, id);
   mkdirSync(path, { mode: 0o700 });
   const started = Date.now();
+  const wait = async () => {
+    if (Date.now() - started >= timeoutMs) throw new Error("Another ADG mutation is still running; retry after it completes.");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  };
   try {
-    const ticket = 1 + Math.max(0, ...contenders(root).map((entry) => entry.ticket ?? 0));
+    let snapshot = contenders(root);
+    // Do not choose a smaller ticket while a holder's published ticket might be
+    // hidden. Genuine choosing contenders stay eligible to choose concurrently.
+    while (snapshot.some(entry => entry.unreadable)) {
+      await wait();
+      snapshot = contenders(root);
+    }
+    const ticket = 1 + Math.max(0, ...snapshot.map((entry) => entry.ticket ?? 0));
     writeFileSync(join(path, "ticket.tmp"), JSON.stringify(ticket), { mode: 0o600 });
     renameSync(join(path, "ticket.tmp"), join(path, "ticket.json"));
     for (;;) {
       const earlier = contenders(root).some((other) => other.id !== id && (other.ticket === undefined
         || other.ticket < ticket || (other.ticket === ticket && other.id < id)));
       if (!earlier) break;
-      if (Date.now() - started >= timeoutMs) throw new Error("Another ADG mutation is still running; retry after it completes.");
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await wait();
     }
     recordTelemetryEvent("adg.store.mutex.acquired", { "wait.ms": Date.now() - started });
     return await ownership.run(true, action);
