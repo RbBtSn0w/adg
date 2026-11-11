@@ -11,6 +11,7 @@ import { copyPluginDir, writeJson } from "../fsutil.ts";
 import type { UpdatePhase } from "../render/progress.ts";
 import type { PluginChanges } from "../plugin-changes.ts";
 import { pluginState } from "../types.ts";
+import { preservedSelection, requestedSelectionKnown } from "../source-history.ts";
 
 export interface UpdateResult {
   name: string;
@@ -103,7 +104,8 @@ export function updateLock(
         source: installSource,
         pluginsDir,
         origin: entry.origin,
-        selection: entry.selection ?? (entry.definition?.authorizedComponents ? { components: entry.definition.authorizedComponents } : undefined),
+        selection: preservedSelection(pluginsDir, name, entry) ?? (entry.definition?.authorizedComponents ? { components: entry.definition.authorizedComponents } : undefined),
+        selectionKnown: requestedSelectionKnown(entry),
         skipUnchanged: true,
         now,
         definition,

@@ -608,9 +608,11 @@ test("activate (user) exposes into the global scan dir; a project query never su
     withGemini((gemini) => {
       antigravityAgent.activate({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
 
-      // Exposed under the official global scan dir, linking back to the store folder.
+      // Native agy scans real plugin folders; top-level symlinks are invisible.
       const exposed = join(gemini, "config", "plugins", "asc");
-      assert.equal(realpathSync(exposed), realpathSync(gdir));
+      assert.notEqual(realpathSync(exposed), realpathSync(gdir));
+      assert.equal(lstatSync(exposed).isSymbolicLink(), false);
+      assert.equal(lstatSync(exposed).isDirectory(), true);
       assert.ok(existsSync(join(exposed, "plugin.json")));
 
       // Global query sees it; the empty project query does NOT (provenance fixed).
@@ -645,6 +647,10 @@ test("activate refuses to overwrite a non-ADG real directory in the global scan 
       // The foreign dir is left intact and the plugin is not reported as enabled.
       assert.ok(existsSync(join(slot, "user-data.txt")));
       assert.deepEqual(res.affected, []);
+      assert.equal(res.failures?.[0]?.stage, "install");
+      assert.equal(res.failures?.[0]?.plugin, "asc");
+      const refreshed = antigravityAgent.refresh({ pluginsDir: globalStore, plugins: ["asc"], scope: "user" });
+      assert.equal(refreshed.failures?.[0]?.stage, "install");
     });
   } finally {
     rmSync(globalStore, { recursive: true, force: true });
@@ -967,6 +973,7 @@ test("deactivate skips foreign projection slots to preserve user-managed plugins
 
       // foreign-plugin should not be affected
       assert.deepEqual(result.affected, []);
+      assert.equal(result.failures?.[0]?.stage, "remove");
 
       // Foreign directory, runtime MCP schema, and config.json enablement remain untouched
       assert.ok(existsSync(foreignDir));
@@ -1106,3 +1113,100 @@ test("pruneStale preserves native non-ADG Antigravity plugins declaring mcp_conf
 
 
 
+
+test("Antigravity returns a failure when best-effort native configuration cannot be verified", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-native-config-failure-"));
+  try {
+    seedStore(store, "synthetic", {
+      schemaVersion: ADG_SCHEMA_VERSION, name: "synthetic", version: "1.0.0", description: "Synthetic",
+    });
+    withGemini((gemini) => {
+      mkdirSync(join(gemini, "config"));
+      writeFileSync(join(gemini, "config", "config.json"), "malformed");
+      const activated = antigravityAgent.activate({ pluginsDir: store, plugins: ["synthetic"], scope: "project" });
+      assert.deepEqual(activated.affected, []);
+      assert.equal(activated.failures?.[0]?.stage, "install");
+      const removed = antigravityAgent.deactivate({ pluginsDir: store, plugins: ["synthetic"], scope: "project" });
+      assert.deepEqual(removed.affected, []);
+      assert.equal(removed.failures?.[0]?.stage, "remove");
+    });
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test("refresh replaces a legacy symlink with a real owned root and removes stale copied components", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-physical-upgrade-"));
+  try {
+    const source = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION, name: "demo", version: "1.0.0", description: "Synthetic", skills: "./skills/", agents: "./bots/", hooks: "./hooks/",
+    });
+    mkdirSync(join(source, "skills", "old"), { recursive: true });
+    writeFileSync(join(source, "skills", "old", "SKILL.md"), "# Old");
+    mkdirSync(join(source, "bots")); writeFileSync(join(source, "bots", "agent.md"), "# Agent");
+    mkdirSync(join(source, "hooks"));
+    writeFileSync(join(source, "hooks", "hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf synthetic" }] }] } }));
+    ensureAntigravityRoot(source);
+    withGemini((gemini) => {
+      const scan = join(gemini, "config", "plugins"); mkdirSync(scan, { recursive: true });
+      const exposed = join(scan, "demo"); symlinkSync(source, exposed, "dir");
+      const ctx = { pluginsDir: store, plugins: ["demo"], scope: "user" as const };
+      assert.deepEqual(antigravityAgent.listInstalled!(ctx), []);
+      assert.deepEqual(antigravityAgent.needsProjectionRefresh!(ctx), ["demo"]);
+      assert.deepEqual(antigravityAgent.refresh(ctx).affected, ["demo"]);
+      assert.equal(lstatSync(exposed).isSymbolicLink(), false);
+      assert.equal(readFileSync(join(exposed, "agents", "agent.md"), "utf8"), "# Agent");
+      const hooks = readFileSync(join(exposed, "hooks.json"), "utf8");
+      assert.ok(hooks.includes(exposed));
+      assert.equal(hooks.includes(".adg-projection-staging"), false);
+      assert.deepEqual(antigravityAgent.needsProjectionRefresh!(ctx), []);
+      rmSync(join(source, "skills", "old"), { recursive: true });
+      mkdirSync(join(source, "skills", "new")); writeFileSync(join(source, "skills", "new", "SKILL.md"), "# New");
+      const lock = readLock(lockPath(store)); lock.plugins.demo!.installedHash = "sha256-new"; writeLock(lockPath(store), lock);
+      assert.deepEqual(antigravityAgent.needsProjectionRefresh!(ctx), ["demo"]);
+      assert.deepEqual(antigravityAgent.refresh(ctx).affected, ["demo"]);
+      assert.equal(existsSync(join(exposed, "skills", "old")), false);
+      assert.equal(readFileSync(join(exposed, "skills", "new", "SKILL.md"), "utf8"), "# New");
+      assert.deepEqual(antigravityAgent.deactivate(ctx).affected, ["demo"]);
+      assert.equal(existsSync(exposed), false);
+      assert.ok(existsSync(source));
+    });
+  } finally { rmSync(store, { recursive: true, force: true }); }
+});
+
+test("another store cannot overwrite or retire an owned physical exposure", () => {
+  const first = mkdtempSync(join(tmpdir(), "adg-agy-first-store-"));
+  const second = mkdtempSync(join(tmpdir(), "adg-agy-second-store-"));
+  try {
+    for (const store of [first, second]) seedStore(store, "same", { schemaVersion: ADG_SCHEMA_VERSION, name: "same", version: "1.0.0", description: "Synthetic" });
+    withGemini((gemini) => {
+      const one = { pluginsDir: first, plugins: ["same"], scope: "user" as const };
+      const two = { ...one, pluginsDir: second };
+      assert.deepEqual(antigravityAgent.activate(one).affected, ["same"]);
+      const receipt = readFileSync(join(gemini, "config", "plugins", "same", ".adg-antigravity-projection.json"), "utf8");
+      assert.equal(antigravityAgent.refresh(two).failures?.[0]?.stage, "install");
+      assert.equal(antigravityAgent.deactivate(two).failures?.[0]?.stage, "remove");
+      assert.equal(readFileSync(join(gemini, "config", "plugins", "same", ".adg-antigravity-projection.json"), "utf8"), receipt);
+      assert.deepEqual(antigravityAgent.listInstalled!(two), []);
+      assert.deepEqual(antigravityAgent.listInstalled!(one), ["same"]);
+    });
+  } finally {
+    rmSync(first, { recursive: true, force: true }); rmSync(second, { recursive: true, force: true });
+  }
+});
+
+test("Antigravity refresh honors explicit force-enable while ordinary refresh preserves disabled state", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-force-enable-"));
+  try {
+    seedStore(store, "demo", { schemaVersion: ADG_SCHEMA_VERSION, name: "demo", version: "1.0.0", description: "Synthetic" });
+    withGemini(gemini => {
+      mkdirSync(join(gemini, "config"), { recursive: true });
+      const config = join(gemini, "config", "config.json"); writeFileSync(config, JSON.stringify({ plugins: { demo: { enabled: false } } }));
+      const ctx = { pluginsDir: store, plugins: ["demo"], scope: "user" as const };
+      const ordinary = antigravityAgent.refresh(ctx); assert.deepEqual(ordinary.preservedDisabled, ["demo"]); assert.deepEqual(ordinary.affected, []);
+      assert.equal(JSON.parse(readFileSync(config, "utf8")).plugins.demo.enabled, false);
+      const forced = antigravityAgent.refresh({ ...ctx, forceEnable: true });
+      assert.deepEqual(forced.affected, ["demo"]); assert.equal(forced.preservedDisabled, undefined); assert.equal(JSON.parse(readFileSync(config, "utf8")).plugins.demo.enabled, true);
+    });
+  } finally { rmSync(store, { recursive: true, force: true }); }
+});

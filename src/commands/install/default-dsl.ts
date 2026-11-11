@@ -43,7 +43,7 @@ export async function synthesizeDefaultDslPlugin(
   });
   const authorized = opts.authorizedComponents;
   const unauthorizedRisk = generated.components.some((c) => (c === "hooks" || c === "mcp") && !authorized?.includes(c));
-  if (opts.nonInteractive && unauthorizedRisk && opts.only === undefined) {
+  if (opts.nonInteractive && unauthorizedRisk && opts.only === undefined && !opts.replaySelection) {
     throw new Error("default source exposes hooks or MCP; pass --only to explicitly authorize selected components");
   }
   const staging = mkdtempSync(join(tmpdir(), "adg-default-plugin-"));

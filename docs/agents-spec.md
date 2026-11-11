@@ -341,3 +341,13 @@ When support for a new agent runtime is needed:
 4. **Update cross-agent matrices** (§8–§11) to include the new agent column.
 5. **Add hook event support** in [`src/hooks.ts`](../src/hooks.ts) `SUPPORTED_EVENTS`.
 6. **Test** via `adg plugins adapt --target <agent>` and `adg plugins validate`.
+
+## Updating plugin layouts
+
+Keep plugin and skill identities stable when reorganizing source files. ADG
+tracks verified installed inventories and follows unambiguous same-source
+skill moves. Existing marketplace `renames` metadata can describe plugin name
+changes or removals. Publishers maintain their current ordinary manifests and
+catalog; recovery history belongs to the client store. The
+[update and recovery plan](plugin-upgrade-migrations.md) documents decisions,
+retirement and legacy recovery.

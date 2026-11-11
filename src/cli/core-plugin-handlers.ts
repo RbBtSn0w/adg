@@ -11,6 +11,7 @@ import { pluginsListJson, pluginsPruneJson, pluginsStatusJson, printJson } from 
 import { renderPluginList, renderPrune, renderStatus } from "../render/plugins.ts";
 import {
   fail,
+  CliUsageError,
   parseVerb,
   resolveScopeDir,
   resolveTargets,
@@ -68,7 +69,7 @@ export async function handleCorePluginVerb(
       } else {
         console.error(`${ui.err("invalid:")} ${ui.name(pluginDir)}`);
         for (const issue of result.issues) console.error(ui.warn(`  - ${issue}`));
-        process.exit(1);
+        throw new CliUsageError("Plugin validation failed");
       }
       return true;
     }
@@ -108,7 +109,7 @@ export async function handleCorePluginVerb(
       // real failure of this mutating command, not the read-only "found
       // drift" outcome `status` reports at exit 0. See docs/cli-json.md's
       // exit-code contract for `adg plugins prune --json`.
-      if (pruneHasErrors(results)) process.exit(1);
+      if (pruneHasErrors(results)) throw new CliUsageError("Native registry cleanup is incomplete");
       return true;
     }
   }

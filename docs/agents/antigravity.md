@@ -154,3 +154,8 @@ plugin root. The ADG adapter materializes files at these conventional locations.
 
 **Note**: These are injected by the generated `hook-runner.mjs`, not by the Antigravity
 runtime itself. The runner bridges Claude-format command scripts to Antigravity's I/O.
+
+ADG places an owned physical plugin directory in the scan directory when the
+store entry lives elsewhere. Native discovery skips a symlink at the plugin
+root. Component aliases inside a physical root are supported. Ordinary update
+repairs an older symlink exposure even when the source revision is unchanged.

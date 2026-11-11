@@ -24,52 +24,21 @@ import {
 import { updateResultCounts } from "../src/cli/handlers.ts";
 import { projectStoreIsGlobalTrap, promoteGlobalTrap, runPlugins } from "../src/cli/handlers.ts";
 
-// `fail()` (reached by every invalid-input path) calls `process.exit(1)`, which
-// would kill the test runner. Stub it to throw so the exit path is assertable,
-// and silence the usage text it prints to stderr.
+// Usage errors unwind resource owners rather than terminating the process.
 function expectFail(fn: () => unknown): void {
-  const origExit = process.exit;
-  const origErr = console.error;
-  let exited = false;
-  process.exit = ((code?: number) => {
-    exited = true;
-    throw new Error(`process.exit(${code})`);
-  }) as never;
+  const original = console.error;
   console.error = () => {};
-  try {
-    fn();
-    assert.fail("expected the call to exit");
-  } catch (err) {
-    assert.equal(exited, true, `expected process.exit, got: ${String(err)}`);
-  } finally {
-    process.exit = origExit;
-    console.error = origErr;
-  }
+  try { assert.throws(fn, /./); }
+  finally { console.error = original; }
 }
 
-// Async twin of expectFail: a mutating verb resolves its scope asynchronously,
-// so the non-interactive "needs an explicit scope" guard exits from a promise.
 async function expectFailAsync(fn: () => Promise<unknown>): Promise<void> {
-  const origExit = process.exit;
-  const origErr = console.error;
-  let exited = false;
-  process.exit = ((code?: number) => {
-    exited = true;
-    throw new Error(`process.exit(${code})`);
-  }) as never;
+  const original = console.error;
   console.error = () => {};
   try {
-    await fn();
-  } catch (err) {
-    // The stubbed process.exit throws; surface any *other* error as-is instead
-    // of masking it behind a generic "expected process.exit" assertion.
-    if (exited) return;
-    throw err;
-  } finally {
-    process.exit = origExit;
-    console.error = origErr;
-  }
-  assert.fail("expected the call to exit");
+    const result = await fn();
+    assert.equal((result as { exitCode: number }).exitCode, 1);
+  } finally { console.error = original; }
 }
 
 test("projectStoreIsGlobalTrap flags only a project scope whose store is the global store", () => {
@@ -180,7 +149,9 @@ test("parseVerb splits declared flags from positionals", () => {
 test("parseVerb accepts --json only for commands that declare it", () => {
   assert.equal(parseVerb("list", PLUGIN_COMMANDS.list!.flags, ["--json"]).values.json, true);
   assert.equal(parseVerb("status", PLUGIN_COMMANDS.status!.flags, ["--json"]).values.json, true);
-  expectFail(() => parseVerb("add", PLUGIN_COMMANDS.add!.flags, ["owner/repo", "--json"]));
+  assert.equal(parseVerb("add", PLUGIN_COMMANDS.add!.flags, ["owner/repo", "--json"]).values.json, true);
+  assert.equal(parseVerb("update", PLUGIN_COMMANDS.update!.flags, ["--json"]).values.json, true);
+  expectFail(() => parseVerb("remove", PLUGIN_COMMANDS.remove!.flags, ["old", "--json"]));
 });
 
 test("renderPluginsHelp lists every command and tags the start verb", () => {

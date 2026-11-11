@@ -25,6 +25,8 @@ export interface InstallOneOptions {
    * re-installs / upgrades); absent on both = expose everything.
    */
   selection?: PluginSelection;
+  /** Internal replay preserves confidence instead of recording a new user choice. */
+  selectionKnown?: boolean;
   /**
    * Skip all work (copy, adapt, lock write) when the source's content hash and
    * version already match the recorded lock entry. Used by `update`, so a source
@@ -119,6 +121,8 @@ export interface AddOptions {
   // ── selection (a source may hold one plugin or a whole marketplace) ──
   /** Install every plugin found in the source. */
   all?: boolean;
+  /** Explicit subscription chosen in the interactive source picker. */
+  followAllSelected?: boolean;
   /** Install only these plugin names. */
   plugins?: string[];
   /**

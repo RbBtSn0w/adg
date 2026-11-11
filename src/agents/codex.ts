@@ -257,6 +257,7 @@ export function pruneStaleCodexMarketplaces(
 }
 
 export const codexAgent: Agent = {
+  retrySafeOperations: ["activate", "refresh", "deactivate"],
   id: "codex",
   displayName: "Codex",
   adaptTarget: "codex",

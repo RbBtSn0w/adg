@@ -102,35 +102,36 @@ refresh failures continue to follow the command's established exit-code contract
 
 This work changes update decisions and provenance persistence. Before delivery,
 review partial failure, explicit recovery, cache recovery, timestamps, and
-disabled state together. This delivery adds no durable runtime retry queue and
-no lock-schema migration.
+disabled state together. Source subscriptions, ownership migrations and retry behavior are specified in
+[Plugin update and recovery](plugin-upgrade-migrations.md).
 
 ### Upstream removals and marketplace restructuring
 
-An update does not authorize a new desired plugin set. Keep installed plugins
-that are missing from the fetched source, including their payload, source cache,
-lock entry, component selection, and enabled/disabled state. This applies to
-`update --all` as well: that flag permits additions, not uninstalls. Continue
-updating plugins that still exist upstream. Do not silently derive a new Default
-DSL identity when explicit manifests disappear; migration requires an explicit
-`add` selection.
+ADG's verified installation history can transfer an installed capability to a
+unique current owner at the same source and ref. Existing marketplace `renames`
+metadata handles plugin identity changes. Legacy installations without a
+trustworthy selection history get an in-command restoration choice. When no
+replacement can be established, the user
+can keep the old payload or explicitly retire it in the same update. Until that
+decision, the old owner and cache stay available. The report distinguishes
+`missingUpstream` from completed retirements in `deleted`. A one-time
+`update --all` selection does not imply consent to remove old plugins or
+subscribe to future additions. Each source ref is evaluated independently.
 
-Report retained names in `missingUpstream`, separately from actual removals in
-`deleted`, and count the incomplete source as failed so the CLI exits nonzero.
-Do not present an empty update as `up to date (0)`. Keep retained entries at
-their last verified revision so repeat checks can detect an upstream return.
-Plugins from one repository may follow different refs. Update checks each ref
-independently, including source-scoped updates, while list/remove/sync keep the
-repository-level view. `--all` preserves sibling pins; a dependency that would
-change another installed plugin's ref requires explicit migration.
-The `adg.plugins.update.missing_upstream` telemetry event records only the
-retained count and whether additions were requested.
+An explicit partial skill selection follows the same capabilities through a
+split or merge. The effective mandatory dependencies are recalculated from the
+current manifest; they do not become independently requested skills. Verified
+source inventories establish availability, while independently verified
+installed contents establish effective presence. An absent legacy selection
+field alone cannot establish a full installation policy.
 
-Use `adg plugins add <source>` with the original scope/ref to select replacements,
-or `adg plugins remove <name>` to explicitly remove a retired plugin. Explicit
-`add` retains its desired-set reconciliation behavior. Once an older release
-has deleted all installed entries for a source, `update` can no longer discover
-that source; recovery requires re-adding it.
+Unknown historical candidates default to keeping the current selection, with
+no unproven candidates preselected. Deferral is stored locally, separately from
+explicit exclusions. Unchanged cases do not prompt again; `update --repair`
+reopens them, including after the original plugin retired. Non-interactive
+updates preserve uncertain contents and report `deferredRecovery`, while
+independently verifiable updates continue. An up-to-date installed selection
+with deferred recovery is reported with both facts.
 
 Regression coverage in `test/plugins-update.test.ts` checks full replacement,
 partial disappearance, `--all`, runtime preservation, disabled/partial selections,
@@ -159,14 +160,9 @@ fails. Preserve that source outcome and report the native failure or unverified
 result separately, using the established nonzero failure outcome where
 applicable. The report must provide an actionable pending-sync message.
 
-Ordinary `plugins update` may take the already-checked source fast path on the
-next invocation; it is not an automatic retry mechanism for the failed native
-operation. Retry through `adg plugins sync` with the same scope and the intended
-runtime target, for example
-`adg plugins sync --global --target codex <plugin-name>` for one plugin in the
-global Codex store. This is an explicit recovery contract, not a persistent work
-queue. Neither a source checkpoint nor successful command dispatch proves that
-an existing session has loaded the new plugin.
+A pending migration replays its recorded operations locally before fetching
+another source revision. Verified native registration is distinct from the
+behavior of an already running agent session.
 
 ## Delivery record
 

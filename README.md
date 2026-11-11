@@ -327,16 +327,33 @@ discovery manifest/projection is cleared. `update` may refresh a disabled
 plugin's payload but never activates it. `list` groups enabled and disabled
 entries, and `status` distinguishes intentional disablement from runtime drift.
 
-`update` also preserves installed plugins that disappear upstream, including
-their last verified payload, enabled/disabled state, and component selections.
-It reports them as missing upstream and exits nonzero until they return or you
-explicitly migrate/remove them. `update --all` installs newly available plugins
-without uninstalling existing ones. For an upstream rename or marketplace
-restructure, use `adg plugins add <source>` to select replacements (or `--all`
-to select everything), keeping the same scope and source ref. Use
-`adg plugins remove <name>` for an explicit uninstall. If an older ADG version
-already removed every plugin from a source, re-add the source; `update` discovers
-sources from installed lock entries and cannot recover an empty source group.
+`adg plugins update -g` updates the global store and follows relocated skills
+using ADG's installation history and the current source catalog. Existing
+marketplace `renames` entries handle plugin identity changes. If an older update
+lost selection history, the same command can recover a verified historical
+release and offer restoration candidates whose prior selection is unknown.
+The default keeps the current selection; choosing individual candidates starts
+with none selected. Deferred recovery is recorded separately from exclusions,
+so repeated updates stay quiet. Use the same update command with `--repair` to
+reconsider deferred candidates. Publishers use their ordinary
+manifests and marketplace. Existing pins, disabled state and component selections are
+preserved. An interrupted migration resumes on the next update, including when
+the source is offline.
+
+ADG reads existing lock formats 3 through 5 and writes format 6 for recovery
+history. Every ADG installation sharing the same store must support format 6;
+older clients cannot read a store after it has been upgraded.
+
+`plugins add <source> --all` subscribes to future plugins from that source.
+Selecting plugins individually maintains that selection. `plugins update --all`
+includes available plugins for this run. Explicit removals remain excluded.
+New hook handlers and MCP services require review before activation.
+Partial skill choices survive plugin splits and merges, including whole-source
+subscriptions and one-time `--all` updates. An unattended update defers unknown
+historical choices, reports outstanding permissions and preserves affected
+contents. Use `--verbose` for details or `--json` for a structured report;
+`deferredRecovery` identifies unknown candidates separately from `notRestored`.
+See the [update and recovery behavior](docs/plugin-upgrade-migrations.md).
 
 For the local-directory-source flow into Claude's registry/cache, see
 [docs/local-plugin-registration.md](docs/local-plugin-registration.md).

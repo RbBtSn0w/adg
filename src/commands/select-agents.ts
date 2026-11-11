@@ -1,3 +1,4 @@
+import { UpdateCancelled } from "./source-upgrade.ts";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import type { AdapterTarget } from "../adapters/index.ts";
@@ -37,8 +38,7 @@ export async function selectTargetsInteractive(): Promise<AdapterTarget[]> {
   });
 
   if (p.isCancel(selected)) {
-    p.cancel("Installation cancelled");
-    process.exit(0);
+    throw new UpdateCancelled("Installation cancelled");
   }
 
   return selected as AdapterTarget[];

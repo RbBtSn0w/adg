@@ -117,7 +117,7 @@ test("updatePlugins distinguishes lockstep release versions from component chang
     assert.equal(changes.find((change) => change.name === "finance")?.content, false);
     assert.equal(changes.find((change) => change.name === "sales")?.content, true);
     assert.deepEqual(calls.flatMap((call) => call.plugins).sort(), ["finance", "sales"]);
-    const lines = renderUpdateReport(result).join("\n");
+    const lines = renderUpdateReport(result, { verbose: true }).join("\n");
     assert.match(lines, /version only.*finance/);
     assert.match(lines, /content\/configuration.*sales/);
     assert.doesNotMatch(lines, /runtime.*synced/);
@@ -788,6 +788,7 @@ for (const all of [false, true]) {
       const gitRunner = fakeClone(remote);
       await addPlugins({ spec: "acme/market", pluginsDir, all: true, skillsSubset: ["getting-started"], gitRunner, agents: [] });
       const before = readLock(lockPath(pluginsDir));
+      delete before.sources; // Historical installations did not record a future subscription.
       before.plugins["core-kit"]!.state = "disabled";
       for (const entry of Object.values(before.plugins)) entry.resolvedRevision = "r1";
       writeLock(lockPath(pluginsDir), before);
@@ -824,13 +825,13 @@ for (const all of [false, true]) {
         assert.equal(folderHash(pluginSourceCacheDir(pluginsDir, snapshot.name)), snapshot.cache);
       }
       assert.deepEqual(removed, [], "an update must not uninstall from any runtime");
-      assert.deepEqual(lockNames(pluginsDir), [...oldNames, ...(all ? newNames : [])].sort());
+      assert.deepEqual(lockNames(pluginsDir), [...oldNames].sort(), "unresolved owners protect the source group");
       assert.equal(marketplaceList({ pluginsDir })[0]!.source, "acme/market");
       assert.deepEqual(result.remote[0]!.missingUpstream, [...oldNames].sort());
       assert.deepEqual(result.remote[0]!.deleted, []);
-      assert.deepEqual(result.remote[0]!.available, all ? [] : [...newNames].sort());
+      assert.deepEqual(result.remote[0]!.available, [...newNames].sort());
       const report = renderUpdateReport(result).join("\n");
-      assert.match(report, /retained.*missing upstream/);
+      assert.match(report, /action required; current installation retained/);
       assert.doesNotMatch(report, /up to date|removed stale upstream/);
       assert.deepEqual(updateResultCounts(result), { succeeded: 0, failed: 1 });
       assert.deepEqual(events, [{ name: "adg.plugins.update.missing_upstream", attributes: {
@@ -1060,7 +1061,7 @@ test("updatePlugins --all installs newly available plugins; default does not", a
     writeNativeMarket(remote, ["sales"]);
     const pluginsDir = join(root, "pdir");
     const gitRunner = fakeClone(remote);
-    await addPlugins({ spec: "acme/market", pluginsDir, all: true, targets: ["codex"], gitRunner });
+    await addPlugins({ spec: "acme/market", pluginsDir, plugins: ["sales"], targets: ["codex"], gitRunner });
 
     // A new plugin appears upstream.
     writeNativeMarket(remote, ["sales", "ops"]);

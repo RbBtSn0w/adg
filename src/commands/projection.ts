@@ -4,6 +4,7 @@ import type { AdapterTarget } from "../adapters/index.ts";
 import { ADAPTER_TARGETS } from "../adapters/index.ts";
 import { installPlugin, type InstallResult } from "./install.ts";
 import { resolvePluginSourceSnapshot } from "../source-cache.ts";
+import { preservedSelection, requestedSelectionKnown } from "../source-history.ts";
 
 /**
  * Shared selection for the projection verbs (link / unlink / sync). Resolve which
@@ -52,7 +53,8 @@ export function rematerializeInstalled(
       pluginsDir,
       origin: plugin.origin,
       resolvedRevision: plugin.resolvedRevision,
-      selection: plugin.selection,
+      selection: preservedSelection(pluginsDir, plugin.name, plugin),
+      selectionKnown: requestedSelectionKnown(plugin),
       targets: [...ADAPTER_TARGETS],
       forceMaterialize: true,
     }));
