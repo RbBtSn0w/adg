@@ -119,3 +119,55 @@ test("unavailable self identity fails before publishing any contender", () => {
   assert.ifError(result.error);
   assert.equal(result.status,0,result.stderr);
 });
+
+function probeContention(scenario: "many" | "nonblocking" | "changed"): void {
+  const program = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import {registerHooks,syncBuiltinESMExports} from 'node:module';
+    import {tmpdir} from 'node:os';
+    import {join} from 'node:path';
+    const scenario=${JSON.stringify(scenario)};
+    globalThis.identityProbes=0;
+    const identity={kind:'test',version:1,birthToken:'original'};
+    registerHooks({resolve(specifier,context,next) {
+      if(specifier==='./process-identity.ts') return {url:'data:text/javascript,'+encodeURIComponent(
+        'export const getCurrentProcessIdentity=()=>('+JSON.stringify(identity)+');'+
+        'export function queryProcessIdentity(){globalThis.identityProbes++; return {...getCurrentProcessIdentity(),birthToken:'+ (scenario==='changed' ? '(globalThis.identityProbes===1 ? "original" : "changed")' : '"original"') +'};}'),shortCircuit:true};
+      return next(specifier,context);
+    }});
+    const root=fs.mkdtempSync(join(tmpdir(),'adg-probe-contention-'));
+    process.env.ADG_MUTEX_HOME=root;
+    const add=(index,ticket)=>{
+      const name=process.pid+'-'+String(index).padStart(8,'0')+'-0000-0000-0000-000000000000';
+      const path=join(root,name);fs.mkdirSync(path);
+      fs.writeFileSync(join(path,'owner.json'),JSON.stringify({version:1,pid:process.pid,identity}));
+      fs.writeFileSync(join(path,'ticket.json'),String(ticket));
+    };
+    if(scenario!=='nonblocking') for(let index=0;index<(scenario==='many'?20:1);index++) add(index,index+1);
+    const originalRename=fs.renameSync;
+    fs.renameSync=(source,destination)=>{
+      originalRename(source,destination);
+      if(scenario==='nonblocking' && String(destination).endsWith('ticket.json')) for(let index=0;index<20;index++) add(index,100+index);
+    };
+    syncBuiltinESMExports();
+    if(scenario==='changed') {
+      let now=0; Date.now=()=>now;
+      const originalTimeout=globalThis.setTimeout;
+      globalThis.setTimeout=(callback,delay,...args)=>{now+=1000; return originalTimeout(callback,delay,...args);};
+    }
+    try {
+      const {withStoreMutex}=await import(${JSON.stringify(mutexUrl)});
+      const run=()=>withStoreMutex('unused',()=>{},scenario==='changed'?10000:80);
+      if(scenario==='many') {await assert.rejects(run,/Another ADG mutation is still running/);assert.equal(globalThis.identityProbes,1,'Only the first actual blocker should be probed, once within the cache interval');}
+      else if(scenario==='nonblocking') {await run(); assert.equal(globalThis.identityProbes,0,'Later tickets must not launch identity queries');}
+      else {await run(); assert.equal(globalThis.identityProbes,2,'Matching identities must be revalidated and reused PID records recovered');}
+    } finally {fs.rmSync(root,{recursive:true,force:true});}
+  `;
+  const result=spawnSync(process.execPath,["--input-type=module","-e",program],{encoding:"utf8",timeout:5000});
+  assert.ifError(result.error);
+  assert.equal(result.status,0,result.stderr);
+}
+for(const scenario of ["many","nonblocking","changed"] as const) {
+  test(`birth queries are bounded for ${scenario} contention`,()=>probeContention(scenario));
+}

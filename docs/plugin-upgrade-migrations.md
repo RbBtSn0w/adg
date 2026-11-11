@@ -226,7 +226,11 @@ the original alias topology and restore only proven missing links under the mute
 rejecting foreign targets or replaced parents. Targeted alias retries preserve
 their target, source, scope and authorization flags.
 
-Frozen installation with npm 12.2.2, type checking, build and all 927 product
+OS identity probes run only for contenders that actually block progress, with a
+short per-operation cache and bounded revalidation. Reading an ordinary ticket
+snapshot never starts one system process per contender.
+
+Frozen installation with npm 12.2.2, type checking, build and all 930 product
 tests passed locally. The real Windows path is covered by the PR's Windows
 matrix; local Windows handle tests simulate the required access boundary.
 PR checks and subsequent review resolutions bind to the published head.

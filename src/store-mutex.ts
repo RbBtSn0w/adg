@@ -30,7 +30,7 @@ function ownerIdentity(path: string, pid: number): ProcessIdentity | undefined {
   } catch { throw new Error("Invalid ADG mutation owner record; inspect stale mutex records before retrying."); }
 }
 
-interface Contender { id: string; ticket?: number; unreadable?: boolean }
+interface Contender { id: string; pid: number; identity?: ProcessIdentity; ticket?: number; unreadable?: boolean }
 
 function transientWindowsAccess(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException).code;
@@ -60,17 +60,11 @@ function contenders(root: string): Contender[] {
       recordTelemetryEvent("adg.store.mutex.reclaimed", { reason: "process_exit" });
       return [];
     }
-    try {
-      const recorded = ownerIdentity(path, Number(match[1]));
-      const current = recorded && queryProcessIdentity(Number(match[1]));
-      if (recorded && current && recorded.kind === current.kind && recorded.version === current.version
-        && recorded.birthToken !== current.birthToken) {
-        rmSync(path, { recursive: true, force: true });
-        recordTelemetryEvent("adg.store.mutex.reclaimed", { reason: "process_identity_changed" });
-        return [];
-      }
-    } catch (error) {
-      if (transientWindowsAccess(error)) return [{ id, unreadable: true }];
+    const pid = Number(match[1]);
+    let identity: ProcessIdentity | undefined;
+    try { identity = ownerIdentity(path, pid); }
+    catch (error) {
+      if (transientWindowsAccess(error)) return [{ id, pid, unreadable: true }];
       throw error;
     }
     try {
@@ -78,14 +72,14 @@ function contenders(root: string): Contender[] {
       if (typeof ticket !== "number" || !Number.isSafeInteger(ticket) || ticket <= 0) {
         throw new Error("Invalid ADG mutation ticket");
       }
-      return [{ id, ticket }];
+      return [{ id, pid, identity, ticket }];
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || transientWindowsAccess(error)) {
         const presence = contenderPresence(path);
         if (presence === "absent") return [];
         // Only ENOENT with confirmed directory presence proves the choosing
         // phase. An unreadable published ticket may belong to an active holder.
-        return [{ id, unreadable: transientWindowsAccess(error) || presence === "unknown" }];
+        return [{ id, pid, identity, unreadable: transientWindowsAccess(error) || presence === "unknown" }];
       }
       throw error;
     }
@@ -121,6 +115,21 @@ export async function withStoreMutex<T>(
     rmSync(staging, { recursive: true, force: true });
   }
   const started = Date.now();
+  // OS birth queries can launch PowerShell. Only actual blockers need them;
+  // a stale high ticket merely overestimates our ticket and remains safe.
+  const checked = new Map<string, number>();
+  const reclaimReusedBlocker = (other: Contender): boolean => {
+    if (!other.identity || other.id === id) return false;
+    const last = checked.get(other.id);
+    if (last !== undefined && Date.now() - last < 1000) return false;
+    const current = queryProcessIdentity(other.pid);
+    checked.set(other.id, Date.now());
+    if (!current || other.identity.kind !== current.kind || other.identity.version !== current.version
+      || other.identity.birthToken === current.birthToken) return false;
+    rmSync(join(root, other.id), { recursive: true, force: true });
+    recordTelemetryEvent("adg.store.mutex.reclaimed", { reason: "process_identity_changed" });
+    return true;
+  };
   const wait = async () => {
     if (Date.now() - started >= timeoutMs) throw new Error("Another ADG mutation is still running; retry after it completes.");
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -129,7 +138,7 @@ export async function withStoreMutex<T>(
     let snapshot = contenders(root);
     // Do not choose a smaller ticket while a holder's published ticket might be
     // hidden. Genuine choosing contenders stay eligible to choose concurrently.
-    while (snapshot.some(entry => entry.unreadable)) {
+    while (snapshot.some(entry => entry.unreadable && !reclaimReusedBlocker(entry))) {
       await wait();
       snapshot = contenders(root);
     }
@@ -138,7 +147,7 @@ export async function withStoreMutex<T>(
     renameSync(join(path, "ticket.tmp"), join(path, "ticket.json"));
     for (;;) {
       const earlier = contenders(root).some((other) => other.id !== id && (other.ticket === undefined
-        || other.ticket < ticket || (other.ticket === ticket && other.id < id)));
+        || other.ticket < ticket || (other.ticket === ticket && other.id < id)) && !reclaimReusedBlocker(other));
       if (!earlier) break;
       await wait();
     }
