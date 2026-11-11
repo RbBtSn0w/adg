@@ -186,6 +186,7 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
     const explicitMoves = new Set<string>();
     const unavailable = new Set<string>();
     const dropped = new Set<string>();
+    const relinquished = new Set<string>();
     let unresolved = false;
     for (const skill of exposed.skills) {
       // New manifests recalculate mandatory dependencies from requested policy.
@@ -209,9 +210,33 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
         }
         continue;
       }
-      const sharedBefore = !recovery && [...current.values()].some(peer => peer.name !== old.name
-        && (history.size ? history.get(peer.name) : peer)?.contents.skills.includes(skill));
-      if (sharedBefore) { if (!candidates.has(old.name)) unresolved = true; continue; }
+      const sharedPeers = recovery ? [] : [...current.values()].filter(peer => {
+        if (peer.name === old.name) return false;
+        const proof = history.get(peer.name) ?? peer;
+        const selection = proof.selectionKnown === false || (proof.evidence === "catalog" && proof.selectionKnown !== true)
+          ? proof.effectiveSelection ?? { components: [] } : proof.effectiveSelection ?? proof.selection;
+        return exposedContents(proof.contents, selection).skills.includes(skill);
+      });
+      const sharedBefore = sharedPeers.some(peer => candidates.get(peer.name)?.contents.skills.includes(skill));
+      if (sharedBefore && candidates.has(old.name)) {
+        if (policySelection?.skills?.includes(skill)) relinquished.add(skill);
+        continue;
+      }
+      if (sharedBefore && !candidates.has(old.name)) {
+        const historicallyShared = !history.size || sharedPeers.some(peer => history.has(peer.name));
+        const formerSelectionKnown = old.selectionKnown === true || (old.selection !== undefined && old.selectionKnown !== false);
+        // Known historical sharing retains whole-plugin review. A newly observed peer
+        // authorizes skill transfer only with the former owner's own selection or installed proof.
+        if (historicallyShared || (!formerSelectionKnown && old.evidence !== "installed")) {
+          unresolved = true;
+          continue;
+        }
+      }
+      if (!candidates.has(old.name) && sharedPeers.length && owners.length > 1) {
+        // Historical sharing cannot identify one successor after the old owners retire.
+        unresolved = true;
+        continue;
+      }
       if (owners.length > 1) {
         const uncertain = Boolean(recovery) || Boolean(basis.uncertain && !visible.has(skill));
         const id = uncertain ? `ownership:${historyIdentity(recovery?.history ?? basis)}:${skill}` : `ownership:${old.name}:${skill}`;
@@ -237,7 +262,7 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
     }
     if (recovery && unavailable.size) result.deferredRecovery.push({ ...recovery,
       skills: recovery.skills.filter(address => unavailable.has(address.split(":").at(-1)!)) });
-    if ((!moves.length && !dropped.size) || unresolved) {
+    if ((!moves.length && !dropped.size && !relinquished.size) || unresolved) {
       continue;
     }
     const retiring = !recovery && !candidates.has(old.name);
@@ -269,13 +294,13 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
       }
     }
     if (retiring && !result.retained.includes(old.name)) result.retired.push(old.name);
-    else if (!recovery && (!basis.uncertain || dropped.size)) {
+    else if (!recovery && (!basis.uncertain || dropped.size || relinquished.size)) {
       const dest = ensure(old.name, reference);
       if (dest && !(policy.selectionKnown === true && policySelection?.skills === undefined)) {
         const selected = basis.uncertain || policy.selectionKnown === false ? exposedContents(policy.contents, policySelection).skills
           : basis.selection && basis.selectionKnown !== false ? requested.skills : exposed.skills;
         const remaining = selected
-          .filter(skill => !dropped.has(skill) && !moves.some(move => move.skill === skill));
+          .filter(skill => !dropped.has(skill) && !relinquished.has(skill) && !moves.some(move => move.skill === skill));
         ownSelections.set(old.name, { ...policySelection, components: [...(policySelection?.components ?? COMPONENT_TYPES)], skills: remaining });
       }
     }

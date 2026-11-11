@@ -256,3 +256,100 @@ test("known full subscriptions retain new owner contents when deletion and reloc
     assert.deepEqual(result.destinations.find(item => item.name === "successor")?.selection?.skills, ["moved"]);
   }
 });
+
+test("a missing peer history entry falls back to verified exposure only while the peer still provides the skill", () => {
+  const former = old({ contents: contents(["shared"]), selectionKnown: true });
+  const peer = old({ name: "peer", contents: contents(["shared", "own"]), selectionKnown: false,
+    effectiveSelection: { components: ["skills"], skills: ["shared", "own"] } });
+  const run = (peerSkills: string[]) => planMigration({ source: origin, installed: [former, peer], history: [former], candidates: [
+    { name: "peer", version: "3.0.0", contents: contents(peerSkills) },
+    { name: "replacement", version: "3.0.0", contents: contents(["shared", "unrelated"]) },
+  ], decisions: { "drop:peer:shared": { action: "drop" } } });
+  const shared = run(["shared", "own"]);
+  assert.deepEqual(shared.decisions, []);
+  assert.deepEqual(shared.destinations, []);
+  assert.deepEqual(shared.retired, []);
+  const moved = run(["own"]);
+  assert.deepEqual(moved.decisions, []);
+  assert.deepEqual(moved.destinations.find(item => item.name === "replacement")?.selection?.skills, ["shared"]);
+  assert.deepEqual(moved.retired, ["old"]);
+});
+
+test("unselected peer catalog membership does not suppress an ownership decision", () => {
+  const former = old({ contents: contents(["shared"]), selectionKnown: true });
+  for (const evidence of ["installed", "catalog"] as const) {
+    const peer = old({ name: "peer", contents: contents(["shared", "own"]), evidence, selectionKnown: false,
+      effectiveSelection: { components: ["skills"], skills: ["own"] } });
+    const result = planMigration({ source: origin, installed: [former, peer], history: [former], candidates: [
+      { name: "peer", version: "3.0.0", contents: contents(["shared", "own"]) },
+      { name: "replacement", version: "3.0.0", contents: contents(["shared"]) },
+    ] });
+    assert.deepEqual(result.decisions.find(item => item.id === "ownership:old:shared")?.skills,
+      ["peer:shared", "replacement:shared"]);
+  }
+});
+
+test("a surviving partial owner relinquishes a removed skill already exposed by a peer missing from history", () => {
+  const survivor = old({ contents: contents(["shared", "own"]), selectionKnown: true,
+    selection: { components: ["skills"], skills: ["shared", "own"] } });
+  const peer = old({ name: "peer", contents: contents(["shared"]), selectionKnown: false,
+    effectiveSelection: { components: ["skills"], skills: ["shared"] } });
+  const result = planMigration({ source: origin, installed: [survivor, peer], history: [survivor], candidates: [
+    { name: "old", version: "3.0.0", contents: contents(["own", "extra"]) },
+    { name: "peer", version: "3.0.0", contents: contents(["shared", "unrelated"]) },
+  ] });
+  assert.deepEqual(result.decisions, []);
+  assert.deepEqual(result.retired, []);
+  assert.deepEqual(result.destinations, [{ name: "old", state: "enabled", predecessors: ["old"],
+    selection: { components: ["skills"], skills: ["own"] } }]);
+});
+
+test("retired peers sharing a skill keep whole-plugin review when all replacements are ambiguous", () => {
+  const installed = ["first", "second"].map(name => old({ name, contents: contents(["shared"]),
+    selectionKnown: true, selection: { components: ["skills"], skills: ["shared"] } }));
+  const result = planMigration({ source: origin, installed, history: [installed[0]!], candidates: [
+    { name: "replacement", version: "3.0.0", contents: contents(["shared"]) },
+    { name: "alternative", version: "3.0.0", contents: contents(["shared"]) },
+  ] });
+  assert.deepEqual(result.decisions, []);
+  assert.deepEqual(result.retired, []);
+  assert.deepEqual(result.destinations, []);
+});
+
+test("retired owner migrates to unique already-selected peers missing from saved history", () => {
+  for (const count of [1, 2]) {
+    const skills = Array.from({ length: count }, (_, index) => `shared-${index}`);
+    const former = old({ contents: contents(skills), selectionKnown: true,
+      selection: { components: ["skills"], skills } });
+    const peers = skills.map((skill, index) => old({ name: `peer-${index}`, contents: contents([skill, "extra"]),
+      selectionKnown: true, selection: { components: ["skills"], skills: [skill] } }));
+    const result = planMigration({ source: origin, installed: [former, ...peers], history: [former],
+      candidates: peers.map(peer => ({ name: peer.name, version: "3.0.0", contents: peer.contents })) });
+    assert.deepEqual(result.decisions, []);
+    assert.deepEqual(result.retired, ["old"]);
+    assert.deepEqual(result.destinations.map(item => [item.name, item.selection]), peers.map(peer => [peer.name, peer.selection]));
+  }
+});
+
+test("known historical sharing preserves the existing whole-plugin retirement choice", () => {
+  const former = old({ contents: contents(["shared"]), selectionKnown: true });
+  const peer = old({ name: "peer", contents: contents(["shared"]), selectionKnown: true });
+  for (const history of [undefined, [former, peer]]) {
+    const result = planMigration({ source: origin, installed: [former, peer], history,
+      candidates: [{ name: "peer", version: "3.0.0", contents: contents(["shared"]) }] });
+    assert.deepEqual(result.decisions, []);
+    assert.deepEqual(result.retired, []);
+    assert.deepEqual(result.destinations, []);
+  }
+});
+
+test("a unique selected peer cannot authorize retirement of a catalog-only former owner", () => {
+  const former = old({ contents: { ...contents(["shared"]), agents: ["still-working"] }, evidence: "catalog",
+    selectionKnown: false, effectiveSelection: { components: [] }, uncertain: true });
+  const peer = old({ name: "peer", contents: contents(["shared"]), selectionKnown: true,
+    selection: { components: ["skills"], skills: ["shared"] } });
+  const result = planMigration({ source: origin, installed: [former, peer], history: [former],
+    candidates: [{ name: "peer", version: "3.0.0", contents: contents(["shared"]) }] });
+  assert.deepEqual(result.retired, []);
+  assert.deepEqual(result.destinations, []);
+});

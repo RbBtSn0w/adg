@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { addPlugins } from '../src/commands/install.ts';
 import { updatePlugins } from '../src/commands/marketplace.ts';
 import { readLock, writeLock } from '../src/lock.ts';
-import { lockPath } from '../src/paths.ts';
+import { installedPluginDir, lockPath } from '../src/paths.ts';
 import type { Agent } from '../src/agents/types.ts';
 
 function fixture(t: TestContext) {
@@ -113,4 +113,59 @@ test('persisted runtime ownership survives an empty provider injection without r
   assert.ok(result.remote[0]?.pendingRuntime?.length); assert.ok(readLock(lockPath(f.store)).plugins.former);
   const replay = await updatePlugins({ pluginsDir: f.store, agents: [], activate: false, revisionResolver: () => { throw new Error('Must replay offline'); } });
   assert.ok(replay.remote[0]?.pendingRuntime?.length); assert.ok(readLock(lockPath(f.store)).plugins.former);
+});
+
+test('implicit detected legacy runtime stays pending while unavailable and recovers offline', async t => {
+  const f = fixture(t); f.plugin('demo', '1.0.0');
+  await addPlugins({ spec: 'example/review', pluginsDir: f.store, all: true, gitRunner: f.clone, agents: [] });
+  const { allAgents, registerAgent } = await import('../src/agents/index.ts');
+  const original = allAgents(); t.after(() => { for (const agent of original) registerAgent(agent); });
+  for (const agent of original) registerAgent({ ...agent, detect: () => false, available: () => false });
+  let available = false; let version = '1.0.0'; let calls = 0;
+  registerAgent({ id: 'claude', displayName: 'Claude', adaptTarget: 'claude', detect: () => true, available: () => available,
+    inspectPlugins: () => [{ id: 'demo', name: 'demo', installed: true, enabled: true, version }],
+    activate: () => { throw new Error('Existing registration'); },
+    refresh: ctx => { calls++; version = '2.0.0'; return { agent: 'claude', affected: ctx.plugins, skipped: false }; },
+    deactivate: () => { throw new Error('No retirement'); } });
+  const lock = readLock(lockPath(f.store)); assert.equal(lock.plugins.demo!.runtimeStates, undefined);
+  for (const source of lock.sources ?? []) delete source.targets;
+  writeLock(lockPath(f.store), lock); f.plugin('demo', '2.0.0');
+  const first = await updatePlugins({ pluginsDir: f.store, activate: true, gitRunner: f.clone, revisionResolver: () => 'revision-two' });
+  assert.ok(first.remote[0]?.pendingRuntime?.length); assert.equal(calls, 0);
+  available = true; rmSync(f.remote, { recursive: true });
+  const replay = await updatePlugins({ pluginsDir: f.store, activate: true, revisionResolver: () => { throw new Error('Must replay offline'); }, gitRunner: () => { throw new Error('Must not clone'); } });
+  assert.equal(replay.remote[0]?.resumed, true); assert.equal(calls, 1); assert.equal(version, '2.0.0');
+});
+
+test('Claude-only repair publishes a Codex hook projection with the selected dependency closure', async t => {
+  const f = fixture(t);
+  const writePlugin = (version: string) => {
+    f.plugin('demo', version);
+    writeFileSync(join(f.remote, 'demo', '.agents', '.plugin.json'), JSON.stringify({ schemaVersion: 'adg.plugin/v1', name: 'demo', version, description: 'Synthetic repair', skills: './skills/', hooks: './hooks/', selectionDependencies: { hooks: { skills: ['one'] } } }));
+    mkdirSync(join(f.remote, 'demo', 'hooks'), { recursive: true }); writeFileSync(join(f.remote, 'demo', 'hooks', 'hooks.json'), JSON.stringify({ hooks: {} }));
+    mkdirSync(join(f.remote, 'demo', 'skills', 'excluded'), { recursive: true }); writeFileSync(join(f.remote, 'demo', 'skills', 'excluded', 'SKILL.md'), '# Excluded');
+  };
+  writePlugin('1.0.0');
+  await addPlugins({ spec: 'example/review', pluginsDir: f.store, all: true, targets: ['claude'], only: ['hooks'], gitRunner: f.clone, agents: [] });
+  let checked = 0;
+  const checkProjection = () => {
+    const entry = readLock(lockPath(f.store)).plugins.demo!;
+    const dir = installedPluginDir(f.store, 'demo', entry.origin);
+    const manifest = JSON.parse(readFileSync(join(dir, '.codex-plugin', 'plugin.json'), 'utf8'));
+    assert.deepEqual(manifest.skills, ['one']); assert.equal(typeof manifest.hooks, 'string');
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, manifest.hooks), 'utf8')), { hooks: {} });
+    assert.deepEqual(entry.selection, { components: ['hooks'] }); checked++;
+  };
+  const provider = (id: string): Agent => ({ id, displayName: id, adaptTarget: id === 'codex' ? 'codex' : 'claude', detect: () => true, available: () => true,
+    inspectPlugins: () => [{ id: 'demo', name: 'demo', installed: true, enabled: true, version: '2.0.0' }],
+    activate: ctx => { if (id === 'codex') checkProjection(); return { agent: id, affected: ctx.plugins, skipped: false }; },
+    refresh: ctx => { if (id === 'codex') checkProjection(); return { agent: id, affected: ctx.plugins, skipped: false }; },
+    deactivate: () => { throw new Error('No retirement'); } });
+  writePlugin('2.0.0');
+  const result = await updatePlugins({ pluginsDir: f.store, activate: true, repair: true, agents: [provider('claude'), provider('codex')], gitRunner: f.clone, revisionResolver: () => 'revision-two' });
+  assert.equal(result.remote[0]?.pendingRuntime, undefined); assert.equal(checked, 1);
+  assert.deepEqual(readLock(lockPath(f.store)).sources![0]!.targets, ['claude']);
+  const { verifyInstallation } = await import('../src/commands/install/install-one.ts');
+  const entry = readLock(lockPath(f.store)).plugins.demo!;
+  assert.deepEqual(verifyInstallation(installedPluginDir(f.store, 'demo', entry.origin), entry.installedHash, entry.selection, ['claude', 'codex']), { installationIntact: true, projectionsIntact: true });
 });

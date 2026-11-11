@@ -368,6 +368,9 @@ async function upgradeCandidates(
   }
   const targets =
     opts.targets ?? intent.targets?.filter((id): id is AdapterTarget => ADAPTER_TARGETS.includes(id as AdapterTarget));
+  const projectionTargets = [...new Set<AdapterTarget>([
+    ...(targets ?? ADAPTER_TARGETS), ...(opts.repair ? ["codex" as const] : []),
+  ])];
   const selectionFor = (name: string): PluginSelection | undefined => {
     const old = lock.plugins[name];
     const mapped = destinations.get(name);
@@ -405,7 +408,7 @@ async function upgradeCandidates(
     }
     return { name, candidate: candidates.get(name)!, old: lock.plugins[name], selection };
   });
-  const permissions = await reviewExecutables(pluginsDir, intent, proposed, targets, opts.review);
+  const permissions = await reviewExecutables(pluginsDir, intent, proposed, projectionTargets, opts.review);
   if (permissions.blockers.length) return needsDecision(permissions.blockers);
   const materializedSelections = new Map(
     proposed.map((item) => [item.name, permissions.selections.get(item.name) ?? item.selection]),
@@ -440,7 +443,7 @@ async function upgradeCandidates(
         origin,
         selection,
         selectionKnown: false,
-        targets,
+        targets: projectionTargets,
         definition: generated.get(name),
         now: opts.now,
         resolvedRevision: opts.revision,
@@ -452,7 +455,7 @@ async function upgradeCandidates(
       entry.selectionKnown = old ? known(name) : mapped ? mapped.predecessors.every(known) : true;
       if (restored.some(address => address.startsWith(`${name}:`))) entry.selectionKnown = true;
       if (deferredRecovery.some(address => address.startsWith(`${name}:`))) entry.selectionKnown = false;
-      const verification = old ? verifyInstallation(installedPluginDir(pluginsDir, name, old.origin), old.installedHash, old.selection, targets ?? [...ADAPTER_TARGETS]) : undefined;
+      const verification = old ? verifyInstallation(installedPluginDir(pluginsDir, name, old.origin), old.installedHash, old.selection, projectionTargets) : undefined;
       entry.installedAt = old?.installedAt ?? entry.installedAt;
       entry.state = destinations.get(name)?.state ?? old?.state;
       if (old?.runtimeStates) entry.runtimeStates = old.runtimeStates;
@@ -498,7 +501,10 @@ async function upgradeCandidates(
     policyChanged = previous ? !isDeepStrictEqual(JSON.parse(JSON.stringify(intent)), previous) : true;
     const checkpointNeeded = opts.revision && unchanged.some(name => lock.plugins[name]!.resolvedRevision !== opts.revision);
     const knownRuntime = (id: string) => group.installed.some(name => Object.hasOwn(lock.plugins[name]?.runtimeStates ?? {}, id));
-    const selectedRuntime = opts.activate ? (opts.agents ?? [...new Map([...resolveAgents(targets).filter(agent => targets !== undefined || agent.available() || knownRuntime(agent.id)), ...(opts.repair ? resolveAgents(["codex"]) : [])].map(agent => [agent.id, agent])).values()]) : [];
+    const selectedRuntime = opts.activate ? (opts.agents ?? [...new Map([
+      ...resolveAgents(targets).filter(agent => targets !== undefined || agent.detect() || agent.available() || knownRuntime(agent.id)),
+      ...(opts.repair ? resolveAgents(["codex"]) : []),
+    ].map(agent => [agent.id, agent])).values()]) : [];
     // Changed native payloads belong to the same durable transaction, including
     // Codex repair; standalone repair still handles unchanged missing members.
     const runtime = selectedRuntime;
@@ -531,7 +537,7 @@ async function upgradeCandidates(
       retireTargets,
       inspectionRequiredTargets: opts.repair ? ["codex"] : undefined,
       successors: stateReview.successors,
-      projectionTargets: targets ?? [...ADAPTER_TARGETS],
+      projectionTargets,
       sourceIntent: intent,
     });
     for (const agent of allRuntime) {

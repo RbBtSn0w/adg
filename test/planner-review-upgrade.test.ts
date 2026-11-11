@@ -137,3 +137,108 @@ test("full subscription follows simultaneous skill deletion and relocation witho
   assert.ok(existsSync(join(successor, "skills/moved/SKILL.md")));
   assert.equal(existsSync(join(successor, "skills/unrelated/SKILL.md")), false);
 });
+
+for (const peerStillProvides of [true, false]) {
+  test(`missing saved peer history ${peerStillProvides ? "avoids unnecessary ownership review" : "preserves required relocation"}`, async t => {
+    const root = mkdtempSync(join(tmpdir(), "adg-planner-peer-history-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const remote = join(root, "remote");
+    mkdirSync(remote);
+    const options = { pluginsDir: join(root, "store"), spec: "example/public-peer-history", agents: [],
+      gitRunner: (args: string[]) => { if (args[0] === "clone") cpSync(remote, args.at(-1)!, { recursive: true }); } };
+    plugin(remote, "former", "1.0.0", ["shared"]);
+    plugin(remote, "peer", "1.0.0", ["shared", "own"]);
+    await addPlugins({ ...options, plugins: ["former"] });
+    await addPlugins({ ...options, plugins: ["peer"], preserveExisting: true });
+    const before = readLock(lockPath(options.pluginsDir));
+    for (const source of before.sources ?? []) source.history = source.history?.filter(item => item.name !== "peer");
+    assert.deepEqual(before.sources?.[0]?.history?.map(item => item.name), ["former"]);
+    writeLock(lockPath(options.pluginsDir), before);
+    rmSync(join(remote, "former"), { recursive: true });
+    plugin(remote, "peer", "2.0.0", peerStillProvides ? ["shared", "own"] : ["own"]);
+    plugin(remote, "replacement", "2.0.0", ["shared", "unrelated"]);
+    const reviewed: string[] = [];
+    const updated = await updatePlugins({ ...options, review: async ({ history }) => {
+      assert.equal(peerStillProvides, true, "Relocation to the only remaining owner needs no review");
+      assert.deepEqual(history.map(item => item.id), ["unmapped:former"]);
+      reviewed.push(...history.map(item => item.id));
+      return { history: { "unmapped:former": { action: "keep" } }, allow: [] };
+    } });
+    assert.equal(updated.remote[0]?.failed, undefined);
+    assert.equal(updated.remote[0]?.actionRequired, undefined);
+    const after = readLock(lockPath(options.pluginsDir));
+    if (peerStillProvides) {
+      assert.deepEqual(reviewed, ["unmapped:former"]);
+      assert.deepEqual(Object.keys(after.plugins).sort(), ["former", "peer"]);
+      assert.deepEqual(updated.remote[0]?.retained, ["former"]);
+    } else {
+      assert.deepEqual(reviewed, []);
+      assert.deepEqual(Object.keys(after.plugins).sort(), ["peer", "replacement"]);
+      assert.deepEqual(after.plugins.replacement?.selection?.skills, ["shared"]);
+      const installed = installedPluginDir(options.pluginsDir, "replacement", after.plugins.replacement!.origin);
+      assert.ok(existsSync(join(installed, "skills/shared/SKILL.md")));
+      assert.equal(existsSync(join(installed, "skills/unrelated/SKILL.md")), false);
+    }
+  });
+}
+
+test("surviving partial subscription reconciles a removed skill already provided by a peer missing from history", async t => {
+  const root = mkdtempSync(join(tmpdir(), "adg-planner-surviving-peer-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const remote = join(root, "remote");
+  mkdirSync(remote);
+  const options = { pluginsDir: join(root, "store"), spec: "example/public-surviving-peer", agents: [],
+    gitRunner: (args: string[]) => { if (args[0] === "clone") cpSync(remote, args.at(-1)!, { recursive: true }); } };
+  plugin(remote, "survivor", "1.0.0", ["shared", "own"]);
+  plugin(remote, "peer", "1.0.0", ["shared", "unrelated"]);
+  await addPlugins({ ...options, plugins: ["survivor"], only: ["skills"], skillsSubset: ["shared", "own"] });
+  await addPlugins({ ...options, plugins: ["peer"], only: ["skills"], skillsSubset: ["shared"], preserveExisting: true });
+  const before = readLock(lockPath(options.pluginsDir));
+  for (const source of before.sources ?? []) source.history = source.history?.filter(item => item.name !== "peer");
+  assert.deepEqual(before.sources?.[0]?.history?.map(item => item.name), ["survivor"]);
+  writeLock(lockPath(options.pluginsDir), before);
+  plugin(remote, "survivor", "2.0.0", ["own", "extra"]);
+  const updated = await updatePlugins({ ...options,
+    review: async () => { throw new Error("An independently selected peer requires no ownership review"); } });
+  assert.equal(updated.remote[0]?.failed, undefined);
+  assert.equal(updated.remote[0]?.actionRequired, undefined);
+  const after = readLock(lockPath(options.pluginsDir));
+  assert.deepEqual(after.plugins.survivor?.selection, { components: ["skills"], skills: ["own"] });
+  assert.deepEqual(after.plugins.peer?.selection, { components: ["skills"], skills: ["shared"] });
+  const survivor = installedPluginDir(options.pluginsDir, "survivor", after.plugins.survivor!.origin);
+  assert.ok(existsSync(join(survivor, "skills/own/SKILL.md")));
+  assert.equal(existsSync(join(survivor, "skills/shared/SKILL.md")), false);
+  assert.equal(existsSync(join(survivor, "skills/extra/SKILL.md")), false);
+  const peer = installedPluginDir(options.pluginsDir, "peer", after.plugins.peer!.origin);
+  assert.ok(existsSync(join(peer, "skills/shared/SKILL.md")));
+  assert.equal(existsSync(join(peer, "skills/unrelated/SKILL.md")), false);
+});
+
+test("a retired verified owner transfers to an already-selected unique peer without an extra retirement prompt", async t => {
+  const root = mkdtempSync(join(tmpdir(), "adg-planner-unique-existing-peer-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const remote = join(root, "remote");
+  mkdirSync(remote);
+  const options = { pluginsDir: join(root, "store"), spec: "example/public-unique-existing-peer", agents: [],
+    gitRunner: (args: string[]) => { if (args[0] === "clone") cpSync(remote, args.at(-1)!, { recursive: true }); } };
+  plugin(remote, "former", "1.0.0", ["shared"]);
+  plugin(remote, "peer", "1.0.0", ["shared", "extra"]);
+  await addPlugins({ ...options, plugins: ["former"], only: ["skills"], skillsSubset: ["shared"] });
+  await addPlugins({ ...options, plugins: ["peer"], only: ["skills"], skillsSubset: ["shared"], preserveExisting: true });
+  const before = readLock(lockPath(options.pluginsDir));
+  for (const source of before.sources ?? []) source.history = source.history?.filter(item => item.name !== "peer");
+  assert.deepEqual(before.sources?.[0]?.history?.map(item => item.name), ["former"]);
+  writeLock(lockPath(options.pluginsDir), before);
+  rmSync(join(remote, "former"), { recursive: true });
+  const updated = await updatePlugins({ ...options,
+    review: async () => { throw new Error("Verified unique successor needs no additional retirement prompt"); } });
+  assert.equal(updated.remote[0]?.failed, undefined);
+  assert.equal(updated.remote[0]?.actionRequired, undefined);
+  assert.deepEqual(updated.remote[0]?.deleted, ["former"]);
+  const after = readLock(lockPath(options.pluginsDir));
+  assert.deepEqual(Object.keys(after.plugins), ["peer"]);
+  assert.deepEqual(after.plugins.peer?.selection, before.plugins.peer?.selection);
+  const peer = installedPluginDir(options.pluginsDir, "peer", after.plugins.peer!.origin);
+  assert.ok(existsSync(join(peer, "skills/shared/SKILL.md")));
+  assert.equal(existsSync(join(peer, "skills/extra/SKILL.md")), false);
+});

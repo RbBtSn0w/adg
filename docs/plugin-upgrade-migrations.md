@@ -210,7 +210,15 @@ existing tickets must remain distinct from unpublished choosing records: number
 allocation waits for a reliable maximum, and uncertain presence never permits
 entry into an occupied mutation. Permission errors and waiting stay bounded.
 
-Frozen installation with npm 12.2.2, type checking, build and all 882 product
+Detected runtimes retain saved work while their CLI is unavailable. Explicit
+Codex repair uses Codex projections consistently without changing subscriptions.
+Peer ownership checks fall back to verified current exposure per missing history
+entry; surviving partial selections still reconcile relocated names. A unique
+newly observed peer can receive a retired plugin's skills only when that plugin
+has its own verified selection or installation evidence. Known historical
+sharing and catalog-only predecessors retain their retirement review.
+
+Frozen installation with npm 12.2.2, type checking, build and all 895 product
 tests passed locally. The real Windows path is covered by the PR's Windows
 matrix; local Windows handle tests simulate the required access boundary.
 PR checks and subsequent review resolutions bind to the published head.
