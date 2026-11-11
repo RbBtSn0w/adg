@@ -35,7 +35,7 @@ export function renderContents(
 }
 
 /** Per-agent sync outcomes (enabled/disabled/re-synced), printed generically. */
-export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: string): string[] {
+export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: string, opts: { retryCommand?: string } = {}): string[] {
   const out: string[] = [];
   for (const r of agents ?? []) {
     const name = getAgent(r.agent)?.displayName ?? r.agent;
@@ -45,7 +45,7 @@ export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: s
     const globalFailure = r.failures?.some((failure) => !failure.plugin);
     const completed = (r.verified ?? (globalFailure ? [] : r.affected)).filter((plugin) => !failed.has(plugin) && !uncertain.has(plugin));
     if (completed.length > 0) out.push(`${ui.ok(verb)} in ${ui.name(name)}: ${completed.join(", ")}`);
-    if (r.failures?.length || r.unverified?.length) out.push(ui.warn(`runtime synchronization pending in ${name}; run \`adg plugins sync --target ${r.agent}\` with the same scope to retry.`));
+    if (r.failures?.length || r.unverified?.length) out.push(ui.warn(`runtime synchronization pending in ${name}; run \`${opts.retryCommand ?? `adg plugins sync --target ${r.agent}`}\` to retry.`));
     if (r.unverified?.length) out.push(ui.warn(`installed, recovery unverified in ${name}: ${r.unverified.join(", ")}`));
     if (r.preservedDisabled?.length) out.push(ui.meta(`runtime disabled, preserved in ${name}: ${r.preservedDisabled.join(", ")}; use enable or sync to activate`));
     else if (r.skipped)
@@ -55,6 +55,41 @@ export function renderAgentReport(agents: AgentSyncResult[] | undefined, verb: s
         ),
       );
   }
+  return out;
+}
+
+export function renderUpdateAgentReport(
+  agents: AgentSyncResult[],
+  opts: { verbose?: boolean; retryCommand?: string; reportedFailures?: string[] } = {},
+): string[] {
+  if (opts.verbose) return renderAgentReport(agents, "re-synced", { retryCommand: opts.retryCommand ?? "adg plugins update" });
+  const out: string[] = [];
+  const completed = new Set<string>();
+  const targets = new Set<string>();
+  const preserved = new Set<string>();
+  const reported = new Set(opts.reportedFailures ?? []);
+  let needsRetry = false;
+  for (const agent of agents) {
+    const display = getAgent(agent.agent)?.displayName ?? agent.agent;
+    const failed = new Set((agent.failures ?? []).flatMap(failure => failure.plugin ? [failure.plugin] : []));
+    const uncertain = new Set(agent.unverified ?? []);
+    const globalFailure = agent.failures?.some(failure => !failure.plugin);
+    const verified = (agent.verified ?? (globalFailure ? [] : agent.affected))
+      .filter(plugin => !failed.has(plugin) && !uncertain.has(plugin));
+    if (verified.length) {
+      targets.add(display);
+      for (const plugin of verified) completed.add(plugin);
+    }
+    for (const plugin of agent.preservedDisabled ?? []) preserved.add(plugin);
+    for (const failure of agent.failures ?? []) {
+      if (!reported.has(failure.message)) out.push(ui.err(`${display}${failure.plugin ? ` / ${failure.plugin}` : ""}: ${failure.message}`));
+    }
+    if (agent.failures?.length || agent.unverified?.length) needsRetry = true;
+    if (agent.skipped && !agent.failures?.length) out.push(ui.meta(`${display}: runtime unavailable; installed files retained`));
+  }
+  if (completed.size) out.unshift(ui.ok(`runtime synchronized: ${completed.size} plugin${completed.size === 1 ? "" : "s"} across ${[...targets].join(", ")}`));
+  if (preserved.size) out.push(ui.meta(`runtime disabled, preserved: ${preserved.size} plugin${preserved.size === 1 ? "" : "s"}`));
+  if (needsRetry && !reported.size) out.push(ui.warn(`Run \`${opts.retryCommand ?? "adg plugins update"}\` to resume runtime synchronization.`));
   return out;
 }
 
@@ -123,17 +158,69 @@ export function renderPluginList(
  * plus the local-bucket rescan, in the spirit of `adg skills update`. Returns a
  * one-line "nothing to update" message when no remote source had any change.
  */
-export function renderUpdateReport(result: PluginUpdateResult): string[] {
+export function renderUpdateReport(result: PluginUpdateResult, opts: { verbose?: boolean; retryCommand?: string } = {}): string[] {
   const out: string[] = [];
 
+  const untouched = (source: PluginUpdateResult["remote"][number]) => !source.updated.length && !source.deleted.length
+    && !source.failed && !source.actionRequired?.length && !source.pendingRuntime?.length
+    && !source.migrated?.length && !source.resumed && !source.restored?.length
+    && !source.retained?.length && !source.notRestored?.length && !source.deferredRecovery?.length
+    && !source.missingUpstream?.length && !source.available.length;
+  const collapsed = !opts.verbose && result.remote.length > 1 ? result.remote.filter(untouched) : [];
+  const retry = opts.retryCommand ?? "adg plugins update";
   for (const r of result.remote) {
+    if (collapsed.includes(r)) continue;
     const ref = r.ref ? `@${r.ref}` : "";
     const head = `${ui.name(`${r.source}${ref}`)}`;
+    const deferredReport = (): void => {
+      if (!r.deferredRecovery?.length) return;
+      const count = r.deferredRecovery.length;
+      out.push(ui.meta(`  historical recovery deferred: ${count} candidate${count === 1 ? "" : "s"} (prior selection unknown)`));
+      if (opts.verbose) out.push(ui.meta(`  deferred candidates: ${r.deferredRecovery.join(", ")}`));
+      const reconsider = /(?:^|\s)--repair(?:\s|$)/.test(retry) ? retry : `${retry} --repair`;
+      out.push(ui.meta(`  Run \`${reconsider}\` in a terminal to reconsider these candidates.`));
+    };
     if (r.failed) {
       out.push(`${head} ${ui.err("could not be checked")} ${ui.meta(`— ${r.failed}`)}`);
+      deferredReport();
       continue;
     }
-    if (r.updated.length > 0 && r.changes) {
+    if (r.actionRequired?.length) {
+      out.push(`${head}: ${ui.warn("action required; current installation retained")}`);
+      for (const message of r.actionRequired) {
+        const readable = opts.verbose ? message : message.startsWith("Review state:")
+          ? "Choose whether the merged plugin should be enabled or disabled."
+          : message.startsWith("Review drop:") ? "Choose whether to keep or remove a skill without a replacement."
+          : message.startsWith("Review unmapped:") ? "Choose whether to keep or remove the old plugin without a declared replacement."
+          : message.startsWith("Review ")
+            ? `Choose whether to restore historical skills${message.includes(": ") ? ` (${message.split(": ").slice(1).join(": ").split(", ").length})` : ""}.`
+            : message.replace(/ \(unmapped:[^)]+\)\./g, ".");
+        out.push(ui.warn(`  ${readable}`));
+      }
+      out.push(ui.meta(`  Run \`${retry}\` in a terminal with the same scope and source ref to review.`));
+      deferredReport();
+      continue;
+    }
+    if (r.pendingRuntime?.length) {
+      out.push(`${head}: ${ui.warn("runtime synchronization pending; existing installation retained")}`);
+      for (const message of new Set(r.pendingRuntime)) out.push(ui.warn(`  ${message}`));
+      out.push(ui.meta(`  Run \`${retry}\` with the same scope to resume offline.`));
+    }
+    if (r.resumed) out.push(`${head}: ${ui.ok(r.deferredRecovery?.length ? "runtime synchronization complete" : "recovery complete")}`);
+    if (!r.pendingRuntime?.length && r.migrated?.length) {
+      const restored = r.restored?.length ? `; restored ${r.restored.length} historical skill${r.restored.length === 1 ? "" : "s"}` : "";
+      out.push(`${head}: ${ui.ok(`source migrated${restored}`)}`);
+      if (opts.verbose) {
+        out.push(ui.meta(`  migrations: ${r.migrated.join(", ")}`));
+        if (r.restored?.length) out.push(ui.meta(`  restored: ${r.restored.join(", ")}`));
+      }
+    }
+    if (r.retained?.length) out.push(ui.meta(`  preserved by choice: ${r.retained.join(", ")}`));
+    if (r.notRestored?.length) out.push(ui.meta(`  not restored by choice (${r.notRestored.length})${opts.verbose ? `: ${r.notRestored.join(", ")}` : ""}`));
+    if (!opts.verbose && r.updated.length > 0) {
+      if (!r.migrated?.length || r.pendingRuntime?.length) out.push(`${head}: ${ui.ok(`updated ${r.updated.length} plugin${r.updated.length === 1 ? "" : "s"}`)}`);
+    }
+    else if (r.updated.length > 0 && r.changes) {
       const versionOnly = r.updated.filter((name) => {
         const change = r.changes!.find((item) => item.name === name);
         return change?.version && !change.content && !change.selection;
@@ -144,20 +231,25 @@ export function renderUpdateReport(result: PluginUpdateResult): string[] {
     }
     else if (r.updated.length > 0) out.push(`${head}: ${ui.ok(`updated ${r.updated.join(", ")}`)}`);
     else if (r.missingUpstream?.length) out.push(`${head}: ${ui.warn(`update incomplete (${r.unchanged.length} unchanged)`)}`);
-    else out.push(`${head}: ${ui.meta(`up to date (${r.unchanged.length})`)}`);
+    else if (!r.pendingRuntime?.length && !r.migrated?.length && !r.resumed) out.push(`${head}: ${ui.meta(`up to date (${r.unchanged.length})`)}`);
 
-    if (r.deleted.length > 0) {
-      out.push(ui.warn(`  removed stale upstream entries: ${r.deleted.join(", ")}`));
+    if (r.deleted.length > 0 && !r.pendingRuntime?.length) {
+      out.push(ui.warn(`  retired plugins: ${r.deleted.join(", ")}`));
     }
     if (r.missingUpstream?.length) {
       out.push(ui.warn(`  retained installed plugins missing upstream: ${r.missingUpstream.join(", ")}`));
-      out.push(ui.warn("  explicit migration or removal required: use `adg plugins add` to select replacements or `adg plugins remove` to uninstall; keep the same scope and source ref."));
+      out.push(ui.warn(`  Run \`${retry}\` with the same scope in a terminal to keep or remove them.`));
     }
     if (r.available.length > 0) {
-      out.push(ui.meta(`  ${r.available.length} more available (use --all): ${r.available.join(", ")}`));
+      out.push(ui.meta(`  ${r.available.length} more available${opts.verbose ? `: ${r.available.join(", ")}` : ""}; use update --all to include these once, or add <source> --all to follow future plugins`));
     }
+    deferredReport();
   }
 
+  if (collapsed.length) {
+    const other = result.remote.length > collapsed.length ? " other" : "";
+    out.push(ui.meta(`${collapsed.length}${other} source${collapsed.length === 1 ? "" : "s"} up to date`));
+  }
   for (const res of result.local.results) {
     const versionOnly = res.changes?.version && !res.changes.content && !res.changes.selection;
     const label = !res.changed ? ui.meta("unchanged") : versionOnly ? ui.meta("version only") : ui.ok("content/configuration updated");

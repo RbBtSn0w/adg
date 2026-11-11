@@ -42,7 +42,7 @@ export function spawnAdg(args, { env = {}, isolationRoot, cwd, timeout } = {}) {
   for (const [key, dir] of Object.entries(defaultHomes)) {
     if (!(key in env)) mkdirSync(dir, { recursive: true });
   }
-  const isolatedEnv = { ...process.env, ...defaultHomes, ...env };
+  const isolatedEnv = { ...process.env, ...defaultHomes, ADG_MUTEX_HOME: join(root, "mutex"), ...env };
   const entry = fileURLToPath(new URL("../bin/adg.ts", import.meta.url));
   const result = spawnSync(process.execPath, [entry, ...args], { env: isolatedEnv, encoding: "utf8", cwd, timeout });
   return { result, root };

@@ -7,7 +7,7 @@ import { readManifest } from "../manifest.ts";
 import { globalPluginsDir, installedPluginDir, lockPath } from "../paths.ts";
 import { readLock } from "../lock.ts";
 import { isAdgOwnedName, makeCli, skippedResult, type RunResult } from "./base.ts";
-import type { Agent, AgentContext, AgentListFailure, AgentListResult, AgentPruneResult, AgentScope, AgentSyncResult, StaleRegistration } from "./types.ts";
+import type { Agent, AgentContext, AgentInspectionResult, AgentPluginRecord, AgentListFailure, AgentListResult, AgentPruneResult, AgentScope, AgentSyncResult, StaleRegistration } from "./types.ts";
 
 /**
  * Claude Code agent.
@@ -106,19 +106,21 @@ export function syncMarketplace(
   name: string,
   runner: (args: string[]) => RunResult = run,
   warn: (message: string) => void = console.warn,
-): void {
+): RunResult {
   const listed = runner(["plugin", "marketplace", "list", "--json"]);
   if (listed.ok && parseClaudeMarketplaceList(listed.out).includes(name)) {
     // Claude's marketplace update path can fail on existing installs (for
     // example, merge-conflict-style failures on older CLI builds). When that
     // happens, fall back to re-adding the marketplace so the refresh remains
     // best-effort instead of surfacing a hard EXIT_CODE_1 in the ADG timeline.
-    if (runner(["plugin", "marketplace", "update", name]).ok) return;
+    const updated = runner(["plugin", "marketplace", "update", name]);
+    if (updated.ok) return updated;
   }
   const added = runner(["plugin", "marketplace", "add", pluginsDir]);
   if (!added.ok) {
     warn(`failed to sync Claude marketplace (${name}): ${added.out.trim() || "claude plugin marketplace add failed without an error message"}`);
   }
+  return added;
 }
 
 /**
@@ -170,45 +172,86 @@ export function pruneStaleClaudeMarketplaces(
   return { agent: "claude", skipped: false, removed, errors };
 }
 
+/** Run every requested plugin independently and return actionable native failures. */
+export function runClaudeLifecycle(
+  ctx: AgentContext,
+  operation: "activate" | "refresh" | "deactivate",
+  runner: (args: string[]) => RunResult = run,
+  isAvailable: () => boolean = available,
+): AgentSyncResult {
+  if (!isAvailable()) return skippedResult("claude");
+  const result: AgentSyncResult = { agent: "claude", affected: [], skipped: false, failures: [] };
+  const marketplace = claudeMarketplaceName(ctx.pluginsDir);
+  if (operation !== "deactivate") {
+    writeClaudeCatalog(ctx.pluginsDir);
+    const synced = syncMarketplace(ctx.pluginsDir, marketplace, runner);
+    if (!synced.ok) {
+      result.failures!.push({ stage: "marketplace", errorType: "native_failure", message: synced.out.trim() || "Claude marketplace synchronization failed" });
+      return result;
+    }
+  }
+  let inspection: AgentPluginRecord[] | undefined;
+  if (operation === "refresh") {
+    const listed = runner(["plugin", "list", "--json"]);
+    inspection = listed.ok ? parseClaudePluginRecords(listed.stdout ?? listed.out, marketplace, ctx.scope) : undefined;
+    if (!inspection) {
+      result.failures!.push({ stage: "inspect", errorType: "native_failure", message: listed.out.trim() || "Claude state could not be inspected before refresh" });
+      return result;
+    }
+  }
+  for (const plugin of ctx.plugins) {
+    const native = inspection?.find((p) => p.name === plugin);
+    if (operation === "refresh" && native && !native.enabled && !ctx.forceEnable) {
+      (result.preservedDisabled ??= []).push(plugin);
+      continue;
+    }
+    if (operation === "deactivate" || (operation === "refresh" && native)) {
+      const removed = runner(["plugin", "uninstall", `${plugin}@${marketplace}`, "--scope", ctx.scope, ...(operation === "refresh" || ctx.preserveData ? ["--keep-data"] : [])]);
+      const listed = !removed.ok ? runner(["plugin", "list", "--json"]) : undefined;
+      const observed = listed?.ok ? parseClaudePluginRecords(listed.stdout ?? listed.out, marketplace, ctx.scope) : undefined;
+      if (!removed.ok && !(observed && !observed.some((p) => p.name === plugin))) {
+        result.failures!.push({ plugin, stage: "remove", errorType: "native_failure", message: removed.out.trim() || "Claude uninstall failed" });
+        continue;
+      }
+    }
+    if (operation !== "deactivate") {
+      const installed = runner(["plugin", "install", `${plugin}@${marketplace}`, "--scope", ctx.scope]);
+      if (!installed.ok) {
+        result.failures!.push({ plugin, stage: "install", errorType: "native_failure", message: installed.out.trim() || "Claude install failed" });
+        continue;
+      }
+      if (ctx.forceEnable) {
+        const enabled = runner(["plugin", "enable", `${plugin}@${marketplace}`, "--scope", ctx.scope]);
+        if (!enabled.ok) {
+          result.failures!.push({ plugin, stage: "install", errorType: "native_failure", message: enabled.out.trim() || "Claude enable failed" });
+          continue;
+        }
+      }
+    }
+    result.affected.push(plugin);
+  }
+  if (!result.failures!.length) delete result.failures;
+  return result;
+}
+
 export const claudeAgent: Agent = {
+  retrySafeOperations: ["refresh", "deactivate"],
   id: "claude",
   displayName: "Claude Code",
   adaptTarget: "claude",
   detect: (env = process.env) => existsSync(claudeHome(env)),
   available,
 
-  activate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return skippedResult("claude");
-    const { name: marketplace } = writeClaudeCatalog(ctx.pluginsDir);
-    syncMarketplace(ctx.pluginsDir, marketplace);
-    const affected: string[] = [];
-    for (const p of ctx.plugins) {
-      const r = run(["plugin", "install", `${p}@${marketplace}`, "--scope", ctx.scope]);
-      if (r.ok) affected.push(p);
-      // Surface the CLI's reason instead of silently dropping the plugin — a
-      // rejected manifest (e.g. `hooks: Invalid input`) otherwise looks like a
-      // no-op "missing" with no diagnostic.
-      else console.error(`claude: failed to install ${p}@${marketplace}: ${r.out.trim()}`);
-    }
-    return { agent: "claude", affected, skipped: false };
-  },
+  activate: (ctx) => runClaudeLifecycle(ctx, "activate"),
+  deactivate: (ctx) => runClaudeLifecycle(ctx, "deactivate"),
+  refresh: (ctx) => runClaudeLifecycle(ctx, "refresh"),
 
-  deactivate(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return skippedResult("claude");
-    const affected: string[] = [];
-    for (const p of ctx.plugins) {
-      if (run(["plugin", "uninstall", p, "--scope", ctx.scope]).ok) affected.push(p);
-    }
-    return { agent: "claude", affected, skipped: false };
-  },
-
-  refresh(ctx: AgentContext): AgentSyncResult {
-    if (!available()) return skippedResult("claude");
-    // Claude caches a copy on install and won't re-pull from a local marketplace,
-    // so uninstall (keeping data) then re-install to force a fresh copy.
-    for (const p of ctx.plugins) run(["plugin", "uninstall", p, "--scope", ctx.scope, "--keep-data"]);
-    const act = claudeAgent.activate(ctx);
-    return { agent: "claude", affected: act.affected, skipped: act.skipped };
+  inspectPlugins(ctx: AgentContext): AgentInspectionResult {
+    if (!available()) return undefined;
+    const result = run(["plugin", "list", "--json"]);
+    if (!result.ok) return { error: result.out.trim() || "Claude plugin inspection failed" };
+    const records = parseClaudePluginRecords(result.stdout ?? result.out, claudeMarketplaceName(ctx.pluginsDir), ctx.scope);
+    return records ?? { error: UNRECOGNIZED_PLUGIN_LIST };
   },
 
   // Query Claude's live plugin state for `adg plugins status`, scoped to the
@@ -236,6 +279,25 @@ export const claudeAgent: Agent = {
 export function claudeListFailure(out: string): AgentListFailure {
   const detail = out.trim() || "claude plugin list failed without an error message";
   return { error: `${UNRECOGNIZED_PLUGIN_LIST}: ${detail}` };
+}
+
+/** Preserve disabled registrations and versions for transaction verification. */
+export function parseClaudePluginRecords(out: string, marketplace: string, scope: AgentScope): AgentPluginRecord[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(out);
+    if (!Array.isArray(parsed)) return undefined;
+    const records: AgentPluginRecord[] = [];
+    for (const value of parsed) {
+      if (!value || typeof value !== "object") return undefined;
+      const record = value as Record<string, unknown>;
+      if (typeof record.id !== "string" || typeof record.scope !== "string" || typeof record.enabled !== "boolean") return undefined;
+      const identity = record.id.match(/^(\S+?)@([\w.-]+)$/);
+      if (!identity || identity[2] !== marketplace || record.scope.toLowerCase() !== scope) continue;
+      records.push({ id: record.id, name: identity[1]!, installed: true, enabled: record.enabled,
+        ...(typeof record.version === "string" ? { version: record.version } : {}) });
+    }
+    return records;
+  } catch { return undefined; }
 }
 
 /** Parse `claude plugin list --json` into enabled plugin names for a marketplace + scope. */

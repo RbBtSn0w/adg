@@ -1,3 +1,4 @@
+import { UpdateCancelled } from "./source-upgrade.ts";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import type { SelectComponentsRequest } from "./install.ts";
@@ -6,8 +7,7 @@ import { multiselectSkills } from "./multiselect-skills.ts";
 
 function cancelled<T>(value: T | symbol): value is symbol {
   if (p.isCancel(value)) {
-    p.cancel("Installation cancelled");
-    process.exit(0);
+    throw new UpdateCancelled("Installation cancelled");
   }
   return false;
 }

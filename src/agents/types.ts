@@ -11,6 +11,10 @@ export interface AgentContext {
   pluginsDir: string;
   plugins: string[];
   scope: AgentScope;
+  /** Keep native plugin user data during transactional identity retirement. */
+  preserveData?: boolean;
+  /** The user explicitly chose to enable this runtime's successor. */
+  forceEnable?: boolean;
   /** Request best-effort cleanup of stale runtime identities after a successful link/sync. */
   reconcileLegacyAliases?: boolean;
 }
@@ -104,6 +108,10 @@ export interface Agent {
   deactivate(ctx: AgentContext): AgentSyncResult;
   /** Refresh the agent's cached copy after the store changed. */
   refresh(ctx: AgentContext): AgentSyncResult;
+  /** Lifecycle operations that safely converge after an interrupted prior attempt. */
+  retrySafeOperations?: readonly ("activate" | "refresh" | "deactivate")[];
+  /** Enabled managed plugins whose native projection needs repair despite unchanged source. */
+  needsProjectionRefresh?(ctx: AgentContext): string[];
   /**
    * Best-effort list of the plugin names this agent currently has enabled, by
    * querying its CLI. Powers `adg plugins status`'s drift detection. Returns

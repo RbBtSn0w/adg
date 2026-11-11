@@ -4,7 +4,10 @@ import { join, relative, resolve } from "node:path";
 import type { AdapterTarget } from "../adapters/index.ts";
 import { toPosix } from "../fsutil.ts";
 import { lockPath } from "../paths.ts";
-import { readLock } from "../lock.ts";
+import { syncNativeBatchWithRetry } from "../native-retry.ts";
+import { installedHistory } from "../source-history.ts";
+import { sourceIntent, setSourceIntent } from "../source-intent.ts";
+import { readLock, writeLock } from "../lock.ts";
 import { resolveInstallOrder } from "../deps.ts";
 import { cloneGitHub, gitRevision, parseGitHubSource, parseSource, type ParsedSource } from "../sources.ts";
 import { materializeSource } from "../remote/index.ts";
@@ -92,12 +95,12 @@ async function prepareSource(
   }
 }
 
-function activateInstalled(
+async function activateInstalled(
   opts: AddOptions,
   targets: AdapterTarget[] | undefined,
   installed: InstallResult[],
   existingPlugins: Set<string>,
-): AgentSyncResult[] | undefined {
+): Promise<AgentSyncResult[] | undefined> {
   const updatedLock = readLock(lockPath(opts.pluginsDir));
   const eligible = installed.filter((result) => pluginState(updatedLock.plugins[result.name]!) === "enabled");
   const toActivate = opts.skipUnchanged ? eligible.filter((result) => result.runtimeRefreshRequired ?? result.changed) : eligible;
@@ -107,32 +110,23 @@ function activateInstalled(
   const scope = opts.scope ?? "project";
   const ctxFor = (names: string[]) => ({ pluginsDir: opts.pluginsDir, plugins: names, scope });
 
-  return resolved.map((agent) => {
+  const requests = [];
+  for (const agent of resolved) {
     opts.onProgress?.({ kind: "activate", agent: agent.id, count: toActivate.length });
     const queryResult = agent.listInstalled?.(ctxFor([]));
     const agentInstalled = Array.isArray(queryResult) ? queryResult : undefined;
-    const alreadyInstalled = (name: string) =>
-      agentInstalled !== undefined
-        ? agentInstalled.includes(name)
-        : existingPlugins.has(name);
-    const activateNames = toActivate.filter((result) => !alreadyInstalled(result.name)).map((result) => result.name);
-    const refreshNames = toActivate.filter((result) => alreadyInstalled(result.name)).map((result) => result.name);
-    const parts: AgentSyncResult[] = [];
-    if (activateNames.length > 0) parts.push(agent.activate(ctxFor(activateNames)));
-    if (refreshNames.length > 0) parts.push(agent.refresh(ctxFor(refreshNames)));
-    return parts.reduce<AgentSyncResult>(
-      (acc, result) => ({
-        agent: result.agent,
-        affected: [...acc.affected, ...result.affected],
-        skipped: acc.skipped && result.skipped,
-        ...((acc.failures?.length || result.failures?.length) ? { failures: [...(acc.failures ?? []), ...(result.failures ?? [])] } : {}),
-        ...Object.fromEntries((["verified", "unverified", "preservedDisabled"] as const)
-          .filter((field) => acc[field] !== undefined || result[field] !== undefined)
-          .map((field) => [field, [...new Set([...(acc[field] ?? []), ...(result[field] ?? [])])]])),
-      }),
-      { agent: agent.id, affected: [], skipped: true },
-    );
-  });
+    const alreadyInstalled = (name: string) => agentInstalled !== undefined
+      ? agentInstalled.includes(name) : existingPlugins.has(name);
+    const activateNames = toActivate.filter(result => !alreadyInstalled(result.name)).map(result => result.name);
+    const refreshNames = toActivate.filter(result => alreadyInstalled(result.name)).map(result => result.name);
+    requests.push({
+      agent,
+      activate: activateNames,
+      refresh: refreshNames,
+      preserveRuntimeDisabled: Boolean(opts.skipUnchanged || opts.preserveExisting),
+    });
+  }
+  return syncNativeBatchWithRetry({ pluginsDir: opts.pluginsDir, scope, requests });
 }
 
 /**
@@ -286,7 +280,26 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
     // undefined targets = all registered agents. Under skipUnchanged (the update
     // path) only re-activate plugins that actually changed — re-running an agent
     // CLI for an untouched plugin is wasted work.
-    const agents = activateInstalled(opts, targets, installed, existingPlugins);
+    if (!opts.preserveExisting && parsed.kind === "github") {
+      const file = lockPath(opts.pluginsDir);
+      const lock = readLock(file);
+      const previous = sourceIntent(existingLock, parsed.source, sourceRef);
+      const followAll = Boolean((opts.all || opts.followAllSelected) && !opts.plugins?.length && !opts.sparse?.length && !structuralName);
+      setSourceIntent(lock, {
+        source: parsed.source, ref: sourceRef, mode: followAll ? "all" : "selected",
+        roots: selected, excluded: followAll ? [] : (previous?.excluded ?? []).filter((name) => !order.includes(name)),
+        appliedMigrations: [],
+        history: installedHistory(opts.pluginsDir, lock, parsed.source, sourceRef),
+        deferredRecovery: previous?.deferredRecovery,
+        executableDecisions: previous?.executableDecisions,
+        ...(targets ? { targets } : {}),
+        withDeps: opts.withDeps !== false,
+        ...(opts.sparse ? { sparse: opts.sparse } : {}),
+        ...(opts.only || opts.skillsSubset || opts.mcpSubset ? { selection: selections.get(selected[0]!) } : {}),
+      });
+      writeLock(file, lock);
+    }
+    const agents = await activateInstalled(opts, targets, installed, existingPlugins);
 
     return { order, installed, removed, converted, available, agents };
   } finally {

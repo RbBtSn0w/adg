@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type { Span } from "@opentelemetry/api";
 import { recordTelemetryEvent } from "./telemetry.ts";
 import { LOCK_VERSION, type LockEntry, type PluginLock } from "./types.ts";
@@ -18,14 +19,14 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
   }
   const parsed = raw as PluginLock;
   if (typeof parsed.version === "number") {
-    const observed = parsed.version === 2 || parsed.version === 3 || parsed.version === 4 || parsed.version === LOCK_VERSION ? parsed.version : -1;
+    const observed = parsed.version === 2 || parsed.version === 3 || parsed.version === 4 || parsed.version === 5 || parsed.version === LOCK_VERSION ? parsed.version : -1;
     recordTelemetryEvent("adg.lock.read", { "format.version": observed }, telemetrySpan);
   }
   if (typeof parsed.version !== "number" || typeof parsed.plugins !== "object" || parsed.plugins === null || Array.isArray(parsed.plugins)) {
     throw new Error(`${file} is not a valid .plugin-lock.json`);
   }
-  if (parsed.version === 3 || parsed.version === 4) {
-    // Read compatibility for the retained v3 and v4 formats keeps runtime
+  if ([3, 4, 5].includes(parsed.version)) {
+    // Read compatibility for the retained v3–v5 formats keeps runtime
     // adapters working before the user runs the explicit migration command.
     const upgraded = { ...parsed, version: LOCK_VERSION };
     pendingLockMigrations.set(upgraded, parsed.version);
@@ -41,7 +42,13 @@ export function readLock(file: string, telemetrySpan?: Pick<Span, "addEvent">): 
 }
 
 export function writeLock(file: string, lock: PluginLock, telemetrySpan?: Pick<Span, "addEvent">): void {
-  writeFileSync(file, JSON.stringify(lock, null, 2) + "\n");
+  const temporary = file + "." + randomUUID() + ".tmp";
+  try {
+    writeFileSync(temporary, JSON.stringify(lock, null, 2) + "\n", { mode: 0o600 });
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
   const fromVersion = pendingLockMigrations.get(lock);
   if (fromVersion !== undefined) {
     pendingLockMigrations.delete(lock);

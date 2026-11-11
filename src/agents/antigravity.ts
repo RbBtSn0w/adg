@@ -1,6 +1,7 @@
-import { existsSync, rmSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ensureDir, writeJson } from "../fsutil.ts";
 import { findManifestFile, readManifest } from "../manifest.ts";
 import { isExposed } from "../components.ts";
@@ -17,7 +18,7 @@ import {
   reconcileAntigravityDeactivation,
   syncAntigravityPluginConfig,
 } from "./antigravity-mcp-compat.ts";
-import { resolveSelectionDependencies, type AdgManifest, type ComponentType, type PluginSelection } from "../types.ts";
+import { resolveSelectionDependencies, type LockEntry, type AdgManifest, type ComponentType, type PluginSelection } from "../types.ts";
 import type { Agent, AgentContext, AgentPruneResult, AgentSyncResult } from "./types.ts";
 
 export {
@@ -42,9 +43,9 @@ export {
  * We therefore drive Antigravity purely by placing files, never by a CLI:
  *   - Project scope is *in place*: ADG's store folder already sits in the
  *     workspace scan dir, so we just write the agy `plugin.json` at its root.
- *   - Global scope (and remote-nested project plugins, which live two levels
- *     under the scan dir) get an exposure symlink `<scanDir>/<name>` -> the real
- *     store folder, with a copy fallback where symlinks are unavailable.
+ *   - Global scope and remote-nested project plugins get a real, ADG-owned
+ *     directory at `<scanDir>/<name>`. Native agy ignores root symlinks while
+ *     following component symlinks inside a real root.
  *
  * Provenance is owned by ADG: `listInstalled` answers from the queried scope's
  * own lock intersected with that scope's scan dir — never from the agent — so a
@@ -141,7 +142,8 @@ function componentSegment(value: AdgManifest[keyof AdgManifest]): string | undef
  * (aliasing with a symlink/copy only when the manifest's source dir name differs).
  * Idempotent; safe to re-run. Never deletes a real (non-symlink) component dir.
  */
-export function ensureAntigravityRoot(dir: string, selection?: PluginSelection): void {
+export function ensureAntigravityRoot(dir: string, selection?: PluginSelection): boolean {
+  let complete = true;
   const manifest = readManifest(dir);
   const { manifest: pluginJson } = toAntigravityManifest(dir, manifest, selection);
   writeJson(join(dir, ANTIGRAVITY_MANIFEST), pluginJson);
@@ -165,35 +167,101 @@ export function ensureAntigravityRoot(dir: string, selection?: PluginSelection):
                 `Remove it to let ADG manage this component.`,
             )
         : undefined;
-    reconcile(link, desired, warn);
+    const reconciled = reconcile(link, desired, warn);
+    if (desired.kind === "linked" && !reconciled) complete = false;
+  }
+  return complete;
+}
+
+const PROJECTION_STATE = ".adg-antigravity-projection.json";
+
+function physicalPluginRoot(path: string): boolean {
+  try {
+    const stat = lstatSync(path);
+    return stat.isDirectory() && !stat.isSymbolicLink() && existsSync(join(path, ANTIGRAVITY_MANIFEST));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 
-/**
- * Expose `realDir` to Antigravity at `<scanDir>/<name>`. No-op when the real dir
- * already *is* that path (project, flat). Returns false without touching disk when
- * the target is real content `src/projection-slot.ts`'s `observeSlot` can't prove
- * ADG owns (no `.adg-owned` marker) — we never clobber a plugin slot we don't own.
- * Replacing our own alias or a prior copy-fallback projection (which carries the
- * marker) is fine.
- *
- * Migration note: a copy-fallback exposure created before this module existed
- * carries no marker — ownership was inferred from a root `plugin.json` instead,
- * which is also just Antigravity's own plugin format and proves nothing on its
- * own — so `adoptLegacyExposure` below requires ADG-specific evidence too
- * before it plants the marker; see that function's doc for why a bare
- * `plugin.json` isn't enough by itself.
+function ownedExposure(target: string, name: string, store: string, realDir?: string): boolean {
+  const observed = observeSlot(target);
+  if (observed.kind === "absent") return true;
+  const storeRoot = existsSync(store) ? realpathSync(store) : resolve(store);
+  if (observed.kind === "owned-dir") {
+    const stateFile = join(target, PROJECTION_STATE);
+    if (!existsSync(stateFile)) return true; // Legacy copy-fallback marker has no source receipt.
+    try {
+      const state = JSON.parse(readFileSync(stateFile, "utf8")) as { version?: number; source?: unknown };
+      if (state.version !== 1 || typeof state.source !== "string") return false;
+      const rel = relative(storeRoot, resolve(state.source));
+      return !!rel && !isAbsolute(rel) && !rel.startsWith("..") && basename(state.source) === name;
+    } catch { return false; }
+  }
+  if (observed.kind !== "symlink") return false;
+  if (realDir && resolve(observed.target) === resolve(realDir)) return true;
+  const linkTarget = existsSync(observed.target) ? realpathSync(observed.target) : resolve(observed.target);
+  const rel = relative(storeRoot, linkTarget);
+  return !!rel && !isAbsolute(rel) && !rel.startsWith("..") && basename(observed.target) === name;
+}
+
+/** Build outside the scan directory, then replace only a proven ADG exposure.
+ * Native agy skips symlinked plugin roots, but follows component aliases inside
+ * real roots. A copied root also keeps native version/manifest discovery local.
  */
-function exposeAt(scanDir: string, name: string, realDir: string): boolean {
+function exposeAt(scanDir: string, name: string, realDir: string, store: string, entry: LockEntry): boolean {
   const target = join(scanDir, name);
-  if (resolve(target) === resolve(realDir)) return true; // project, flat: already in the scan dir
+  if (resolve(target) === resolve(realDir)) return true;
   adoptLegacyExposure(target, name);
-  return reconcile(target, { kind: "linked", target: resolve(realDir) }, () =>
-    console.error(
-      `antigravity: skipping "${name}" — ${target} already exists and is not ADG-managed. ` +
-        `Remove it to let ADG manage this plugin.`,
-    ),
-  );
+  if (!ownedExposure(target, name, store, realDir)) return false;
+  const work = join(dirname(scanDir), ".adg-projection-staging", randomUUID());
+  const staged = join(work, "next");
+  const backup = join(work, "previous");
+  mkdirSync(work, { recursive: true, mode: 0o700 });
+  try {
+    cpSync(realDir, staged, { recursive: true, dereference: false });
+    const manifest = readManifest(staged);
+    const selection = resolveSelectionDependencies(manifest, entry.selection);
+    writeJson(join(staged, ANTIGRAVITY_MANIFEST), toAntigravityManifest(staged, manifest, entry.selection).manifest);
+    writeAntigravityMcpConfig(staged, manifest, selection);
+    writeAntigravityHooks(staged, manifest, selection, target);
+    markOwned(staged);
+    writeJson(join(staged, PROJECTION_STATE), {
+      version: 1, source: realpathSync(realDir), installedHash: entry.installedHash, selection: entry.selection,
+    });
+    // Recheck after preparation so a user-owned folder appearing meanwhile stays intact.
+    if (!ownedExposure(target, name, store, realDir)) return false;
+    if (observeSlot(target).kind !== "absent") renameSync(target, backup);
+    try { renameSync(staged, target); }
+    catch (error) {
+      if (observeSlot(target).kind === "absent" && existsSync(backup)) renameSync(backup, target);
+      throw error;
+    }
+    return physicalPluginRoot(target);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** Read-only detection also runs before an unchanged-source revision fast path. */
+export function antigravityProjectionRepairs(ctx: AgentContext): string[] {
+  if (!antigravityAgent.detect()) return [];
+  const lock = readLock(lockPath(ctx.pluginsDir));
+  const requested = ctx.plugins.length ? new Set(ctx.plugins) : undefined;
+  const scan = antigravityScanDir(ctx);
+  return Object.entries(lock.plugins).filter(([name, entry]) => {
+    if ((requested && !requested.has(name)) || entry.state === "disabled") return false;
+    const realDir = installedPluginDir(ctx.pluginsDir, name, entry.origin);
+    const target = join(scan, name);
+    if (!physicalPluginRoot(target)) return true;
+    if (resolve(target) === resolve(realDir)) return false;
+    try {
+      if (observeSlot(target).kind !== "owned-dir") return true;
+      const state = JSON.parse(readFileSync(join(target, PROJECTION_STATE), "utf8")) as Record<string, unknown>;
+      return state.version !== 1 || state.source !== realpathSync(realDir) || state.installedHash !== entry.installedHash;
+    } catch { return true; }
+  }).map(([name]) => name);
 }
 
 /**
@@ -261,15 +329,36 @@ function removeProjection(scanDir: string, name: string, realDir?: string): void
 }
 
 /** Resolve a plugin's on-disk dir and selection from the lock, or undefined when not installed. */
-function pluginRealDir(pluginsDir: string, name: string): { dir: string; selection?: PluginSelection } | undefined {
+function pluginRealDir(pluginsDir: string, name: string): { dir: string; selection?: PluginSelection; entry: LockEntry } | undefined {
   const entry = readLock(lockPath(pluginsDir)).plugins[name];
   if (!entry) return undefined;
   const dir = installedPluginDir(pluginsDir, name, entry.origin);
   if (!existsSync(dir)) return undefined;
-  return { dir, selection: resolveSelectionDependencies(readManifest(dir), entry.selection) };
+  return { dir, selection: resolveSelectionDependencies(readManifest(dir), entry.selection), entry };
+}
+
+/** Compatibility writes are best-effort; native state must still confirm them. */
+function verifyRuntimeState(name: string, enabled: boolean): void {
+  const home = geminiHome(process.env);
+  const configPath = join(home, "config", "config.json");
+  if (existsSync(configPath)) {
+    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Antigravity configuration cannot be verified");
+    const plugins = (parsed as { plugins?: Record<string, { enabled?: boolean }> }).plugins;
+    if (plugins && (plugins[name]?.enabled ?? false) !== enabled) throw new Error("Antigravity enablement write was not confirmed");
+  }
+  if (!enabled) {
+    for (const marker of ANTIGRAVITY_MARKERS) {
+      const schemas = join(home, marker, "mcp");
+      if (existsSync(schemas) && readdirSync(schemas).some((entry) => entry.startsWith(`${name}_`))) {
+        throw new Error("Antigravity runtime tool cleanup was not confirmed");
+      }
+    }
+  }
 }
 
 export const antigravityAgent: Agent = {
+  retrySafeOperations: ["activate", "refresh", "deactivate"],
   id: ID,
   displayName: "Antigravity",
   adaptTarget: "antigravity",
@@ -277,27 +366,31 @@ export const antigravityAgent: Agent = {
   // home is the signal that Antigravity is installed and its scan dirs are real.
   detect: (env = process.env) => antigravityPresent(env),
   available: () => antigravityPresent(process.env),
+  needsProjectionRefresh: antigravityProjectionRepairs,
 
   activate(ctx: AgentContext): AgentSyncResult {
     if (!antigravityAgent.detect()) return skippedResult(ID);
     const scanDir = antigravityScanDir(ctx);
     ensureDir(scanDir);
     const affected: string[] = [];
+    const failures: NonNullable<AgentSyncResult["failures"]> = [];
     for (const p of ctx.plugins) {
       // Isolate each plugin: a malformed manifest or fs error must not abort the rest.
       try {
         const real = pluginRealDir(ctx.pluginsDir, p);
-        if (!real) continue;
-        ensureAntigravityRoot(real.dir, real.selection);
-        if (exposeAt(scanDir, p, real.dir)) {
+        if (!real) throw new Error("Plugin payload is missing from the store");
+        if (!ensureAntigravityRoot(real.dir, real.selection)) throw new Error("A component alias is occupied by foreign content");
+        if (exposeAt(scanDir, p, real.dir, ctx.pluginsDir, real.entry)) {
           reconcileAntigravityActivation(p);
+          verifyRuntimeState(p, true);
           affected.push(p);
-        }
+        } else throw new Error("Plugin exposure is occupied by foreign content");
       } catch (err) {
+        failures.push({ plugin: p, stage: "install", errorType: "projection_failure", message: err instanceof Error ? err.message : String(err) });
         console.error(`failed to enable "${p}" in Antigravity:`, err);
       }
     }
-    return { agent: ID, affected, skipped: false };
+    return { agent: ID, affected, skipped: false, ...(failures.length ? { failures } : {}) };
   },
 
   deactivate(ctx: AgentContext): AgentSyncResult {
@@ -305,37 +398,82 @@ export const antigravityAgent: Agent = {
     const scanDir = antigravityScanDir(ctx);
     const lock = readLock(lockPath(ctx.pluginsDir)).plugins;
     const affected: string[] = [];
+    const failures: NonNullable<AgentSyncResult["failures"]> = [];
     for (const p of ctx.plugins) {
-      const entry = lock[p];
-      const realDir = entry ? installedPluginDir(ctx.pluginsDir, p, entry.origin) : undefined;
-      const target = join(scanDir, p);
-      adoptLegacyExposure(target, p);
-      if ((!realDir || resolve(target) !== resolve(realDir)) && observeSlot(target).kind === "foreign") {
-        continue;
+      try {
+        const entry = lock[p];
+        const realDir = entry ? installedPluginDir(ctx.pluginsDir, p, entry.origin) : undefined;
+        const target = join(scanDir, p);
+        adoptLegacyExposure(target, p);
+        if ((!realDir || resolve(target) !== resolve(realDir)) && !ownedExposure(target, p, ctx.pluginsDir, realDir)) {
+          throw new Error("Plugin exposure is occupied by foreign content");
+        }
+        reconcileAntigravityDeactivation(p, scanDir, realDir);
+        removeProjection(scanDir, p, realDir);
+        verifyRuntimeState(p, false);
+        if (existsSync(join(target, ANTIGRAVITY_MANIFEST))) throw new Error("Plugin projection is still visible after removal");
+        affected.push(p);
+      } catch (error) {
+        failures.push({ plugin: p, stage: "remove", errorType: "projection_failure", message: error instanceof Error ? error.message : String(error) });
       }
-      reconcileAntigravityDeactivation(p, scanDir, realDir);
-      removeProjection(scanDir, p, realDir);
-      affected.push(p);
     }
-    return { agent: ID, affected, skipped: false };
+    return { agent: ID, affected, skipped: false, ...(failures.length ? { failures } : {}) };
   },
 
   // Re-running activate is the refresh: it rewrites the manifest and re-exposes
   // the store dir, so a changed plugin replaces its stale projection in place.
   refresh(ctx: AgentContext): AgentSyncResult {
-    return antigravityAgent.activate(ctx);
+    const config = join(geminiHome(process.env), "config", "config.json");
+    let preservedDisabled: string[] = [];
+    try {
+      if (!ctx.forceEnable && existsSync(config)) {
+        const parsed = JSON.parse(readFileSync(config, "utf8")) as { plugins?: Record<string, { enabled?: boolean }> };
+        preservedDisabled = ctx.plugins.filter((name) => parsed?.plugins?.[name]?.enabled === false);
+      }
+    } catch { /* Activation returns an explicit verification failure for malformed configuration. */ }
+    const active = ctx.plugins.filter((name) => !preservedDisabled.includes(name));
+    const result = active.length ? antigravityAgent.activate({ ...ctx, plugins: active })
+      : { agent: ID, affected: [], skipped: !antigravityAgent.detect() };
+    return { ...result, ...(preservedDisabled.length ? { preservedDisabled } : {}) };
   },
 
-  // Provenance is ADG's, not the agent's: enumerate the queried scope's own lock
-  // and keep only plugins Antigravity actually sees in that scope's scan dir (a
-  // root `plugin.json`, reached directly or via the exposure link). A project
+  inspectPlugins(ctx) {
+    if (!antigravityAgent.detect()) return undefined;
+    try {
+      const config = join(geminiHome(process.env), "config", "config.json");
+      let enabled: Record<string, { enabled?: boolean }> | undefined;
+      if (existsSync(config)) {
+        const parsed: unknown = JSON.parse(readFileSync(config, "utf8"));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { error: "Antigravity enablement cannot be inspected" };
+        enabled = (parsed as { plugins?: Record<string, { enabled?: boolean }> }).plugins;
+      }
+      const scan = antigravityScanDir(ctx);
+      return ctx.plugins.map((name) => {
+        const dir = join(scan, name);
+        const entry = readLock(lockPath(ctx.pluginsDir)).plugins[name];
+        const real = entry ? installedPluginDir(ctx.pluginsDir, name, entry.origin) : undefined;
+        const installed = physicalPluginRoot(dir) && !!real && (resolve(dir) === resolve(real) || ownedExposure(dir, name, ctx.pluginsDir, real));
+        return { id: name, name, installed, enabled: installed && (enabled?.[name]?.enabled ?? true),
+          ...(installed ? { version: readManifest(dir).version } : {}) };
+      });
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+
+  // Native discovery ignores symlinked plugin roots. Scope provenance requires
+  // both a real root and a projection belonging to the queried ADG store. A project
   // query therefore can't surface globally-installed plugins. `undefined` only
   // when Antigravity isn't present at all ("unknown"), never confused with empty.
   listInstalled(ctx: AgentContext): string[] | undefined {
     if (!antigravityAgent.detect()) return undefined;
     const scanDir = antigravityScanDir(ctx);
-    const names = Object.keys(readLock(lockPath(ctx.pluginsDir)).plugins);
-    return names.filter((name) => existsSync(join(scanDir, name, ANTIGRAVITY_MANIFEST)));
+    const entries = readLock(lockPath(ctx.pluginsDir)).plugins;
+    return Object.keys(entries).filter((name) => {
+      const target = join(scanDir, name);
+      const real = installedPluginDir(ctx.pluginsDir, name, entries[name]!.origin);
+      return physicalPluginRoot(target) && (resolve(target) === resolve(real) || ownedExposure(target, name, ctx.pluginsDir, real));
+    });
   },
 
   pruneStale(): AgentPruneResult {

@@ -24,7 +24,7 @@ try {
   }
   const testArgs = ["--test", `--test-concurrency=${concurrency}`, ...userArgs];
   const result = spawnSync(process.execPath, testArgs, {
-    env: { ...process.env, ADG_CACHE_HOME: cacheHome },
+    env: { ...process.env, ADG_CACHE_HOME: cacheHome, ADG_MIGRATION_HOME: join(cacheHome, "migration-state"), ADG_MUTEX_HOME: join(cacheHome, "mutex") },
     stdio: "inherit",
   });
   if (result.error) throw result.error;

@@ -272,10 +272,10 @@ test("persisting a compatibility-read v3 lock records its implicit migration", (
   const lock = readLock(file, eventSpan(events));
   writeLock(file, lock, eventSpan(events));
 
-  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 5);
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 6);
   assert.deepEqual(events, [
     { name: "adg.lock.read", attributes: { "format.version": 3 } },
-    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 5 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 6 } },
   ]);
   rmSync(root, { recursive: true });
 });
@@ -339,8 +339,8 @@ test("a successful v2 migration records read and transition versions", () => {
 
   assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
     { name: "adg.lock.read", attributes: { "format.version": 2 } },
-    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 5 } },
-    { name: "adg.lock.read", attributes: { "format.version": 5 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 2, "to.version": 6 } },
+    { name: "adg.lock.read", attributes: { "format.version": 6 } },
   ]);
   rmSync(root, { recursive: true });
 });
@@ -354,8 +354,8 @@ test("a successful v3 migration records v3 as an observed format", () => {
 
   assert.deepEqual(events.filter((event) => event.name.startsWith("adg.lock")), [
     { name: "adg.lock.read", attributes: { "format.version": 3 } },
-    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 5 } },
-    { name: "adg.lock.read", attributes: { "format.version": 5 } },
+    { name: "adg.lock.migrate", attributes: { "from.version": 3, "to.version": 6 } },
+    { name: "adg.lock.read", attributes: { "format.version": 6 } },
   ]);
   rmSync(root, { recursive: true });
 });

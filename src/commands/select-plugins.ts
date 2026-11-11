@@ -1,6 +1,9 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import { UpdateCancelled } from "./source-upgrade.ts";
 import type { PluginChoice } from "./install.ts";
+
+export const FOLLOW_ALL_PLUGINS = ":follow-all";
 
 /**
  * Interactive multiselect for choosing which plugins to install from a source
@@ -8,6 +11,16 @@ import type { PluginChoice } from "./install.ts";
  * plugins are flagged so the user knows they came from a Claude/Codex manifest.
  */
 export async function selectPluginsInteractive(choices: PluginChoice[]): Promise<string[]> {
+  const subscription = await p.select({
+    message: "Choose how this source is followed",
+    options: [
+      { value: "selected", label: "Choose plugins", hint: "update selected plugins; do not automatically add future plugins" },
+      { value: "all", label: "Follow all plugins", hint: "install every current plugin and subscribe to future additions" },
+    ],
+    initialValue: "selected",
+  });
+  if (p.isCancel(subscription)) throw new UpdateCancelled("Installation cancelled");
+  if (subscription === "all") return [FOLLOW_ALL_PLUGINS];
   const selected = await p.multiselect({
     message: `Select plugins to install ${pc.dim("(space to toggle)")}`,
     options: choices.map((c) => ({
@@ -21,8 +34,7 @@ export async function selectPluginsInteractive(choices: PluginChoice[]): Promise
   });
 
   if (p.isCancel(selected)) {
-    p.cancel("Installation cancelled");
-    process.exit(0);
+    throw new UpdateCancelled("Installation cancelled");
   }
   return selected as string[];
 }

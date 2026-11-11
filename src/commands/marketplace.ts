@@ -1,7 +1,12 @@
+import { upgradeSource, publishUpgradeTransaction, UpdateCancelled, type ReviewUpdate } from "./source-upgrade.ts";
+import { ADAPTER_TARGETS } from "../adapters/index.ts";
+import { sourceIntent } from "../source-intent.ts";
+import { replayNativeRetries, syncNativeWithRetry } from "../native-retry.ts";
+import { discoverPendingMigrations, type MigrationPublishResult } from "../migration-transaction.ts";
 import { repairCodex } from "./runtime-repair.ts";
-import { getAgent, resolveAgents, allAgents } from "../agents/index.ts";
+import { getAgent, resolveAgents } from "../agents/index.ts";
 import type { AdapterTarget } from "../adapters/index.ts";
-import { gitRemoteRevision, type GitRunner } from "../sources.ts";
+import { type GitRunner } from "../sources.ts";
 import { cloneGitHub, gitRevision, parseGitHubSource } from "../sources.ts";
 import { materializeSource, resolveRemoteRevision } from "../remote/index.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -9,8 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginSource } from "../types.ts";
 import { lockPath } from "../paths.ts";
-import { readLock } from "../lock.ts";
-import { addPlugins } from "./install.ts";
+import { readLock, writeLock } from "../lock.ts";
 import { removePlugin } from "./remove.ts";
 import { syncPlugins, type SyncResult } from "./sync.ts";
 import { updateLock, type UpdateLockResult } from "./update.ts";
@@ -90,6 +94,9 @@ export function marketplaceList(opts: { pluginsDir: string }): MarketplaceGroup[
     groups.set(key, g);
   }
 
+  for (const intent of lock.sources ?? []) {
+    if ((intent.mode === "all" || intent.deferredRecovery?.length) && !groups.has(intent.source)) groups.set(intent.source, {ref:intent.ref, installed:[]});
+  }
   return [...groups.entries()]
     .map(([source, g]) => ({
       source,
@@ -145,6 +152,15 @@ export interface PluginUpdateSourceResult {
   changes?: Array<PluginChanges & { name: string; runtimeRefreshRequired: boolean }>;
   /** Set when the source could not be fetched; the message explains why. */
   failed?: string;
+  migrated?: string[];
+  resumed?: boolean;
+  actionRequired?: string[];
+  pendingRuntime?: string[];
+  notRestored?: string[];
+  /** Unknown historical candidates deferred without authorizing installation. */
+  deferredRecovery?: string[];
+  restored?: string[];
+  retained?: string[];
 }
 
 export interface PluginUpdateResult {
@@ -193,6 +209,7 @@ export function mergeAgentResults(groups: AgentSyncResult[][]): AgentSyncResult[
 export async function updatePlugins(
   opts: MarketplaceScope & {
     source?: string;
+    review?: ReviewUpdate;
     all?: boolean;
     targets?: AdapterTarget[];
     gitRunner?: GitRunner;
@@ -205,7 +222,7 @@ export async function updatePlugins(
     agents?: Agent[];
     /** Injection seam for removed remote entries; defaults to every registered agent. */
     deactivationAgents?: Agent[];
-    /** Injectable low-cost remote revision probe; undefined falls back to resolveRemoteRevision. */
+    /** Injectable revision probe. The standard GitHub transport probes by default. */
     revisionResolver?: (source: string, ref?: string) => string | undefined | Promise<string | undefined>;
     telemetrySpan?: Pick<Span, "addEvent">;
     /**
@@ -217,15 +234,54 @@ export async function updatePlugins(
     onProgress?: (phase: UpdatePhase) => void;
   },
 ): Promise<PluginUpdateResult> {
+  const executionProviders = opts.activate ? opts.agents ?? [...new Map([
+    ...resolveAgents(opts.targets), ...(opts.repair ? resolveAgents(["codex"]) : []),
+  ].map(agent => [agent.id, agent])).values()] : [];
+  // Replay pending operations before probing any remote revision.
+  const pending = discoverPendingMigrations(opts.pluginsDir).filter(item => !opts.source || item.source === opts.source);
+  const remote: PluginUpdateSourceResult[] = [];
+  const resumedAgents: AgentSyncResult[] = [];
+  const managedByMigration = new Set<string>();
+  const rememberManagedNative = (targets: NonNullable<MigrationPublishResult["managedNative"]>) => {
+    for (const target of targets) if (target.agent === "codex") for (const name of target.plugins) managedByMigration.add(name);
+  };
+  for (const item of pending) {
+    let resumed: MigrationPublishResult;
+    try {
+      resumed = await publishUpgradeTransaction(item.journalPath, executionProviders, item.source, opts.review, item.ref, opts.repair ? ["codex"] : undefined);
+    } catch (error) {
+      if (error instanceof UpdateCancelled) {
+        error.partial = { remote: [...remote, ...(error.partial?.remote ?? [])], local: { results: [], missing: [] },
+          agents: [...resumedAgents, ...(error.partial?.agents ?? [])] };
+      }
+      throw error;
+    }
+    resumedAgents.push(...(resumed.agents ?? []));
+    rememberManagedNative(resumed.managedNative ?? []);
+    remote.push({
+      source: item.source, ref: item.ref, updated: [], unchanged: [], deleted: [], available: [],
+      ...(resumed.complete ? { resumed: true } : { pendingRuntime: resumed.failures.map(failure => failure.message) }),
+    });
+  }
+  const recovered = await replayNativeRetries({
+    pluginsDir: opts.pluginsDir, source: opts.source, agents: executionProviders,
+    onProgress: opts.onProgress,
+  });
+  for (const group of recovered.groups) {
+    const failures = recovered.pending.filter(item => item.source === group.source && item.ref === group.ref);
+    remote.push({ ...group, updated: [], unchanged: [], deleted: [], available: [],
+      ...(failures.length ? { pendingRuntime: failures.map(item => item.message) } : { resumed: true }) });
+  }
   const allGroups = marketplaceList({ pluginsDir: opts.pluginsDir });
 
   // A named source narrows to just that group (and must be remote); otherwise we
   // refresh every remote source and rescan the local bucket.
   const selectedGroups = opts.source
-    ? [requireGroup(opts.pluginsDir, opts.source, opts.scope)]
+    ? (remote.some(group => group.source === opts.source) ? allGroups.filter(group => group.source === opts.source)
+      : [requireGroup(opts.pluginsDir, opts.source, opts.scope)])
     : allGroups.filter((g) => g.remote);
 
-  if (opts.source && !selectedGroups[0]!.remote) {
+  if (opts.source && selectedGroups[0]?.remote === false) {
     throw new Error(`source "${opts.source}" is local and cannot be re-synced; re-run \`adg plugins add\`.`);
   }
 
@@ -242,7 +298,12 @@ export async function updatePlugins(
       member.installed.push(name);
       refs.set(ref, member);
     }
-    return [...refs.values()];
+    for (const intent of initialLock.sources ?? []) {
+      if (intent.source === group.source && (intent.mode === "all" || intent.deferredRecovery?.length) && !refs.has(intent.ref)) {
+        refs.set(intent.ref, {source:group.source,ref:intent.ref,installed:[],remote:true});
+      }
+    }
+    return [...refs.values()].filter(group => !remote.some(item => item.source === group.source && item.ref === group.ref));
   });
 
   const repairAgent = opts.agents
@@ -252,10 +313,8 @@ export async function updatePlugins(
   const initial = opts.repair ? repairAgent?.inspectPlugins?.({ pluginsDir: opts.pluginsDir, plugins: [], scope: repairScope }) : undefined;
   // Source materialization proceeds, but this mode owns every Codex mutation.
   const updateAgents = opts.repair ? (opts.agents ?? resolveAgents(opts.targets)).filter((agent) => agent.id !== "codex") : opts.agents;
-  const removalAgents = opts.repair ? (opts.deactivationAgents ?? allAgents()).filter((agent) => agent.id !== "codex") : opts.deactivationAgents;
   const now = opts.now ?? new Date().toISOString();
-  const remote: PluginUpdateSourceResult[] = [];
-  const remoteAgents: AgentSyncResult[] = [];
+  const remoteAgents: AgentSyncResult[] = [...resumedAgents, ...recovered.agents];
 
   let sourceIndex = 0;
   for (const group of remoteGroups) {
@@ -263,36 +322,33 @@ export async function updatePlugins(
     try {
       opts.onProgress?.({ kind: "check", ...position, source: group.source });
       const lock = readLock(lockPath(opts.pluginsDir));
-      const revisions = group.installed.map((name) => lock.plugins[name]?.resolvedRevision).filter((revision): revision is string => Boolean(revision));
-      const remoteRevision = await (opts.revisionResolver ?? resolveRemoteRevision)(group.source, group.ref);
-      if (!opts.all && remoteRevision && revisions.length === group.installed.length && revisions.every((revision) => revision === remoteRevision)) {
-        remote.push({ source: group.source, ...(group.ref ? { ref: group.ref } : {}), updated: [], unchanged: [...group.installed].sort(), deleted: [], available: [] });
+      const policy = sourceIntent(lock, group.source, group.ref);
+      const targets = opts.targets ?? policy?.targets?.filter((id): id is AdapterTarget => ADAPTER_TARGETS.includes(id as AdapterTarget));
+      const runtime = opts.activate ? opts.agents ?? resolveAgents(targets) : [];
+      const refreshExisting = runtime.flatMap(agent => {
+        if (!agent.needsProjectionRefresh || !agent.detect()) return [];
+        const names = group.installed.filter(name => lock.plugins[name]?.state !== "disabled");
+        return agent.needsProjectionRefresh({ pluginsDir: opts.pluginsDir, scope: repairScope, plugins: names })
+          .map(name => ({ name, target: agent.id }));
+      });
+      const refreshProjections = async (unchanged: string[]) => {
+        for (const agent of runtime) {
+          const refresh = refreshExisting.filter(item => item.target === agent.id && unchanged.includes(item.name)).map(item => item.name);
+          if (refresh.length) remoteAgents.push(await syncNativeWithRetry({
+            pluginsDir: opts.pluginsDir, scope: repairScope, agent, activate: [], refresh, preserveRuntimeDisabled: true,
+          }));
+        }
+      };
+      const revisions = group.installed.map((name) => policy?.retained?.includes(name) ? policy.retainedAtRevision : lock.plugins[name]?.resolvedRevision).filter((revision): revision is string => Boolean(revision));
+      // A supplied transport owns its checkout, including offline fixtures.
+      const probe = opts.revisionResolver ?? (opts.gitRunner ? undefined : resolveRemoteRevision);
+      const remoteRevision = await probe?.(group.source, group.ref);
+      if (!opts.all && !(opts.repair && policy?.deferredRecovery?.length) && revisions.length > 0 && remoteRevision && revisions.length === group.installed.length && revisions.every((revision) => revision === remoteRevision)) {
+        await refreshProjections(group.installed);
+        remote.push({ source: group.source, ...(group.ref ? { ref: group.ref } : {}), updated: [], unchanged: group.installed.filter(name => !policy?.retained?.includes(name)).sort(), retained: policy?.retained, deleted: [], available: [],
+          ...(policy?.deferredRecovery?.length ? { deferredRecovery: [...new Set(policy.deferredRecovery.flatMap(item => item.skills))].sort() } : {}) });
         continue;
       }
-      const structural = group.installed.flatMap((name) => {
-        const definition = lock.plugins[name]?.definition;
-        return definition ? [{ name, definition, selection: lock.plugins[name]?.selection }] : [];
-      });
-      const ordinary = group.installed.filter((name) => !lock.plugins[name]?.definition);
-      // A structural profile always describes the source root. Replay each
-      // profile independently so its stable --as identity is preserved.
-      const requests: Array<{ plugins?: string[]; as?: string; structuralIdentity?: string; defaultDescription?: string; authorizedComponents?: import("../types.ts").ComponentType[]; replaySelection?: import("../types.ts").PluginSelection }> = [
-        ...structural.map(({ name, definition, selection }) => ({
-          plugins: [name],
-          as: definition.as,
-          structuralIdentity: name,
-          defaultDescription: definition.description,
-          authorizedComponents: definition.authorizedComponents,
-          replaySelection: selection ?? (definition.authorizedComponents ? { components: definition.authorizedComponents } : undefined),
-        })),
-        // A structural profile represents the whole source root. Never append
-        // an --all fallback that could derive a second Default DSL identity.
-        ...(structural.length === 0 && (ordinary.length > 0 || opts.all)
-          ? [{ plugins: opts.all ? undefined : ordinary }]
-          : []),
-      ];
-      const installed = [] as Awaited<ReturnType<typeof addPlugins>>["installed"];
-      const available = new Set<string>();
       const checkout = mkdtempSync(join(tmpdir(), "adg-marketplace-update-"));
       try {
         const parsed = parseGitHubSource(group.source);
@@ -300,71 +356,39 @@ export async function updatePlugins(
         const mat = await materializeSource({ ...parsed, ref: group.ref }, checkout, {
           runner: opts.gitRunner,
           resolvedRevision: remoteRevision,
+          // A complete source catalog is required to distinguish relocation
+          // from deletion, including siblings outside an earlier sparse add.
         });
         const resolvedRevision = mat.resolvedRevision ?? gitRevision(checkout);
-        let requestIndex = 0;
-        for (const request of requests) {
-          opts.onProgress?.({
-            kind: "install",
-            index: ++requestIndex,
-            total: requests.length,
-            source: group.source,
-            ...(request.structuralIdentity ? { plugin: request.structuralIdentity } : {}),
-          });
-          const result = await addPlugins({
-            spec: group.source,
-            pluginsDir: opts.pluginsDir,
-            ref: group.ref,
-            ...(opts.all && request.plugins === undefined ? { all: true } : { plugins: request.plugins }),
-            missingPlugins: "skip",
-            preserveExisting: true,
-            skipUnchanged: true,
-            nonInteractive: true,
-            ...(request.authorizedComponents ? { authorizedComponents: request.authorizedComponents } : {}),
-            ...(request.structuralIdentity ? { structuralIdentity: request.structuralIdentity } : {}),
-            ...(request.replaySelection ? { replaySelection: request.replaySelection } : {}),
-            targets: opts.targets,
-            marketplaceName: group.source,
-            gitRunner: opts.gitRunner,
-            ...(request.as ? { as: request.as } : {}),
-            ...(request.defaultDescription ? { defaultDescription: request.defaultDescription } : {}),
-            activate: opts.activate,
-            scope: opts.agentScope,
-            agents: updateAgents,
-            deactivationAgents: removalAgents,
-            now,
-            preparedSourceDir: checkout,
-            preparedResolvedRevision: resolvedRevision,
-            ...(opts.cwd ? { cwd: opts.cwd } : {}),
-            ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
-          });
-          installed.push(...result.installed);
-          result.available.forEach((name) => available.add(name));
-          if (result.agents) remoteAgents.push(...result.agents);
-        }
-      } finally { rmSync(checkout, { recursive: true, force: true }); }
-      const availableSet = available;
-      const installedNow = new Set(Object.keys(readLock(lockPath(opts.pluginsDir)).plugins));
-      const missingUpstream = group.installed.filter((name) => !availableSet.has(name)).sort();
-      if (missingUpstream.length > 0) {
-        recordTelemetryEvent("adg.plugins.update.missing_upstream", {
-          "plugins.retained": missingUpstream.length,
+        const result = await upgradeSource({
+          group, checkout, revision: resolvedRevision, pluginsDir: opts.pluginsDir,
+          all: opts.all, repair: opts.repair, activate: opts.activate, scope: repairScope, agents: opts.agents,
+          targets: opts.targets, now, review: opts.review, refreshExisting,
+          gitRunner: opts.gitRunner, onProgress: opts.onProgress,
+          onAgentResults: results => remoteAgents.push(...results),
+          onNativeManaged: rememberManagedNative,
+        });
+        remote.push(result);
+        if (result.deferredRecovery?.length) recordTelemetryEvent("adg.plugins.update.recovery_deferred", {
+          "skills.count": result.deferredRecovery.length,
+        }, opts.telemetrySpan);
+        if (result.missingUpstream?.length) recordTelemetryEvent("adg.plugins.update.missing_upstream", {
+          "plugins.retained": result.missingUpstream.length,
           "update.include_new": Boolean(opts.all),
         }, opts.telemetrySpan);
-      }
-      remote.push({
-        source: group.source,
-        ...(group.ref ? { ref: group.ref } : {}),
-        updated: installed.filter((r) => r.changed).map((r) => r.name).sort(),
-        unchanged: installed.filter((r) => !r.changed).map((r) => r.name).sort(),
-        deleted: [],
-        ...(missingUpstream.length > 0 ? { missingUpstream } : {}),
-        available: [...available].filter((n) => !installedNow.has(n)).sort(),
-        changes: installed.filter((r) => r.changes).map((r) => ({
-          name: r.name, ...r.changes!, runtimeRefreshRequired: r.runtimeRefreshRequired ?? r.changed,
-        })).sort((a, b) => a.name.localeCompare(b.name)),
-      });
+        else recordTelemetryEvent("adg.plugins.update.migration", {
+          "migration.count": result.migrated?.length ?? 0,
+          "action_required.count": result.actionRequired?.length ?? 0,
+          "pending.count": result.pendingRuntime?.length ?? 0,
+          "plugins.retained": result.missingUpstream?.length ?? 0,
+        }, opts.telemetrySpan);
+      } finally { rmSync(checkout, { recursive: true, force: true }); }
     } catch (err) {
+      if (err instanceof UpdateCancelled) {
+        err.partial = { remote: [...remote, ...(err.partial?.remote ?? [])], local: { results: [], missing: [] },
+          agents: [...remoteAgents, ...(err.partial?.agents ?? [])] };
+        throw err;
+      }
       remote.push({
         source: group.source,
         ...(group.ref ? { ref: group.ref } : {}),
@@ -391,18 +415,16 @@ export async function updatePlugins(
       })
     : { results: [], missing: [] };
 
-  const repairNames = [...new Set([...remoteGroups.flatMap((group) => group.installed), ...remote.flatMap((source) => [...source.updated, ...source.unchanged]), ...localNames])];
+  const repairNames = [...new Set([...selectedGroups.flatMap((group) => group.installed), ...remote.flatMap((source) => [...source.updated, ...source.unchanged]), ...localNames])].filter(name => !managedByMigration.has(name));
   const currentLock = readLock(lockPath(opts.pluginsDir));
-  const repairs = opts.repair ? [repairCodex({
-    pluginsDir: opts.pluginsDir,
-    plugins: repairNames.filter((name) => currentLock.plugins[name]),
-    scope: opts.agentScope ?? "project",
+  const repairs = opts.activate && opts.repair && repairNames.length ? [repairCodex({
+    pluginsDir: opts.pluginsDir, plugins: repairNames.filter(name => currentLock.plugins[name]), scope: repairScope,
   }, false, repairAgent, {
     initial, observed: true,
-    changed: [...remote.flatMap((source) => source.changes
-      ? source.changes.filter((plugin) => plugin.runtimeRefreshRequired).map((plugin) => plugin.name)
-      : source.updated), ...local.results.filter((plugin) => plugin.runtimeRefreshRequired ?? plugin.changed).map((plugin) => plugin.name)],
-    removed: repairNames.filter((name) => !currentLock.plugins[name]),
+    changed: [...remote.flatMap(source => source.changes
+      ? source.changes.filter(plugin => plugin.runtimeRefreshRequired).map(plugin => plugin.name)
+      : source.updated), ...local.results.filter(plugin => plugin.runtimeRefreshRequired ?? plugin.changed).map(plugin => plugin.name)],
+    removed: repairNames.filter(name => !currentLock.plugins[name]),
   })] : [];
   const agents = mergeAgentResults([remoteAgents, local.agents ?? [], repairs]);
   return { remote, local, agents };
@@ -428,6 +450,12 @@ export function marketplaceRemove(
       scope: opts.agentScope,
     });
     removed.push(name);
+  }
+  const file = lockPath(opts.pluginsDir);
+  const lock = readLock(file);
+  if (lock.sources?.some(intent => intent.source === opts.source)) {
+    lock.sources = lock.sources.filter(intent => intent.source !== opts.source);
+    writeLock(file, lock);
   }
   return { source: opts.source, removed };
 }

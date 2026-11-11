@@ -1,3 +1,4 @@
+import { UpdateCancelled } from "./source-upgrade.ts";
 import * as p from "@clack/prompts";
 
 /**
@@ -14,8 +15,7 @@ export async function selectScopeInteractive(): Promise<boolean> {
     ],
   });
   if (p.isCancel(scope)) {
-    p.cancel("Installation cancelled");
-    process.exit(0);
+    throw new UpdateCancelled("Installation cancelled");
   }
   return scope as boolean;
 }
@@ -37,8 +37,7 @@ export async function selectUpdateScopeInteractive(): Promise<UpdateScope> {
     ],
   });
   if (p.isCancel(scope)) {
-    p.cancel("Cancelled");
-    process.exit(0);
+    throw new UpdateCancelled("Installation cancelled");
   }
   return scope as UpdateScope;
 }

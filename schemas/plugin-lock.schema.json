@@ -7,10 +7,84 @@
   "required": ["version", "plugins"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "description": "Lock file format version.", "enum": [3, 4, 5] },
+    "version": { "type": "integer", "description": "Lock file format version.", "enum": [3, 4, 5, 6] },
     "plugins": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/lockEntry" }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "mode", "roots", "excluded", "appliedMigrations"],
+        "properties": {
+          "source": {"type": "string"},
+          "ref": {"type": "string"},
+          "mode": {"enum": ["all", "selected"]},
+          "roots": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "excluded": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "targets": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "sparse": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "appliedMigrations": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "selection": {"$ref": "#/$defs/lockEntry/properties/selection"},
+          "withDeps": {"type": "boolean"},
+          "desiredSelections": {
+            "type": "object",
+            "additionalProperties": {"anyOf": [{"$ref": "#/$defs/lockEntry/properties/selection"}, {"type": "null"}]}
+          },
+          "retainedAtRevision": {"type": "string"},
+          "retained": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "executableDecisions": {"type": "object", "additionalProperties": {"type": "boolean"}},
+          "deferredRecovery": {
+            "type": "array",
+            "description": "Unknown historical choices deferred locally without granting installation or removal permission.",
+            "items": {
+              "type": "object",
+              "required": ["id", "history", "skills"],
+              "additionalProperties": false,
+              "properties": {
+                "id": {"type": "string"},
+                "history": {"$ref": "#/properties/sources/items/properties/history/items"},
+                "skills": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+              }
+            }
+          },
+          "history": {
+            "type": "array",
+            "description": "Installation evidence maintained locally by ADG for update recovery.",
+            "items": {
+              "type": "object",
+              "required": ["name", "version", "origin", "contents"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {"type": "string"},
+                "version": {"type": "string"},
+                "sourceHash": {"type": "string"},
+                "origin": {"$ref": "#/$defs/lockEntry/properties/origin"},
+                "contents": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "skills": {"type": "array", "items": {"type": "string"}},
+                    "agents": {"type": "array", "items": {"type": "string"}},
+                    "commands": {"type": "array", "items": {"type": "string"}},
+                    "hooks": {"type": "array", "items": {"type": "string"}},
+                    "apps": {"type": "array", "items": {"type": "string"}},
+                    "mcp": {"type": "array", "items": {"type": "string"}}
+                  },
+                  "required": ["skills", "agents", "commands", "hooks", "apps", "mcp"]
+                },
+                "selection": {"$ref": "#/$defs/lockEntry/properties/selection"},
+                "selectionKnown": {"type": "boolean"},
+                "effectiveSelection": {"$ref": "#/$defs/lockEntry/properties/selection"},
+                "evidence": {"enum": ["selection", "installed", "catalog"]},
+                "state": {"enum": ["enabled", "disabled"]}
+              }
+            }
+          }
+        }
+      }
     },
     "lastSelected": {
       "type": "array",
@@ -45,6 +119,8 @@
           "enum": ["enabled", "disabled"],
           "description": "Desired cross-agent projection state. Absent means enabled."
         },
+        "selectionKnown": {"type": "boolean", "description": "Whether requested selection intent is known, including an explicit full installation."},
+        "runtimeStates": { "type": "object", "additionalProperties": { "type": "boolean" } },
         "definition": {
           "type": "object",
           "required": ["kind", "root", "description", "fingerprint"],
@@ -77,6 +153,7 @@
               "type": "array",
               "items": { "enum": ["skills", "agents", "commands", "mcp", "hooks", "apps"] }
             },
+            "mcp": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
             "skills": {
               "type": "array",
               "items": { "type": "string" }

@@ -3,7 +3,7 @@
  */
 
 export const ADG_SCHEMA_VERSION = "adg.plugin/v1";
-export const LOCK_VERSION = 5;
+export const LOCK_VERSION = 6;
 
 export interface AdgAuthor {
   name: string;
@@ -170,8 +170,12 @@ export interface LockEntry {
   dependencies?: Record<string, string>;
   /** Partial-install selection; absent means the whole plugin is installed. */
   selection?: PluginSelection;
+  /** Whether requested intent is known; absent legacy full selections need evidence. */
+  selectionKnown?: boolean;
   /** Desired cross-agent projection state. Absent means enabled. */
   state?: PluginState;
+  /** Per-runtime intent carried across plugin identity changes. */
+  runtimeStates?: Record<string, boolean>;
   definition?: DefaultDefinitionProfile;
 }
 
@@ -179,7 +183,53 @@ export function pluginState(entry?: LockEntry | null): PluginState {
   return entry?.state ?? "enabled";
 }
 
+export interface SourceIntent {
+  source: string;
+  ref?: string;
+  mode: "all" | "selected";
+  roots: string[];
+  excluded: string[];
+  selection?: PluginSelection;
+  targets?: string[];
+  appliedMigrations: string[];
+  executableDecisions?: Record<string, boolean>;
+  /** Original selection before optional executable permissions narrowed a projection. */
+  desiredSelections?: Record<string, PluginSelection | null>;
+  /** Historical owners explicitly kept when the publisher supplied no successor. */
+  retained?: string[];
+  /** Revision at which these explicitly retained owners were absent. */
+  retainedAtRevision?: string;
+  withDeps?: boolean;
+  sparse?: string[];
+  /** Verified installation inventories maintained by ADG for update recovery. */
+  history?: SourceHistoryEntry[];
+  /** Unknown historical choices deferred locally, independently of exclusions. */
+  deferredRecovery?: DeferredSkillRecovery[];
+}
+
+export interface DeferredSkillRecovery {
+  id: string;
+  history: SourceHistoryEntry;
+  /** Last reviewed destination addresses, used to detect changed ownership. */
+  skills: string[];
+}
+
+export interface SourceHistoryEntry {
+  name: string;
+  version: string;
+  origin: PluginSource;
+  contents: Record<ComponentType, string[]>;
+  sourceHash?: string;
+  selection?: PluginSelection;
+  selectionKnown?: boolean;
+  effectiveSelection?: PluginSelection;
+  state?: PluginState;
+  /** Catalog evidence alone establishes availability, never a user selection. */
+  evidence?: "selection" | "installed" | "catalog";
+}
+
 export interface PluginLock {
+  sources?: SourceIntent[];
   version: number;
   plugins: Record<string, LockEntry>;
   lastSelected?: string[];

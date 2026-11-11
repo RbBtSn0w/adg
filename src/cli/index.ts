@@ -47,7 +47,7 @@ export const FLAGS: Record<string, FlagSpec> = {
   only: { type: "string", hint: "<types>", help: "limit to these component types (skills,agents,commands,mcp,hooks,apps)" },
   as: { type: "string", hint: "<name>", help: "installed identity for a manifest-free structural source" },
   prefix: { type: "string", hint: "<p>", help: "prefix imported skill names" },
-  verbose: { type: "boolean", short: "v", help: "expand each component to its member names" },
+  verbose: { type: "boolean", short: "v", help: "show detailed component and update information" },
   repair: { type: "boolean", help: "repair missing Codex registrations after updating; preserve runtime-disabled plugins" },
   json: { type: "boolean", help: "print stable machine-readable JSON" },
 };
@@ -118,8 +118,10 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     blurb:
       "In a terminal, add guides you through:  scope → plugins → agents → what to install.\n" +
       "By default it installs everything; choose 'No, let me choose' to pick components,\n" +
-      "or pass the flags below to skip any prompt (e.g. for scripts/CI).",
-    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "ref", "sparse", "marketplace-name", "as", ...SCOPE],
+      "or pass the flags below to skip any prompt (e.g. for scripts/CI).\n" +
+      "Choose 'Follow all plugins' or pass --all to subscribe to future additions.\n" +
+      "Selecting every plugin manually keeps a selected-plugin subscription.",
+    flags: ["all", "plugin", "only", "skill", "mcp", "target", "no-deps", "ref", "sparse", "marketplace-name", "as", "verbose", "json", ...SCOPE],
     examples: [
       "adg plugins add owner/repo                 # guided",
       "adg plugins add owner/repo --all --global  # all plugins, global, non-interactive",
@@ -160,19 +162,22 @@ export const PLUGIN_COMMANDS: Record<string, PluginCommand> = {
     blurb:
       "Re-fetches every remote source and refreshes the plugins installed from it,\n" +
       "reporting what changed, what's unchanged, what's missing upstream, and what's\n" +
-      "newly available (install those too with --all). Local-source plugins are\n" +
-      "rescanned in place. Missing upstream plugins are retained; migrate or remove\n" +
-      "them explicitly. Updates never uninstall plugins, including with --all.\n" +
+      "newly available (--all includes these once). Local-source plugins are\n" +
+      "rescanned in place. ADG follows verified skill relocations and existing\n" +
+      "marketplace renames. Missing upstream plugins are retained and can be\n" +
+      "reviewed in this update. Skill choices and disabled state are preserved\n" +
+      "before old owners are retired.\n" +
       "In a terminal, it asks whether to update project, global,\n" +
       "or both; pass a scope flag to skip the prompt.\n\n" +
-      "This is the plugins-domain twin of `adg skills update`.",
-    flags: ["all", "repair", ...SCOPE],
+      "Historical skill restoration is separate from following future plugins.\n" +
+      "Use --verbose for details; --json is non-interactive machine output.",
+    flags: ["all", "repair", "verbose", "json", ...SCOPE],
     examples: [
       "adg plugins update --global --repair    # explicitly restore missing Codex registrations",
       "adg plugins update                      # guided: project / global / both",
       "adg plugins update --global             # every global source",
       "adg plugins update owner/repo           # just one source",
-      "adg plugins update owner/repo --all     # also install newly-added plugins",
+      "adg plugins update owner/repo --all     # include current additions once",
     ],
   },
   remove: {
@@ -386,11 +391,13 @@ export function wantsHelp(args: string[]): boolean {
   return args.includes("-h") || args.includes("--help");
 }
 
-/** Print a top-level usage error and exit non-zero. */
+export class CliUsageError extends Error {}
+
+/** Report invalid usage; the dispatcher returns failure after releasing resources. */
 export function fail(msg: string): never {
   console.error(`${ui.err("error:")} ${msg}\n`);
   console.error(TOP_USAGE);
-  process.exit(1);
+  throw new CliUsageError(msg);
 }
 
 export function resolveScopeDir(values: ParsedValues): string {
@@ -453,6 +460,6 @@ export function parseVerb(name: string, flags: readonly FlagName[], rest: string
   } catch (err) {
     console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}\n`);
     console.error(renderVerbHelp(name));
-    process.exit(1);
+    throw new CliUsageError(err instanceof Error ? err.message : String(err));
   }
 }

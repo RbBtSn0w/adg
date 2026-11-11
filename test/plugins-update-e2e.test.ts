@@ -59,7 +59,7 @@ test("CLI retains installed plugins across a marketplace restructure and explici
       ADG_TEST_REMOTE_LOG: remoteLog, ADG_TEST_RELEASES: releaseFile,
     };
     const run = (args: string[], version = "2.0.0", expectedStatus = 0, extraEnv: NodeJS.ProcessEnv = {}) => {
-      const { result } = spawnAdg(["plugins", ...args, "--global"], {
+      const { result } = spawnAdg(["plugins", ...args, ...(args[0] === "update" ? ["--verbose"] : []), "--global"], {
         isolationRoot: join(root, "agent-homes"), cwd: root, timeout: 45_000,
         env: { ...env, ADG_TEST_MARKETPLACE_VERSION: version, ...extraEnv },
       });
@@ -73,6 +73,11 @@ test("CLI retains installed plugins across a marketplace restructure and explici
     run(["add", source, "--all", "--skill", "demo"], "1.0.0");
     assert.deepEqual(names(), [...old.plugins].sort());
     run(["disable", "legacy-optional"], "1.0.0");
+    // This predates source-subscription metadata: preserve the unknown/selected
+    // intent baseline rather than subscribing this scenario to future plugins.
+    const initial = readLock(lockPath(store));
+    delete initial.sources;
+    writeFileSync(lockPath(store), JSON.stringify(initial));
     const before = readLock(lockPath(store));
     const beforeMarketplace = readFileSync(join(store, "marketplace.json"), "utf8");
     const payloads = old.plugins.map((name) => {
@@ -102,10 +107,10 @@ test("CLI retains installed plugins across a marketplace restructure and explici
     verifyPreserved();
     assert.equal(readFileSync(join(store, "marketplace.json"), "utf8"), beforeMarketplace);
     const report = run(["update"], "2.0.0", 1);
-    assert.match(report, /update incomplete/);
-    assert.match(report, /retained installed plugins missing upstream/);
-    assert.match(report, /7 more available/);
-    assert.match(report, /0 ok.*1 failed/);
+    assert.match(report, /action required; current installation retained/);
+    assert.match(report, /unmapped:legacy/);
+    assert.match(report, /adg plugins update.*terminal/);
+    assert.match(report, /0 ok.*1 awaiting review/);
     assert.doesNotMatch(report, /up to date \(0\)|removed stale upstream/);
     verifyPreserved();
     assert.equal(readFileSync(join(store, "marketplace.json"), "utf8"), beforeMarketplace);
@@ -113,16 +118,11 @@ test("CLI retains installed plugins across a marketplace restructure and explici
     assert.deepEqual(listed.plugins.map((plugin) => plugin.name).sort(), [...old.plugins].sort());
     assert.equal(listed.plugins.find((plugin) => plugin.name === "legacy-optional")!.state, "disabled");
     assert.ok(run(["marketplace", "list"]).includes(source));
-    assert.match(run(["update", source], "2.0.0", 1), /retained installed plugins missing upstream/);
+    assert.match(run(["update", source], "2.0.0", 1), /action required; current installation retained/);
     verifyPreserved();
     run(["update", source, "--all"], "2.0.0", 1);
     verifyPreserved();
-    assert.deepEqual(names(), [...old.plugins, ...current.plugins].sort());
-    for (const name of current.plugins) {
-      const entry = readLock(lockPath(store)).plugins[name]!;
-      assert.equal(entry.version, "2.0.0");
-      assert.equal(entry.resolvedRevision, current.commit);
-    }
+    assert.deepEqual(names(), [...old.plugins].sort(), "one-shot additions cannot bypass unresolved legacy decisions");
     run(["add", source, "--all"]);
     assert.deepEqual(names(), [...current.plugins].sort());
     for (const item of payloads) {

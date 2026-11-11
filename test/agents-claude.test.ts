@@ -151,3 +151,123 @@ test("pruneStaleClaudeMarketplaces surfaces a list failure without attempting an
   assert.deepEqual(outcome, { agent: "claude", skipped: false, removed: [], errors: ["claude: not logged in"] });
   assert.deepEqual(calls, [["plugin", "marketplace", "list", "--json"]]);
 });
+
+test('Claude lifecycle returns marketplace/install/remove failures per target', async () => {
+ const { mkdtempSync, rmSync } = await import('node:fs');
+ const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+ const { runClaudeLifecycle } = await import('../src/agents/claude.ts');
+ const root=mkdtempSync(join(tmpdir(),'adg-claude-failures-'));
+ const ctx={pluginsDir:root,plugins:['one','two'],scope:'project' as const};
+ try {
+ const marketplace=runClaudeLifecycle(ctx,'activate',()=>result(false,'marketplace rejected'),()=>true);
+ assert.equal(marketplace.failures?.[0]?.stage,'marketplace'); assert.deepEqual(marketplace.affected,[]);
+ const runner=(args:string[])=>args[1]==='marketplace'?result(true,'[]'):result(false,'native rejected');
+ const install=runClaudeLifecycle(ctx,'activate',runner,()=>true);
+ assert.deepEqual(install.failures?.map(f=>[f.plugin,f.stage]),[['one','install'],['two','install']]);
+ const refresh=runClaudeLifecycle(ctx,'refresh',runner,()=>true);
+ assert.deepEqual(refresh.failures?.map(f=>f.stage),['inspect']);
+ const remove=runClaudeLifecycle(ctx,'deactivate',runner,()=>true);
+ assert.equal(remove.failures?.length,2);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('Claude refresh verifies an indeterminate uninstall before installing', async () => {
+ const { mkdtempSync, rmSync }=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {runClaudeLifecycle,claudeMarketplaceName,parseClaudePluginRecords}=await import('../src/agents/claude.ts');
+ const root=mkdtempSync(join(tmpdir(),'adg-claude-readback-'));const ctx={pluginsDir:root,plugins:['one'],scope:'project' as const};const mutations:string[]=[];let inspections=0;
+ try {
+ const runner=(args:string[])=>{
+   if(args[1]==='marketplace')return result(true,'[]');
+   if(args[1]==='list')return result(true,JSON.stringify(inspections++===0?[{id:`one@${claudeMarketplaceName(root)}`,scope:'project',enabled:true}]:[]));
+   mutations.push(args[1]!);
+   return args[1]==='uninstall'?result(false,'not found'):result(true);
+ };
+ const refreshed=runClaudeLifecycle(ctx,'refresh',runner,()=>true);assert.deepEqual(refreshed.affected,['one']);assert.deepEqual(mutations,['uninstall','install']);assert.equal(inspections,2);
+ assert.deepEqual(parseClaudePluginRecords(JSON.stringify([{id:`one@${claudeMarketplaceName(root)}`,scope:'project',enabled:false,version:'2.0.0'}]),claudeMarketplaceName(root),'project')?.map(p=>[p.name,p.enabled,p.version]),[['one',false,'2.0.0']]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("Claude refresh parses stdout independently of diagnostic stderr for inspection and removal readback", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runClaudeLifecycle, claudeMarketplaceName } = await import("../src/agents/claude.ts");
+  const root = mkdtempSync(join(tmpdir(), "adg-claude-stdout-"));
+  let inspections = 0;
+  const mutations: string[] = [];
+  const runner = (args: string[]): RunResult => {
+    if (args[1] === "marketplace") return result(true, "[]");
+    if (args[1] === "list") {
+      const stdout = JSON.stringify(inspections++ === 0 ? [{ id: `demo@${claudeMarketplaceName(root)}`, scope: "project", enabled: true }] : []);
+      return { ok: true, stdout, stderr: "Diagnostic warning", out: `${stdout}\nDiagnostic warning` };
+    }
+    mutations.push(args[1]!);
+    return args[1] === "uninstall" ? result(false, "indeterminate uninstall") : result(true);
+  };
+  try {
+    const refreshed = runClaudeLifecycle({ pluginsDir: root, plugins: ["demo"], scope: "project" }, "refresh", runner, () => true);
+    assert.deepEqual(refreshed.failures ?? [], []);
+    assert.deepEqual(refreshed.affected, ["demo"]);
+    assert.deepEqual(mutations, ["uninstall", "install"]);
+    assert.equal(inspections, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Claude migration retirement keeps user data while ordinary removal retains its explicit semantics', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { runClaudeLifecycle } = await import('../src/agents/claude.ts');
+  const root = mkdtempSync(join(tmpdir(), 'adg-claude-preserve-data-'));
+  const calls: string[][] = [];
+  const runner = (args: string[]) => { calls.push(args); return result(true); };
+  try {
+    const ctx = { pluginsDir: root, plugins: ['old'], scope: 'project' as const };
+    runClaudeLifecycle({ ...ctx, preserveData: true }, 'deactivate', runner, () => true);
+    assert.ok(calls[0]?.includes('--keep-data'));
+    runClaudeLifecycle(ctx, 'deactivate', runner, () => true);
+    assert.equal(calls[1]?.includes('--keep-data'), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Claude refresh preserves a native-disabled registration before uninstalling', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { runClaudeLifecycle, claudeMarketplaceName } = await import('../src/agents/claude.ts');
+  const root = mkdtempSync(join(tmpdir(), 'adg-claude-disabled-'));
+  const mutations: string[][] = [];
+  const runner = (args: string[]) => {
+    if (args[1] === 'marketplace') return result(true, '[]');
+    if (args[1] === 'list') return result(true, JSON.stringify([{ id: `old@${claudeMarketplaceName(root)}`, scope: 'project', enabled: false, version: '1.0.0' }]));
+    mutations.push(args);
+    return result(true);
+  };
+  try {
+    const refreshed = runClaudeLifecycle({ pluginsDir: root, plugins: ['old'], scope: 'project' }, 'refresh', runner, () => true);
+    assert.deepEqual(refreshed.preservedDisabled, ['old']);
+    assert.deepEqual(mutations, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Claude refresh honors an explicit successor enable decision and retains native user data", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runClaudeLifecycle, claudeMarketplaceName } = await import("../src/agents/claude.ts");
+  const root = mkdtempSync(join(tmpdir(), "adg-claude-explicit-enable-"));
+  const calls: string[][] = [];
+  const runner = (args: string[]) => {
+    if (args[1] === "marketplace") return result(true, "[]");
+    if (args[1] === "list") return result(true, JSON.stringify([{ id: `next@${claudeMarketplaceName(root)}`, scope: "user", enabled: false, version: "1.0.0" }]));
+    calls.push(args);
+    return result(true);
+  };
+  try {
+    const enabled = runClaudeLifecycle({ pluginsDir: root, plugins: ["next"], scope: "user", forceEnable: true }, "refresh", runner, () => true);
+    assert.deepEqual(enabled.affected, ["next"]);
+    assert.ok(calls.find(args => args[1] === "uninstall")?.includes("--keep-data"));
+    assert.ok(calls.find(args => args[1] === "enable"));
+    assert.equal(enabled.preservedDisabled, undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

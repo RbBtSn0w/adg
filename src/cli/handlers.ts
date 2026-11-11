@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { addPlugins } from "../commands/install.ts";
 import { listPlugins } from "../commands/list.ts";
 import { importSkills } from "../commands/import.ts";
@@ -12,7 +12,7 @@ import { migrateLayout } from "../commands/migrate.ts";
 import { cleanPluginCache, pluginCacheStatus, prunePluginCache, restorePluginCache } from "../commands/cache.ts";
 import { marketplaceList, marketplaceRemove, marketplaceSync, updatePlugins, type PluginUpdateResult, type ScopeInfo } from "../commands/marketplace.ts";
 import { confirmFullInstall, selectComponentsInteractive } from "../commands/select-components.ts";
-import { selectPluginsInteractive } from "../commands/select-plugins.ts";
+import { FOLLOW_ALL_PLUGINS, selectPluginsInteractive } from "../commands/select-plugins.ts";
 import { selectTargetsInteractive } from "../commands/select-agents.ts";
 import { selectScopeInteractive, selectUpdateScopeInteractive, type UpdateScope } from "../commands/select-scope.ts";
 import { globalPluginsDir, projectPluginsDir, lockPath } from "../paths.ts";
@@ -24,6 +24,7 @@ import {
   renderAgentReport,
   renderMarketplaceList,
   renderUpdateReport,
+  renderUpdateAgentReport,
 } from "../render/plugins.ts";
 import {
   CACHE_USAGE,
@@ -43,9 +44,22 @@ import {
   wantsHelp,
   type ParsedValues,
   type PluginCommand,
+  CliUsageError,
 } from "./index.ts";
 import { handleCorePluginVerb } from "./core-plugin-handlers.ts";
 import { commandOutcome, mergeCommandOutcomes, agentCommandOutcome, type CommandOutcome } from "../command-outcome.ts";
+
+import { withStoreMutex } from "../store-mutex.ts";
+import { discoverPendingMigrations } from "../migration-transaction.ts";
+import { UpdateCancelled } from "../commands/source-upgrade.ts";
+import { reviewUpdate } from "./review-update.ts";
+
+/** Pending transactions own the selected store until update resumes them. */
+function assertNoPendingMigration(pluginsDir: string): void {
+  if (discoverPendingMigrations(pluginsDir).length) {
+    throw new Error("A plugin migration is pending. Run `adg plugins update` with the same scope to resume it before making other changes.");
+  }
+}
 
 interface UpdateScopeTarget {
   dir: string;
@@ -56,10 +70,22 @@ interface UpdateScopeTarget {
 }
 
 export function updateResultCounts(result: PluginUpdateResult): { succeeded: number; failed: number } {
-  const failedRemote = result.remote.filter((source) => source.failed !== undefined || Boolean(source.missingUpstream?.length)).length;
-  // A failed plugin remains one unit even if several stages report diagnostics.
-  const runtimeFailures = new Set(result.agents.flatMap((agent) => (agent.failures ?? []).map((failure) =>
-    JSON.stringify([agent.agent, failure.plugin ?? null, failure.plugin ? null : failure.stage]))));
+  const failedRemote = result.remote.filter((source) => source.failed !== undefined || Boolean(source.missingUpstream?.length || source.actionRequired?.length || source.pendingRuntime?.length)).length;
+  // Replayed source diagnostics already account for their native failures.
+  const sourceMessages = new Set(result.remote.flatMap(source => source.pendingRuntime ?? []));
+  const runtimeFailures = new Set(result.agents.flatMap(agent => (agent.failures ?? [])
+    .filter(failure => !sourceMessages.has(failure.message))
+    .map(failure => JSON.stringify([agent.agent, failure.plugin ?? null, failure.plugin ? null : failure.stage]))));
+  const sourceReportedPlugins = new Set(result.agents.flatMap(agent => (agent.failures ?? [])
+    .filter(failure => failure.plugin && sourceMessages.has(failure.message))
+    .map(failure => JSON.stringify([agent.agent, failure.plugin, null]))));
+  for (const agent of result.agents) {
+    if (agent.skipped) continue;
+    for (const plugin of agent.unverified ?? []) {
+      const key = JSON.stringify([agent.agent, plugin, null]);
+      if (!sourceReportedPlugins.has(key)) runtimeFailures.add(key);
+    }
+  }
   return {
     succeeded:
       result.remote.length - failedRemote +
@@ -86,7 +112,7 @@ async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTar
   if (values.global && values.project) choice = "both";
   else if (values.global) choice = "global";
   else if (values.project) choice = "project";
-  else if (process.stdin.isTTY) choice = await selectUpdateScopeInteractive();
+  else if (process.stdin.isTTY && !values.json) choice = await selectUpdateScopeInteractive();
   else choice = existsSync(lockPath(projectPluginsDir())) ? "project" : "global";
 
   // Home==global trap: a "project" (or "both") scope whose store resolves to the
@@ -108,9 +134,13 @@ async function resolveUpdateScopes(values: ParsedValues): Promise<UpdateScopeTar
 }
 
 /** Render an update/upgrade result: per-source changes, then per-agent re-sync. */
-function printUpdateReport(result: PluginUpdateResult): void {
-  for (const line of renderUpdateReport(result)) console.log(line);
-  for (const line of renderAgentReport(result.agents, "re-synced")) console.log(line);
+function printUpdateReport(result: PluginUpdateResult, verbose = false, retryCommand?: string): void {
+  for (const line of renderUpdateReport(result, { verbose, retryCommand })) console.log(line);
+  for (const line of renderUpdateAgentReport(result.agents, {
+    verbose,
+    retryCommand,
+    reportedFailures: result.remote.flatMap(source => source.pendingRuntime ?? []),
+  })) console.log(line);
 }
 
 /** Resolved scope for a mutating verb. */
@@ -164,6 +194,12 @@ export function promoteGlobalTrap(
  *   - promotes the home==global trap to global with a warning.
  */
 async function resolveActionScope(values: ParsedValues, verb: string): Promise<ActionScope> {
+  const scope = await resolveActionScopeUnchecked(values, verb);
+  assertNoPendingMigration(scope.pluginsDir);
+  return scope;
+}
+
+async function resolveActionScopeUnchecked(values: ParsedValues, verb: string): Promise<ActionScope> {
   if (typeof values.dir === "string") {
     // --dir is an explicit ad-hoc store; --global still selects the user agent
     // scope (matching the old scopeOf behavior), the trap guard doesn't apply.
@@ -175,7 +211,7 @@ async function resolveActionScope(values: ParsedValues, verb: string): Promise<A
   let global: boolean;
   if (values.global) global = true;
   else if (values.project) global = false;
-  else if (process.stdin.isTTY) global = await selectScopeInteractive();
+  else if (process.stdin.isTTY && !values.json) global = await selectScopeInteractive();
   else fail(`plugins ${verb} needs an explicit scope in a non-interactive run: pass --global or --project`);
 
   // Resolve the store dirs once (projectPluginsDir walks the filesystem) and
@@ -208,6 +244,30 @@ function printCliUnavailableNote(target: string, message: string): void {
  * dispatch surface is unit-testable.
  */
 export async function runPlugins(rawVerb: string | undefined, rest: string[]): Promise<CommandOutcome> {
+  const verb = rawVerb ? PLUGIN_ALIASES[rawVerb] ?? rawVerb : undefined;
+  const readOnly = !verb || ["help", "-h", "--help", "list", "status", "validate", "inspect"].includes(verb)
+    || wantsHelp(rest)
+    || (verb === "marketplace" && (!rest[0] || ["help", "list"].includes(rest[0])))
+    || (verb === "cache" && (!rest[0] || ["help", "status"].includes(rest[0])));
+  try {
+    if (readOnly) return await dispatchPlugins(rawVerb, rest);
+    return await withStoreMutex(projectPluginsDir(), async () => {
+      // Prune operates across native registries rather than one chosen store.
+      if (verb === "prune") {
+        assertNoPendingMigration(projectPluginsDir());
+        assertNoPendingMigration(globalPluginsDir());
+      }
+      return await dispatchPlugins(rawVerb, rest);
+    });
+  } catch (error) {
+    if (error instanceof CliUsageError) return commandOutcome("failure", "user");
+    if (!(error instanceof UpdateCancelled)) throw error;
+    console.error(ui.warn("Cancelled; no further changes were made."));
+    return commandOutcome("cancelled");
+  }
+}
+
+async function dispatchPlugins(rawVerb: string | undefined, rest: string[]): Promise<CommandOutcome> {
   // `adg plugins` (no verb) or an explicit help request → the L1 overview.
   if (rawVerb === undefined || rawVerb === "-h" || rawVerb === "--help" || rawVerb === "help") {
     console.log(renderPluginsHelp());
@@ -248,7 +308,7 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<CommandOut
   const { values, positionals } = parseVerb("add", cmd.flags, rest);
   const spec = positionals[0];
   if (!spec) fail("plugins add requires a <plugin-dir | owner/repo[@ref] | github-url>");
-  const tty = process.stdin.isTTY;
+  const tty = process.stdin.isTTY && !values.json;
   let global = Boolean(values.global);
   if (!values.dir && values.global === undefined && values.project === undefined && tty) {
     global = await selectScopeInteractive();
@@ -259,11 +319,13 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<CommandOut
     : global
       ? globalPluginsDir()
       : projectPluginsDir();
+  assertNoPendingMigration(pluginsDir);
+  let followExplicit = false;
   const only = resolveComponents(values.only);
   const skillsSubset = values.skill && values.skill.length > 0 ? values.skill : undefined;
   const mcpSubset = values.mcp && values.mcp.length > 0 ? values.mcp : undefined;
   const narrowed = only !== undefined || skillsSubset !== undefined || mcpSubset !== undefined;
-  const { order, installed, removed, converted, agents } = await addPlugins({
+  const result = await addPlugins({
     spec,
     pluginsDir,
     ref: values.ref,
@@ -277,7 +339,15 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<CommandOut
     marketplaceName: values["marketplace-name"],
     as: values.as,
     targets: values.target !== undefined ? resolveTargets(values.target) : undefined,
-    selectPlugins: tty ? selectPluginsInteractive : undefined,
+    selectPlugins: tty ? async choices => {
+      const selected = await selectPluginsInteractive(choices);
+      if (selected.includes(FOLLOW_ALL_PLUGINS)) {
+        followExplicit = true;
+        return choices.map(choice => choice.name);
+      }
+      return selected;
+    } : undefined,
+    get followAllSelected() { return followExplicit; },
     selectTargets: tty && values.target === undefined ? selectTargetsInteractive : undefined,
     confirmFull: tty && !narrowed ? confirmFullInstall : undefined,
     selectComponents: tty && !narrowed ? selectComponentsInteractive : undefined,
@@ -285,14 +355,21 @@ async function handleAdd(rest: string[], cmd: PluginCommand): Promise<CommandOut
     nonInteractive: !tty,
     scope: global ? "user" : "project",
   });
+  const { order, installed, removed, converted, agents } = result;
+  if (values.json) {
+    console.log(JSON.stringify({ schemaVersion: "adg.plugins.add/v1", ...result }));
+    return runtimeOutcome(agents);
+  }
   for (const name of converted) console.log(ui.meta(`converted native manifest -> .agents/.plugin.json: ${name}`));
   for (const name of removed) console.log(`${ui.warn("removed")} ${ui.name(name)}`);
-  if (order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
+  if (values.verbose && order.length > 1) console.log(ui.meta(`install order: ${order.join(" -> ")}`));
   for (const res of installed) {
     console.log(`${ui.ok("added")} ${ui.name(res.name)} ${ui.meta(`-> ${res.installedTo}`)}`);
-    console.log(ui.meta(`  sourceHash: ${res.sourceHash}`));
-    console.log(ui.meta(`  installedHash: ${res.installedHash}`));
-    for (const f of res.adapted) console.log(ui.meta(`  adapted: ${f}`));
+    if (values.verbose) {
+      console.log(ui.meta(`  sourceHash: ${res.sourceHash}`));
+      console.log(ui.meta(`  installedHash: ${res.installedHash}`));
+      for (const file of res.adapted) console.log(ui.meta(`  adapted: ${file}`));
+    }
   }
   for (const line of renderAgentReport(agents, "enabled")) console.log(line);
   return runtimeOutcome(agents);
@@ -372,11 +449,31 @@ async function runUpdateAcrossScopes(
 ): Promise<CommandOutcome> {
   let succeeded = 0;
   let failed = 0;
+  let cancelled = false;
+  const scopes: Array<{ scope: string; result?: PluginUpdateResult; error?: string; cancelled?: boolean }> = [];
   for (const sc of await resolveUpdateScopes(values)) {
-    if (sc.heading) console.log(`${ui.name(sc.heading)}`);
-    const progress = createProgress();
+    if (sc.heading && !values.json) console.log(`${ui.name(sc.heading)}`);
+    const progress = createProgress(values.json ? { stream: { write() {} }, isTTY: false } : {});
+    const reportResult = (result: PluginUpdateResult, interrupted = false): void => {
+      scopes.push({ scope: sc.label, result, ...(interrupted ? { cancelled: true } : {}) });
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const scopeFlag = typeof values.dir === "string" ? `--dir ${quote(sc.dir)}` : sc.agentScope === "user" ? "--global" : "--project";
+      const target = typeof values.target === "string" ? values.target : undefined;
+      const retryVerb = target ? "marketplace upgrade" : "update";
+      const retryCommand = `adg plugins ${retryVerb}${opts.source ? ` ${quote(opts.source)}` : ""} ${scopeFlag}${values.all ? " --all" : ""}${values.repair ? " --repair" : ""}${target ? ` --target ${quote(target)}` : ""}`;
+      const hasCompletedWork = result.remote.length || result.local.results.length || result.local.missing.length || result.agents.length;
+      if (!values.json && (!interrupted || hasCompletedWork)) printUpdateReport(result, values.verbose, retryCommand);
+      const counts = updateResultCounts(result);
+      if (!values.json && (!interrupted || hasCompletedWork)) {
+        const awaitingReview = result.remote.filter(source => source.actionRequired?.length).length;
+        const summary = formatUpdateSummary({ succeeded: counts.succeeded, failed: counts.failed - awaitingReview }, progress.elapsedMs());
+        console.log(`${summary}${awaitingReview ? ui.warn(` · ${awaitingReview} awaiting review`) : ""}`);
+      }
+      succeeded += counts.succeeded;
+      failed += counts.failed;
+    };
     try {
-      const result = await updatePlugins({
+      const result = await withStoreMutex(sc.dir, () => updatePlugins({
         pluginsDir: sc.dir,
         source: opts.source,
         all: values.all,
@@ -385,22 +482,30 @@ async function runUpdateAcrossScopes(
         agentScope: sc.agentScope,
         scope: { label: sc.label, globalDir: globalPluginsDir() },
         targets: opts.targets,
-        onProgress: (phase) => progress.update(phase),
-      });
-      // Clear the animated line before the report goes to stdout, so the two
-      // streams don't interleave mid-line.
+        review: process.stdin.isTTY && !values.json ? async review => {
+          progress.stop();
+          return reviewUpdate(review);
+        } : undefined,
+        onProgress: values.json ? undefined : phase => progress.update(phase),
+      }));
       progress.stop();
-      printUpdateReport(result);
-      const counts = updateResultCounts(result);
-      console.log(formatUpdateSummary(counts, progress.elapsedMs()));
-      succeeded += counts.succeeded;
-      failed += counts.failed;
-    } catch (err) {
+      reportResult(result);
+    } catch (error) {
       progress.stop();
-      console.error(`${ui.err("error:")} ${err instanceof Error ? err.message : String(err)}`);
+      if (error instanceof UpdateCancelled) {
+        cancelled = true;
+        if (error.partial) reportResult(error.partial, true);
+        if (!values.json) console.error(ui.warn("Update cancelled; completed changes are kept. Remaining updates were not run."));
+        break;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      scopes.push({ scope: sc.label, error: message });
+      if (!values.json) console.error(`${ui.err("error:")} ${message}`);
       failed += 1;
     }
   }
+  if (values.json) console.log(JSON.stringify({ schemaVersion: "adg.plugins.update/v1", scopes, summary: { succeeded, failed }, cancelled }));
+  if (cancelled) return commandOutcome("cancelled");
   if (failed === 0) return commandOutcome("success");
   return commandOutcome(succeeded > 0 ? "partial" : "failure", "dependency");
 }
@@ -409,11 +514,21 @@ async function handleUpdate(rest: string[], cmd: PluginCommand): Promise<Command
   const { values, positionals } = parseVerb("update", cmd.flags, rest);
   // First paint, before the scope prompt and before any lock read, so the run
   // never opens on a blank screen. stderr keeps stdout to the report alone.
-  process.stderr.write(`${ui.title("adg plugins update")}\n`);
+  if (!values.json) process.stderr.write(`${ui.title("adg plugins update")}\n`);
   return runUpdateAcrossScopes(values, { source: positionals[0] });
 }
 
 async function runPluginsVerb(verb: string, rest: string[], cmd: PluginCommand): Promise<CommandOutcome | void> {
+  if (verb === "adapt" || verb === "init") {
+    const { values, positionals } = parseVerb(verb, cmd.flags, rest);
+    let target = verb === "adapt" ? resolve(positionals[0] ?? process.cwd()) : resolve(values.dir ?? "plugins");
+    for (;;) {
+      assertNoPendingMigration(target);
+      const parent = dirname(target);
+      if (parent === target) break;
+      target = parent;
+    }
+  }
   if (await handleCorePluginVerb(verb, rest, cmd)) return;
   switch (verb) {
     case "add": {
@@ -538,7 +653,7 @@ async function runMarketplace(args: string[]): Promise<CommandOutcome> {
       // and error handling) so the alias can't drift from the verb it aliases.
       // `--target` narrows the runtimes.
       console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
-      const { values, positionals } = parseVerb("marketplace", ["all", "target", ...SCOPE], rest);
+      const { values, positionals } = parseVerb("marketplace", ["all", "repair", "target", "verbose", "json", ...SCOPE], rest);
       const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
       return runUpdateAcrossScopes(values, { source: positionals[0], targets });
     }

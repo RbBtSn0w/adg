@@ -8,6 +8,7 @@ import { readLock, writeLock } from "../lock.ts";
 import { pluginState, type ComponentType, type PluginLock, type PluginState } from "../types.ts";
 import { ADAPTER_TARGETS } from "../adapters/index.ts";
 import { installPlugin } from "./install.ts";
+import { preservedSelection, requestedSelectionKnown } from "../source-history.ts";
 
 export interface PluginStateOptions {
   pluginsDir: string;
@@ -72,7 +73,8 @@ export function enablePlugins(opts: PluginStateOptions): PluginStateChangeResult
       pluginsDir: opts.pluginsDir,
       origin: entry.origin,
       resolvedRevision: entry.resolvedRevision,
-      selection: entry.selection,
+      selection: preservedSelection(opts.pluginsDir, name, entry),
+      selectionKnown: requestedSelectionKnown(entry),
       targets: [...ADAPTER_TARGETS],
       forceMaterialize: true,
     });

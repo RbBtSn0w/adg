@@ -1,3 +1,4 @@
+import { sourceIntent } from "../source-intent.ts";
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { claudeSkillsDir, lockPath, marketplacePath, pluginCacheRoot, pluginDir, pluginSourceCacheDir } from "../paths.ts";
@@ -102,6 +103,14 @@ export function removePlugin(opts: RemoveOptions): RemoveResult {
     if (existsSync(cacheRoot) && readdirSync(cacheRoot).length === 0) rmSync(cacheRoot, { recursive: true, force: true });
   }
 
+  const origin = lock.plugins[name]?.origin;
+  if (origin?.type === "github") {
+    const intent = sourceIntent(lock, origin.repo, origin.ref);
+    if (intent) {
+      intent.roots = intent.roots.filter((root) => root !== name);
+      if (!intent.excluded.includes(name)) intent.excluded.push(name);
+    }
+  }
   const removedFromLock = removeEntry(lock, name);
   if (removedFromLock) writeLock(lockFile, lock);
 
