@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { stripVTControlCharacters } from "node:util";
 import { renderUpdateReport, renderUpdateAgentReport, renderAgentReport } from "../src/render/plugins.ts";
 import { updateResultCounts } from "../src/cli/handlers.ts";
 import type { PluginUpdateResult, PluginUpdateSourceResult } from "../src/commands/marketplace.ts";
@@ -90,7 +91,7 @@ test("deferred unknown candidates remain visible separately from exclusions and 
 });
 test("unchanged installed selections may be up to date while deferred candidates stay visible", () => {
   const deferred: PluginUpdateSourceResult & { deferredRecovery: string[] } = { ...source, unchanged: ["installed"], deferredRecovery: ["design:a"] };
-  const text = renderUpdateReport(result([deferred, { ...source, source: "example/other", unchanged: ["other"] }]), { retryCommand: "adg plugins update --global --repair" }).join("\n");
+  const text = stripVTControlCharacters(renderUpdateReport(result([deferred, { ...source, source: "example/other", unchanged: ["other"] }]), { retryCommand: "adg plugins update --global --repair" }).join("\n"));
   assert.match(text, /example\/public: up to date \(1\)/);
   assert.match(text, /recovery deferred.*1 candidate/i);
   assert.equal((text.match(/--repair/g) ?? []).length, 1);

@@ -23,16 +23,29 @@ test("mutex reclaims crashes before ticket publication and never removes a new h
       rmSync(${JSON.stringify(join(root, "active"))});
     });
   `;
+  interface ChildOutcome { code: number | null; signal: NodeJS.Signals | null; diagnostic: string; error?: Error }
+  const children: Array<{ child: ReturnType<typeof spawn>; closed: Promise<ChildOutcome> }> = [];
   try {
-    await Promise.all(Array.from({ length: 12 }, () => new Promise<void>((resolve, reject) => {
+    for (let index = 0; index < 12; index++) {
       const child = spawn(process.execPath, ["--input-type=module", "-e", program], {
         env: { ...process.env, ADG_MUTEX_HOME: mutex }, stdio: ["ignore", "ignore", "pipe"],
       });
       let diagnostic = "";
-      child.stderr.on("data", (chunk) => { diagnostic += chunk; });
-      child.on("error", reject);
-      child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(diagnostic)));
-    })));
+      let spawnError: Error | undefined;
+      const closed = new Promise<ChildOutcome>((resolve) => {
+        child.stderr.on("data", (chunk) => { diagnostic += chunk; });
+        child.once("error", (error) => { spawnError = error; });
+        child.once("close", (code, signal) => resolve({ code, signal, diagnostic, ...(spawnError ? { error: spawnError } : {}) }));
+      });
+      children.push({ child, closed });
+    }
+    // Wait for all children and their stdio to close before evaluating failures,
+    // so cleanup cannot hide an earlier child error behind Windows ENOTEMPTY.
+    const outcomes = await Promise.all(children.map(({ closed }) => closed));
+    for (const outcome of outcomes) {
+      assert.ifError(outcome.error);
+      assert.equal(outcome.code, 0, outcome.diagnostic || `Mutex child terminated with ${outcome.signal}`);
+    }
     assert.deepEqual(readdirSync(mutex), []);
     assert.equal(existsSync(join(root, "active")), false);
     const previous = process.env.ADG_MUTEX_HOME;
@@ -42,5 +55,11 @@ test("mutex reclaims crashes before ticket publication and never removes a new h
       if (previous === undefined) delete process.env.ADG_MUTEX_HOME;
       else process.env.ADG_MUTEX_HOME = previous;
     }
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    for (const { child } of children) {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    }
+    await Promise.all(children.map(({ closed }) => closed));
+    rmSync(root, { recursive: true, force: true });
+  }
 });

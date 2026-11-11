@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
+import { stripVTControlCharacters } from "node:util";
 import { UpdateCancelled } from "../src/commands/review-executables.ts";
 import type { PluginUpdateResult } from "../src/commands/marketplace.ts";
 
@@ -64,8 +65,9 @@ test("human cancellation report preserves completed source work without claiming
     throw error;
   });
   assert.equal(run.outcome.exitCode, 130);
-  assert.match(run.output, /example\/completed: updated 1 plugin/);
-  assert.match(run.output, /1 ok/);
+  const output = stripVTControlCharacters(run.output);
+  assert.match(output, /example\/completed: updated 1 plugin/);
+  assert.match(output, /1 ok/);
   assert.doesNotMatch(run.errors, /current installation is preserved|no.*changes.*made/i);
   assert.match(run.errors, /completed.*kept|completed.*retained/i);
 });

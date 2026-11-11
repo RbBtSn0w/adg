@@ -94,10 +94,14 @@ test('offline staging prepares final runtime paths for an absent target', async 
       retire: ['old'], scope: 'project', targets: [agent],
     });
     assert.equal((await publishMigrationTransaction(journal)).complete, true);
-    const projected = readFileSync(join(f.live, 'next', 'hooks.json'), 'utf8');
-    assert.ok(projected.includes(join(f.live, 'next')));
-    assert.equal(projected.includes(f.stage), false);
-    assert.equal(projected.includes(join(f.root, 'state')), false);
+    const projected = JSON.parse(readFileSync(join(f.live, 'next', 'hooks.json'), 'utf8')) as {
+      next: { PreInvocation: Array<{ command: string }> };
+    };
+    assert.equal(projected.next.PreInvocation.length, 1);
+    const command = projected.next.PreInvocation[0]!.command;
+    assert.ok(command.includes(join(f.live, 'next', '.antigravity-plugin', 'hook-runner.mjs')));
+    assert.equal(command.includes(f.stage), false);
+    assert.equal(command.includes(join(f.root, 'state')), false);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

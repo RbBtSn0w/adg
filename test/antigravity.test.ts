@@ -1156,9 +1156,14 @@ test("refresh replaces a legacy symlink with a real owned root and removes stale
       assert.deepEqual(antigravityAgent.refresh(ctx).affected, ["demo"]);
       assert.equal(lstatSync(exposed).isSymbolicLink(), false);
       assert.equal(readFileSync(join(exposed, "agents", "agent.md"), "utf8"), "# Agent");
-      const hooks = readFileSync(join(exposed, "hooks.json"), "utf8");
-      assert.ok(hooks.includes(exposed));
-      assert.equal(hooks.includes(".adg-projection-staging"), false);
+      const hooks = JSON.parse(readFileSync(join(exposed, "hooks.json"), "utf8")) as {
+        demo: { PreInvocation: Array<{ command: string }> };
+      };
+      assert.equal(hooks.demo.PreInvocation.length, 1);
+      const command = hooks.demo.PreInvocation[0]!.command;
+      assert.ok(command.includes(join(exposed, ".antigravity-plugin", "hook-runner.mjs")));
+      assert.equal(command.includes(source), false);
+      assert.equal(command.includes(".adg-projection-staging"), false);
       assert.deepEqual(antigravityAgent.needsProjectionRefresh!(ctx), []);
       rmSync(join(source, "skills", "old"), { recursive: true });
       mkdirSync(join(source, "skills", "new")); writeFileSync(join(source, "skills", "new", "SKILL.md"), "# New");
