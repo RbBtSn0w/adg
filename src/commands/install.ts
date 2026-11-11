@@ -290,6 +290,7 @@ export async function addPlugins(opts: AddOptions): Promise<AddResult> {
         roots: selected, excluded: followAll ? [] : (previous?.excluded ?? []).filter((name) => !order.includes(name)),
         appliedMigrations: [],
         history: installedHistory(opts.pluginsDir, lock, parsed.source, sourceRef),
+        deferredRecovery: previous?.deferredRecovery,
         executableDecisions: previous?.executableDecisions,
         ...(targets ? { targets } : {}),
         withDeps: opts.withDeps !== false,

@@ -14,7 +14,7 @@ import {
 } from "../types.ts";
 import { executableInventory, type ExecutableEntry } from "../update-executables.ts";
 import { contentHash } from "./install/install-one.ts";
-import { verifiedInstalledPayload } from "../source-history.ts";
+import { requestedSelectionKnown, verifiedInstalledPayload } from "../source-history.ts";
 import type { MigrationDecision, MigrationDecisionRequest } from "../upgrade-plan.ts";
 
 export interface SourceReview {
@@ -70,12 +70,15 @@ export async function reviewExecutables(
     const effective = resolveSelectionDependencies(candidate.manifest, selection);
     const proposed = executableInventory(candidate.dir, candidate.manifest, effective, targets);
     if (!proposed.length) continue;
-    const previous = old && (verifiedSource(pluginsDir, name, old) ?? verifiedInstalledPayload(pluginsDir, name, old));
+    const selectionKnown = old && requestedSelectionKnown(old);
+    // Complete source bytes establish permission only with a known requested policy.
+    const previous = old && ((selectionKnown ? verifiedSource(pluginsDir, name, old) : undefined)
+      ?? verifiedInstalledPayload(pluginsDir, name, old));
     const prior = previous
       ? executableInventory(
           previous,
           readManifest(previous),
-          resolveSelectionDependencies(readManifest(previous), old?.selection),
+          selectionKnown ? resolveSelectionDependencies(readManifest(previous), old?.selection) : undefined,
           targets,
         )
       : [];

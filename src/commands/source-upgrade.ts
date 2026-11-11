@@ -62,7 +62,7 @@ interface UpgradeOptions {
   gitRunner?: GitRunner;
   onProgress?: (phase: UpdatePhase) => void;
   onAgentResults?: (results: AgentSyncResult[]) => void;
-  skipNativeTargets?: string[];
+  onNativeManaged?: (targets: NonNullable<MigrationPublishResult["managedNative"]>) => void;
 }
 
 function emptyContents(): PluginContents {
@@ -71,9 +71,9 @@ function emptyContents(): PluginContents {
 
 /** Resolve a newly available runtime's saved state conflict within the same update. */
 export async function publishUpgradeTransaction(
-  journalPath: string, targets: Agent[], source: string, review?: ReviewUpdate, ref?: string,
+  journalPath: string, targets: Agent[], source: string, review?: ReviewUpdate, ref?: string, repairTargets?: string[],
 ): Promise<MigrationPublishResult> {
-  const first = await publishMigrationTransaction(journalPath, { targets });
+  const first = await publishMigrationTransaction(journalPath, { targets, repairTargets });
   if (!first.stateDecisions?.length || !review) return first;
   const answer = await review({ source, executable: [], history: first.stateDecisions.map(item => ({
     id: `state:${item.agent}/${item.plugin}`, skills: [], choices: ["enabled", "disabled"],
@@ -92,7 +92,7 @@ export async function publishUpgradeTransaction(
     if (action !== "enabled" && action !== "disabled") throw new Error(`Choose the runtime state for ${item.plugin}.`);
     return { ...item, enabled: action === "enabled" };
   });
-  const last = await publishMigrationTransaction(journalPath, { targets, stateDecisions });
+  const last = await publishMigrationTransaction(journalPath, { targets, stateDecisions, repairTargets });
   const resolved = new Set(stateDecisions.map(item => `${item.agent}/${item.plugin}`));
   const prior = (first.agents ?? []).map(result => ({ ...result,
     failures: result.failures?.filter(item => !item.plugin || !resolved.has(`${result.agent}/${item.plugin}`)),
@@ -498,10 +498,11 @@ async function upgradeCandidates(
     policyChanged = previous ? !isDeepStrictEqual(JSON.parse(JSON.stringify(intent)), previous) : true;
     const checkpointNeeded = opts.revision && unchanged.some(name => lock.plugins[name]!.resolvedRevision !== opts.revision);
     const knownRuntime = (id: string) => group.installed.some(name => Object.hasOwn(lock.plugins[name]?.runtimeStates ?? {}, id));
-    const selectedRuntime = opts.activate ? (opts.agents ?? resolveAgents(targets).filter(agent => targets !== undefined || agent.available() || knownRuntime(agent.id))) : [];
-    const runtime = opts.activate ? selectedRuntime.filter(agent =>
-      plan.applied.length || plan.retired.length || !opts.skipNativeTargets?.includes(agent.id)) : [];
-    const retireTargets = opts.activate && plan.retired.length ? (opts.agents ?? resolveAgents().filter(agent => agent.available() || knownRuntime(agent.id))) : [];
+    const selectedRuntime = opts.activate ? (opts.agents ?? [...new Map([...resolveAgents(targets).filter(agent => targets !== undefined || agent.available() || knownRuntime(agent.id)), ...(opts.repair ? resolveAgents(["codex"]) : [])].map(agent => [agent.id, agent])).values()]) : [];
+    // Changed native payloads belong to the same durable transaction, including
+    // Codex repair; standalone repair still handles unchanged missing members.
+    const runtime = selectedRuntime;
+    const retireTargets = plan.retired.length ? (opts.agents ?? resolveAgents().filter(agent => agent.detect() || knownRuntime(agent.id))) : [];
     const allRuntime = [...new Map([...runtime, ...retireTargets].map(agent => [agent.id, agent])).values()];
     const refreshExisting = opts.refreshExisting?.filter(item => unchanged.includes(item.name));
     const successors = plan.destinations.map(item => ({ ...item, predecessors: item.predecessors.filter(name => group.installed.includes(name)) }));
@@ -528,6 +529,7 @@ async function upgradeCandidates(
       scope: opts.scope,
       targets: runtime,
       retireTargets,
+      inspectionRequiredTargets: opts.repair ? ["codex"] : undefined,
       successors: stateReview.successors,
       projectionTargets: targets ?? [...ADAPTER_TARGETS],
       sourceIntent: intent,
@@ -536,7 +538,8 @@ async function upgradeCandidates(
       const count = prepared.filter(p => p.runtimeRefreshRequired && p.entry.state !== "disabled").length;
       if (count) opts.onProgress?.({ kind: "activate", agent: agent.id, count });
     }
-    const published = await publishUpgradeTransaction(journal, allRuntime, group.source, opts.review, group.ref);
+    const published = await publishUpgradeTransaction(journal, opts.activate ? allRuntime : [], group.source, opts.review, group.ref, opts.repair ? ["codex"] : undefined);
+    opts.onNativeManaged?.(published.managedNative ?? []);
     opts.onAgentResults?.(published.agents ?? []);
     if (published.complete && opts.revision && unchanged.length) {
       const after = readLock(lockPath(pluginsDir));

@@ -234,14 +234,21 @@ export async function updatePlugins(
     onProgress?: (phase: UpdatePhase) => void;
   },
 ): Promise<PluginUpdateResult> {
+  const executionProviders = opts.activate ? opts.agents ?? [...new Map([
+    ...resolveAgents(opts.targets), ...(opts.repair ? resolveAgents(["codex"]) : []),
+  ].map(agent => [agent.id, agent])).values()] : [];
   // Replay pending operations before probing any remote revision.
   const pending = discoverPendingMigrations(opts.pluginsDir).filter(item => !opts.source || item.source === opts.source);
   const remote: PluginUpdateSourceResult[] = [];
   const resumedAgents: AgentSyncResult[] = [];
+  const managedByMigration = new Set<string>();
+  const rememberManagedNative = (targets: NonNullable<MigrationPublishResult["managedNative"]>) => {
+    for (const target of targets) if (target.agent === "codex") for (const name of target.plugins) managedByMigration.add(name);
+  };
   for (const item of pending) {
     let resumed: MigrationPublishResult;
     try {
-      resumed = await publishUpgradeTransaction(item.journalPath, opts.agents ?? resolveAgents(opts.targets), item.source, opts.review, item.ref);
+      resumed = await publishUpgradeTransaction(item.journalPath, executionProviders, item.source, opts.review, item.ref, opts.repair ? ["codex"] : undefined);
     } catch (error) {
       if (error instanceof UpdateCancelled) {
         error.partial = { remote: [...remote, ...(error.partial?.remote ?? [])], local: { results: [], missing: [] },
@@ -250,13 +257,14 @@ export async function updatePlugins(
       throw error;
     }
     resumedAgents.push(...(resumed.agents ?? []));
+    rememberManagedNative(resumed.managedNative ?? []);
     remote.push({
       source: item.source, ref: item.ref, updated: [], unchanged: [], deleted: [], available: [],
       ...(resumed.complete ? { resumed: true } : { pendingRuntime: resumed.failures.map(failure => failure.message) }),
     });
   }
   const recovered = await replayNativeRetries({
-    pluginsDir: opts.pluginsDir, source: opts.source, agents: opts.agents ?? resolveAgents(opts.targets),
+    pluginsDir: opts.pluginsDir, source: opts.source, agents: executionProviders,
     onProgress: opts.onProgress,
   });
   for (const group of recovered.groups) {
@@ -307,7 +315,6 @@ export async function updatePlugins(
   const updateAgents = opts.repair ? (opts.agents ?? resolveAgents(opts.targets)).filter((agent) => agent.id !== "codex") : opts.agents;
   const now = opts.now ?? new Date().toISOString();
   const remoteAgents: AgentSyncResult[] = [...resumedAgents, ...recovered.agents];
-  const managedByMigration = new Set<string>();
 
   let sourceIndex = 0;
   for (const group of remoteGroups) {
@@ -359,15 +366,12 @@ export async function updatePlugins(
           targets: opts.targets, now, review: opts.review, refreshExisting,
           gitRunner: opts.gitRunner, onProgress: opts.onProgress,
           onAgentResults: results => remoteAgents.push(...results),
-          skipNativeTargets: opts.repair ? ["codex"] : undefined,
+          onNativeManaged: rememberManagedNative,
         });
         remote.push(result);
         if (result.deferredRecovery?.length) recordTelemetryEvent("adg.plugins.update.recovery_deferred", {
           "skills.count": result.deferredRecovery.length,
         }, opts.telemetrySpan);
-        if (result.migrated?.length || result.deleted.length || result.pendingRuntime?.length) {
-          for (const name of [...group.installed, ...result.updated, ...result.deleted]) managedByMigration.add(name);
-        }
         if (result.missingUpstream?.length) recordTelemetryEvent("adg.plugins.update.missing_upstream", {
           "plugins.retained": result.missingUpstream.length,
           "update.include_new": Boolean(opts.all),
@@ -411,18 +415,16 @@ export async function updatePlugins(
       })
     : { results: [], missing: [] };
 
-  const repairNames = [...new Set([...remoteGroups.flatMap((group) => group.installed), ...remote.flatMap((source) => [...source.updated, ...source.unchanged]), ...localNames])].filter(name => !managedByMigration.has(name));
+  const repairNames = [...new Set([...selectedGroups.flatMap((group) => group.installed), ...remote.flatMap((source) => [...source.updated, ...source.unchanged]), ...localNames])].filter(name => !managedByMigration.has(name));
   const currentLock = readLock(lockPath(opts.pluginsDir));
-  const repairs = opts.repair && repairNames.length ? [repairCodex({
-    pluginsDir: opts.pluginsDir,
-    plugins: repairNames.filter((name) => currentLock.plugins[name]),
-    scope: opts.agentScope ?? "project",
+  const repairs = opts.activate && opts.repair && repairNames.length ? [repairCodex({
+    pluginsDir: opts.pluginsDir, plugins: repairNames.filter(name => currentLock.plugins[name]), scope: repairScope,
   }, false, repairAgent, {
     initial, observed: true,
-    changed: [...remote.flatMap((source) => source.changes
-      ? source.changes.filter((plugin) => plugin.runtimeRefreshRequired).map((plugin) => plugin.name)
-      : source.updated), ...local.results.filter((plugin) => plugin.runtimeRefreshRequired ?? plugin.changed).map((plugin) => plugin.name)],
-    removed: repairNames.filter((name) => !currentLock.plugins[name]),
+    changed: [...remote.flatMap(source => source.changes
+      ? source.changes.filter(plugin => plugin.runtimeRefreshRequired).map(plugin => plugin.name)
+      : source.updated), ...local.results.filter(plugin => plugin.runtimeRefreshRequired ?? plugin.changed).map(plugin => plugin.name)],
+    removed: repairNames.filter(name => !currentLock.plugins[name]),
   })] : [];
   const agents = mergeAgentResults([remoteAgents, local.agents ?? [], repairs]);
   return { remote, local, agents };

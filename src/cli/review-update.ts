@@ -39,7 +39,7 @@ export async function reviewUpdate(
   for (const item of review.history) {
     const uncertainSelection = item.uncertain || item.choices.includes("restore");
     const ordered = uncertainSelection
-      ? ["keep", "select", "restore"].filter(action => item.choices.includes(action as MigrationDecision["action"]))
+      ? ["keep", "select", "restore", "drop"].filter(action => item.choices.includes(action as MigrationDecision["action"]))
       : item.choices.includes("disabled") ? ["disabled", "enabled"] : item.choices;
     const message = item.id.startsWith("state:")
       ? `${review.source}: resolve enabled and disabled selections for ${item.id.slice(6)}`
@@ -69,14 +69,19 @@ export async function reviewUpdate(
     if (!item.choices.includes(action)) throw new Error(`Invalid migration decision: ${item.id}`);
     let skills: string[] | undefined;
     if (action === "select") {
-      const chosen = await ui.multiselect({
+      const ownerSelection = item.id.startsWith("ownership:");
+      const chosen = await (ownerSelection ? ui.select({
+        message: "Choose the current plugin that should own this skill",
+        options: item.skills.map(address => ({ value: address, label: address })),
+        initialValue: item.skills[0],
+      }) : ui.multiselect({
         message: "Choose candidates to restore; their prior selection is unknown (space to toggle)",
         options: item.skills.map(skill => ({ value: skill, label: skill })),
         initialValues: [],
         required: false,
-      });
+      }));
       if (ui.isCancel(chosen)) return undefined;
-      skills = chosen as string[];
+      skills = ownerSelection ? [chosen as string] : chosen as string[];
       if (!Array.isArray(skills) || skills.some(skill => !item.skills.includes(skill))) throw new Error("Invalid historical skill selection");
     }
     answer.history[item.id] = { action, ...(skills ? { skills } : {}) };

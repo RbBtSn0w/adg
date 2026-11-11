@@ -191,6 +191,7 @@ export function renderUpdateReport(result: PluginUpdateResult, opts: { verbose?:
         const readable = opts.verbose ? message : message.startsWith("Review state:")
           ? "Choose whether the merged plugin should be enabled or disabled."
           : message.startsWith("Review drop:") ? "Choose whether to keep or remove a skill without a replacement."
+          : message.startsWith("Review unmapped:") ? "Choose whether to keep or remove the old plugin without a declared replacement."
           : message.startsWith("Review ")
             ? `Choose whether to restore historical skills${message.includes(": ") ? ` (${message.split(": ").slice(1).join(": ").split(", ").length})` : ""}.`
             : message.replace(/ \(unmapped:[^)]+\)\./g, ".");

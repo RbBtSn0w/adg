@@ -76,6 +76,16 @@ export function updateResultCounts(result: PluginUpdateResult): { succeeded: num
   const runtimeFailures = new Set(result.agents.flatMap(agent => (agent.failures ?? [])
     .filter(failure => !sourceMessages.has(failure.message))
     .map(failure => JSON.stringify([agent.agent, failure.plugin ?? null, failure.plugin ? null : failure.stage]))));
+  const sourceReportedPlugins = new Set(result.agents.flatMap(agent => (agent.failures ?? [])
+    .filter(failure => failure.plugin && sourceMessages.has(failure.message))
+    .map(failure => JSON.stringify([agent.agent, failure.plugin, null]))));
+  for (const agent of result.agents) {
+    if (agent.skipped) continue;
+    for (const plugin of agent.unverified ?? []) {
+      const key = JSON.stringify([agent.agent, plugin, null]);
+      if (!sourceReportedPlugins.has(key)) runtimeFailures.add(key);
+    }
+  }
   return {
     succeeded:
       result.remote.length - failedRemote +
@@ -641,7 +651,7 @@ async function runMarketplace(args: string[]): Promise<CommandOutcome> {
       // and error handling) so the alias can't drift from the verb it aliases.
       // `--target` narrows the runtimes.
       console.error(ui.warn("note: `marketplace upgrade` is a deprecated alias for `adg plugins update`."));
-      const { values, positionals } = parseVerb("marketplace", ["all", "target", "verbose", "json", ...SCOPE], rest);
+      const { values, positionals } = parseVerb("marketplace", ["all", "repair", "target", "verbose", "json", ...SCOPE], rest);
       const targets = values.target !== undefined ? resolveTargets(values.target) : undefined;
       return runUpdateAcrossScopes(values, { source: positionals[0], targets });
     }

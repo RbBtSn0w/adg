@@ -1179,6 +1179,33 @@ test("refresh replaces a legacy symlink with a real owned root and removes stale
   } finally { rmSync(store, { recursive: true, force: true }); }
 });
 
+test("copied Antigravity projections preserve hooks and MCP required by selected skills", () => {
+  const store = mkdtempSync(join(tmpdir(), "adg-agy-required-executables-"));
+  try {
+    const source = seedStore(store, "demo", {
+      schemaVersion: ADG_SCHEMA_VERSION, name: "demo", version: "1.0.0", description: "Synthetic", skills: "./skills/", hooks: "./hooks/", mcpServers: "./.mcp.json",
+      selectionDependencies: { skills: { components: ["hooks", "mcp"] } },
+    });
+    mkdirSync(join(source, "skills", "demo"), { recursive: true });
+    writeFileSync(join(source, "skills", "demo", "SKILL.md"), "# Demo");
+    mkdirSync(join(source, "hooks"));
+    writeFileSync(join(source, "hooks", "hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf synthetic" }] }] } }));
+    writeFileSync(join(source, ".mcp.json"), JSON.stringify({ mcpServers: { demo: { command: "synthetic-server" } } }));
+    const lock = readLock(lockPath(store));
+    lock.plugins.demo!.selection = { components: ["skills"], skills: ["demo"] };
+    writeLock(lockPath(store), lock);
+    withGemini(gemini => {
+      const activated = antigravityAgent.activate({ pluginsDir: store, plugins: ["demo"], scope: "user" });
+      assert.deepEqual(activated.failures ?? [], []);
+      assert.deepEqual(activated.affected, ["demo"]);
+      const exposed = join(gemini, "config", "plugins", "demo");
+      assert.ok(existsSync(join(exposed, "hooks.json")));
+      assert.deepEqual(JSON.parse(readFileSync(join(exposed, "mcp_config.json"), "utf8")), { mcpServers: { demo: { command: "synthetic-server" } } });
+      assert.deepEqual(readLock(lockPath(store)).plugins.demo!.selection, { components: ["skills"], skills: ["demo"] });
+    });
+  } finally { rmSync(store, { recursive: true, force: true }); }
+});
+
 test("another store cannot overwrite or retire an owned physical exposure", () => {
   const first = mkdtempSync(join(tmpdir(), "adg-agy-first-store-"));
   const second = mkdtempSync(join(tmpdir(), "adg-agy-second-store-"));

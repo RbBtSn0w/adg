@@ -375,6 +375,18 @@ test("runPlugins marketplace upgrade reports a failed re-fetch without throwing"
   }
 });
 
+test("marketplace upgrade accepts the shared repair flag", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "adg-cli-upgrade-repair-"));
+  try {
+    let outcome: Awaited<ReturnType<typeof runPlugins>> | undefined;
+    const err = await captureError(async () => {
+      outcome = await runPlugins("marketplace", ["upgrade", "nope/repo", "--repair", "--dir", dir]);
+    });
+    assert.match(err, /no installed source/);
+    assert.equal(outcome?.errorCategory, "dependency");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("runPlugins update returns a non-zero dependency outcome when every scope fails", async () => {
   const dir = mkdtempSync(join(tmpdir(), "adg-cli-update-outcome-"));
   try {

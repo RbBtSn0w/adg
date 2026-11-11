@@ -222,9 +222,10 @@ function exposeAt(scanDir: string, name: string, realDir: string, store: string,
   try {
     cpSync(realDir, staged, { recursive: true, dereference: false });
     const manifest = readManifest(staged);
+    const selection = resolveSelectionDependencies(manifest, entry.selection);
     writeJson(join(staged, ANTIGRAVITY_MANIFEST), toAntigravityManifest(staged, manifest, entry.selection).manifest);
-    writeAntigravityMcpConfig(staged, manifest, entry.selection);
-    writeAntigravityHooks(staged, manifest, entry.selection, target);
+    writeAntigravityMcpConfig(staged, manifest, selection);
+    writeAntigravityHooks(staged, manifest, selection, target);
     markOwned(staged);
     writeJson(join(staged, PROJECTION_STATE), {
       version: 1, source: realpathSync(realDir), installedHash: entry.installedHash, selection: entry.selection,

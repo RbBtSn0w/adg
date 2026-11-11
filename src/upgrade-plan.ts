@@ -160,7 +160,9 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
           const chosen = choice.action === "restore" ? skills : (choice.skills ?? []).filter(skill => skills.includes(skill));
           if (chosen.length) {
             const dest = ensure(target, old);
-            if (dest) incoming.set(target, new Set(chosen.map(address => address.slice(target.length + 1))));
+            if (dest) incoming.set(target, new Set([
+              ...(incoming.get(target) ?? []), ...chosen.map(address => address.slice(target.length + 1)),
+            ]));
           }
         }
         result.retired.push(old.name);
@@ -177,25 +179,39 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
     const historical = exposedContents(basis.contents, basis.uncertain && basis.selectionKnown !== true ? undefined : basis.effectiveSelection ?? basis.selection);
     const actual = exposedContents(old.contents, old.effectiveSelection ?? old.selection);
     const requested = exposedContents(basis.contents, basis.selection);
+    const policy = basis.uncertain ? old : basis;
+    const policySelection = policy.selectionKnown === false ? policy.effectiveSelection ?? { components: [] } : policy.selection;
     const exposed = { ...actual, skills: unique([...historical.skills, ...actual.skills]) };
     const moves: Array<{ skill: string; owner: string }> = [];
     const explicitMoves = new Set<string>();
     const unavailable = new Set<string>();
+    const dropped = new Set<string>();
     let unresolved = false;
     for (const skill of exposed.skills) {
       // New manifests recalculate mandatory dependencies from requested policy.
       // A previously derived skill is not a request to install another plugin.
       if (basis.selection && basis.selectionKnown !== false && !requested.skills.includes(skill)) continue;
       if (!recovery && old.evidence !== "catalog" && candidates.get(old.name)?.contents.skills.includes(skill)) continue;
-      const sharedBefore = !recovery && [...current.values()].some(peer => peer.name !== old.name
-        && (history.size ? history.get(peer.name) : peer)?.contents.skills.includes(skill));
-      if (sharedBefore) { if (!candidates.has(old.name)) unresolved = true; continue; }
       const owners = options.candidates.filter(p => p.contents.skills.includes(skill));
       if (owners.length === 0) {
         if (recovery) unavailable.add(skill);
         else if (!candidates.has(old.name)) unresolved = true;
+        else if (old.evidence !== "catalog" && policySelection?.skills?.includes(skill)
+          && (!basis.uncertain || actual.skills.includes(skill))) {
+          const id = `drop:${old.name}:${skill}`;
+          const choice = options.decisions?.[id];
+          if (choice?.action === "drop") dropped.add(skill);
+          else {
+            unresolved = true;
+            if (choice?.action === "keep") result.retained.push(old.name);
+            else result.decisions.push({ id, skills: [`${old.name}:${skill}`], choices: ["keep", "drop"] });
+          }
+        }
         continue;
       }
+      const sharedBefore = !recovery && [...current.values()].some(peer => peer.name !== old.name
+        && (history.size ? history.get(peer.name) : peer)?.contents.skills.includes(skill));
+      if (sharedBefore) { if (!candidates.has(old.name)) unresolved = true; continue; }
       if (owners.length > 1) {
         const uncertain = Boolean(recovery) || Boolean(basis.uncertain && !visible.has(skill));
         const id = uncertain ? `ownership:${historyIdentity(recovery?.history ?? basis)}:${skill}` : `ownership:${old.name}:${skill}`;
@@ -221,7 +237,7 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
     }
     if (recovery && unavailable.size) result.deferredRecovery.push({ ...recovery,
       skills: recovery.skills.filter(address => unavailable.has(address.split(":").at(-1)!)) });
-    if (!moves.length || unresolved) {
+    if ((!moves.length && !dropped.size) || unresolved) {
       continue;
     }
     const retiring = !recovery && !candidates.has(old.name);
@@ -253,17 +269,23 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
       }
     }
     if (retiring && !result.retained.includes(old.name)) result.retired.push(old.name);
-    else if (!recovery && !basis.uncertain) {
+    else if (!recovery && (!basis.uncertain || dropped.size)) {
       const dest = ensure(old.name, reference);
-      if (dest) {
-        const remaining = (basis.selection && basis.selectionKnown !== false ? requested.skills : exposed.skills)
-          .filter(skill => !moves.some(move => move.skill === skill));
-        ownSelections.set(old.name, { ...basis.selection, components: [...(basis.selection?.components ?? COMPONENT_TYPES)], skills: remaining });
+      if (dest && !(policy.selectionKnown === true && policySelection?.skills === undefined)) {
+        const selected = basis.uncertain || policy.selectionKnown === false ? exposedContents(policy.contents, policySelection).skills
+          : basis.selection && basis.selectionKnown !== false ? requested.skills : exposed.skills;
+        const remaining = selected
+          .filter(skill => !dropped.has(skill) && !moves.some(move => move.skill === skill));
+        ownSelections.set(old.name, { ...policySelection, components: [...(policySelection?.components ?? COMPONENT_TYPES)], skills: remaining });
       }
     }
     if (!recovery || choice?.action === "restore" || choice?.action === "select") result.applied.push(id);
   }
   for (const [name, dest] of destinations) {
+    if (result.retained.includes(name)) {
+      result.blockers.push(`Migration destination requires retaining its existing installation: ${name}`);
+      continue;
+    }
     const existing = current.get(name);
     const existingSelection = existing?.selection ?? (existing?.selectionKnown === false ? existing.effectiveSelection ?? { components: [] } : undefined);
     let selection = ownSelections.get(name) ?? (existingSelection ? structuredClone(existingSelection) : dest.selection);
@@ -315,7 +337,7 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
     deferred.set(item.id, { ...item, skills: unique([...(previous?.skills ?? []), ...item.skills]) });
   }
   result.deferredRecovery = [...deferred.values()].sort((a, b) => a.id.localeCompare(b.id));
-  result.destinations = [...destinations.values()].filter(p => !result.retired.includes(p.name)).sort((a, b) => a.name.localeCompare(b.name));
+  result.destinations = [...destinations.values()].filter(p => !result.retired.includes(p.name) && !result.retained.includes(p.name)).sort((a, b) => a.name.localeCompare(b.name));
   result.retired = result.blockers.length || result.decisions.length ? [] : unique(result.retired);
   return result;
 }

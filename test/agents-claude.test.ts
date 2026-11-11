@@ -174,12 +174,43 @@ test('Claude lifecycle returns marketplace/install/remove failures per target', 
 test('Claude refresh verifies an indeterminate uninstall before installing', async () => {
  const { mkdtempSync, rmSync }=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const {runClaudeLifecycle,claudeMarketplaceName,parseClaudePluginRecords}=await import('../src/agents/claude.ts');
- const root=mkdtempSync(join(tmpdir(),'adg-claude-readback-'));const ctx={pluginsDir:root,plugins:['one'],scope:'project' as const};let installed=0;
+ const root=mkdtempSync(join(tmpdir(),'adg-claude-readback-'));const ctx={pluginsDir:root,plugins:['one'],scope:'project' as const};const mutations:string[]=[];let inspections=0;
  try {
- const runner=(args:string[])=>{if(args[1]==='marketplace')return result(true,'[]');if(args[1]==='uninstall')return result(false,'not found');if(args[1]==='list')return result(true,'[]');installed++;return result(true);};
- const refreshed=runClaudeLifecycle(ctx,'refresh',runner,()=>true);assert.deepEqual(refreshed.affected,['one']);assert.equal(installed,1);
+ const runner=(args:string[])=>{
+   if(args[1]==='marketplace')return result(true,'[]');
+   if(args[1]==='list')return result(true,JSON.stringify(inspections++===0?[{id:`one@${claudeMarketplaceName(root)}`,scope:'project',enabled:true}]:[]));
+   mutations.push(args[1]!);
+   return args[1]==='uninstall'?result(false,'not found'):result(true);
+ };
+ const refreshed=runClaudeLifecycle(ctx,'refresh',runner,()=>true);assert.deepEqual(refreshed.affected,['one']);assert.deepEqual(mutations,['uninstall','install']);assert.equal(inspections,2);
  assert.deepEqual(parseClaudePluginRecords(JSON.stringify([{id:`one@${claudeMarketplaceName(root)}`,scope:'project',enabled:false,version:'2.0.0'}]),claudeMarketplaceName(root),'project')?.map(p=>[p.name,p.enabled,p.version]),[['one',false,'2.0.0']]);
  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("Claude refresh parses stdout independently of diagnostic stderr for inspection and removal readback", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runClaudeLifecycle, claudeMarketplaceName } = await import("../src/agents/claude.ts");
+  const root = mkdtempSync(join(tmpdir(), "adg-claude-stdout-"));
+  let inspections = 0;
+  const mutations: string[] = [];
+  const runner = (args: string[]): RunResult => {
+    if (args[1] === "marketplace") return result(true, "[]");
+    if (args[1] === "list") {
+      const stdout = JSON.stringify(inspections++ === 0 ? [{ id: `demo@${claudeMarketplaceName(root)}`, scope: "project", enabled: true }] : []);
+      return { ok: true, stdout, stderr: "Diagnostic warning", out: `${stdout}\nDiagnostic warning` };
+    }
+    mutations.push(args[1]!);
+    return args[1] === "uninstall" ? result(false, "indeterminate uninstall") : result(true);
+  };
+  try {
+    const refreshed = runClaudeLifecycle({ pluginsDir: root, plugins: ["demo"], scope: "project" }, "refresh", runner, () => true);
+    assert.deepEqual(refreshed.failures ?? [], []);
+    assert.deepEqual(refreshed.affected, ["demo"]);
+    assert.deepEqual(mutations, ["uninstall", "install"]);
+    assert.equal(inspections, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Claude migration retirement keeps user data while ordinary removal retains its explicit semantics', async () => {

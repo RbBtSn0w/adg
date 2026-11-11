@@ -188,7 +188,24 @@ ownership choices, and requested-versus-derived rename contributions.
 Focused regressions reproduced each issue before its fix. Both reviewers then
 verified their repaired paths without remaining findings.
 
-Frozen installation with npm 12.2.2, type checking, build and all 843 product
+The PR review additionally covers converging rename selections, explicit
+keep/drop decisions for withdrawn skills in named subsets, preservation of deferred
+records during later adds, and legacy executable authorization based on verified
+installed bytes. Unknown requested selections remain bounded by their proven
+effective component and MCP subsets, including after an approved skill removal.
+Known full subscriptions continue following upstream content changes, including
+simultaneous deletion, relocation and addition of skills, without extra prompts
+or conversion into a frozen subset.
+Native repair work is owned by the persisted operation journal, unverified
+results remain incomplete, and returned failures require readback before retry.
+Legacy repair obligations are added before native callbacks or completion;
+known runtime obligations survive even when execution capabilities are absent.
+Disabling activation leaves native-dependent retirement pending for a later
+update. Rebuilt projections include mandatory dependencies. Interactive choices
+and default reports describe plugin retention, removal and single-owner
+selection directly.
+
+Frozen installation with npm 12.2.2, type checking, build and all 872 product
 tests passed locally. The real Windows path is covered by the PR's Windows
 matrix; local Windows handle tests simulate the required access boundary.
 PR checks and subsequent review resolutions bind to the published head.

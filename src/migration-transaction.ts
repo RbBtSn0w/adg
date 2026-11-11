@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Agent, AgentScope, AgentSyncResult } from "./agents/types.ts";
-import { LOCK_VERSION, type LockEntry, type PluginLock, type SourceIntent } from "./types.ts";
+import { LOCK_VERSION, resolveSelectionDependencies, type LockEntry, type PluginLock, type SourceIntent } from "./types.ts";
 import { readLock } from "./lock.ts";
 import { readMarketplace, removeMarketplacePlugin, upsertMarketplacePlugin } from "./marketplace.ts";
 import {
@@ -45,6 +45,7 @@ export interface PrepareMigrationOptions {
   scope: AgentScope;
   targets?: Agent[];
   retireTargets?: Agent[];
+  inspectionRequiredTargets?: string[];
   successors?: MigrationSuccessor[];
   projectionTargets?: AdapterTarget[];
   refreshExisting?: { name: string; target: string }[];
@@ -60,6 +61,7 @@ interface Operation {
   notApplicable?: boolean;
   done: boolean;
   started?: boolean;
+  inspectionRequired?: boolean;
 }
 
 interface PreparedRecord {
@@ -70,6 +72,7 @@ interface PreparedRecord {
   payloadHash: string;
   cacheHash?: string;
   category?: string;
+  runtimeRefreshRequired?: boolean;
 }
 
 interface Journal {
@@ -100,6 +103,8 @@ export interface MigrationTargetStateDecision {
 export interface PublishMigrationOptions {
   targets?: Agent[];
   stateDecisions?: MigrationTargetStateDecision[];
+  /** Explicit repair work added to older receipts before they can commit. */
+  repairTargets?: string[];
 }
 
 export interface MigrationPublishResult {
@@ -108,6 +113,8 @@ export interface MigrationPublishResult {
   failures: { message: string }[];
   agents?: AgentSyncResult[];
   stateDecisions?: { agent: string; plugin: string }[];
+  /** Durable journal ownership, independent of invocation success. */
+  managedNative?: { agent: string; plugins: string[] }[];
 }
 
 function syncPath(path: string): void {
@@ -379,6 +386,11 @@ export async function prepareMigrationTransaction(options: PrepareMigrationOptio
       const operations: Operation[] = [];
       const targets = (options.targets ?? []).filter((target) => target.detect());
       const retirementTargets = options.retire.length ? [...new Map([...targets, ...(options.retireTargets ?? []).filter((target) => target.detect())].map((target) => [target.id, target])).values()] : targets;
+      // Persisted ownership survives a missing provider in this invocation.
+      const retirementTargetIds = new Set([
+        ...retirementTargets.map(target => target.id),
+        ...options.retire.flatMap(name => Object.keys(before.plugins[name]?.runtimeStates ?? {})),
+      ]);
       const successorNames = new Set((options.successors ?? []).map((item) => item.name));
       const prepared = options.prepared.map((p, index): PreparedRecord => {
         const dir = join(root, "payload", String(index));
@@ -391,7 +403,7 @@ export async function prepareMigrationTransaction(options: PrepareMigrationOptio
         const projectionTargets = options.projectionTargets ?? [...new Set([
           ...existingProjectionTargets(dir), ...(options.targets ?? []).map((t) => t.adaptTarget),
         ])];
-        adaptPlugin(dir, projectionTargets, p.entry.selection, dest);
+        adaptPlugin(dir, projectionTargets, resolveSelectionDependencies(manifest, p.entry.selection), dest);
         syncTree(dir);
         let cacheHash: string | undefined;
         if (p.cacheDir) {
@@ -420,7 +432,7 @@ export async function prepareMigrationTransaction(options: PrepareMigrationOptio
           }
           operations.push({ agent: target.id, plugin: p.name, kind: before.plugins[p.name] ? "refresh" : "activate", desiredEnabled: true, done: false });
         }
-        return { name: p.name, entry, cache: !!p.cacheDir, dest, payloadHash: folderHash(dir), cacheHash, category: manifest.category };
+        return { name: p.name, entry, cache: !!p.cacheDir, dest, payloadHash: folderHash(dir), cacheHash, category: manifest.category, runtimeRefreshRequired: p.runtimeRefreshRequired !== false };
       });
       for (const request of options.refreshExisting ?? []) {
         const target = targets.find((agent) => agent.id === request.target);
@@ -435,18 +447,19 @@ export async function prepareMigrationTransaction(options: PrepareMigrationOptio
         operations.push({ agent: target.id, plugin: request.name, kind: "refresh", desiredEnabled: true, done: false });
       }
       for (const successor of options.successors ?? []) {
-        for (const target of retirementTargets) {
-          operations.push({ agent: target.id, plugin: successor.name, kind: "ensure", done: false,
-            successor: { predecessors: successor.predecessors, requiredTarget: targets.some((item) => item.id === target.id),
+        for (const targetId of retirementTargetIds) {
+          operations.push({ agent: targetId, plugin: successor.name, kind: "ensure", done: false,
+            successor: { predecessors: successor.predecessors, requiredTarget: targets.some((item) => item.id === targetId),
               forceRefresh: options.prepared.some((p) => p.name === successor.name && p.runtimeRefreshRequired !== false),
               ...(successor.enabledByTarget ? { enabledByTarget: { ...successor.enabledByTarget } } : {}) } });
         }
       }
       for (const name of options.retire) {
         if (before.plugins[name]) {
-          for (const target of retirementTargets) operations.push({ agent: target.id, plugin: name, kind: "retire", done: false });
+          for (const targetId of retirementTargetIds) operations.push({ agent: targetId, plugin: name, kind: "retire", done: false });
         }
       }
+      for (const op of operations) if (options.inspectionRequiredTargets?.includes(op.agent)) op.inspectionRequired = true;
       atomicJson(join(root, "before-lock.json"), before);
       if (existsSync(marketplacePath(pluginsDir))) {
         cpSync(marketplacePath(pluginsDir), join(root, "before-marketplace.json"));
@@ -686,6 +699,35 @@ function mergeAgentReports(parts: AgentSyncResult[]): AgentSyncResult[] {
   });
 }
 
+function addRepairTargets(journal: Journal, options: PublishMigrationOptions): boolean {
+  let changed = false;
+  for (const id of new Set(options.repairTargets ?? [])) {
+    if (!options.targets?.some(agent => agent.id === id)) continue;
+    const covered = (name: string) => journal.operations.some(op => op.agent === id && op.plugin === name);
+    for (const p of journal.prepared) {
+      if (covered(p.name) || p.runtimeRefreshRequired === false || journal.successors?.some(item => item.name === p.name)) continue;
+      journal.operations.push({ agent: id, plugin: p.name, kind: p.entry.state === "disabled" ? "disable" : journal.before.plugins[p.name] ? "refresh" : "activate",
+        desiredEnabled: p.entry.state !== "disabled", inspectionRequired: true, done: false });
+      changed = true;
+    }
+    for (const successor of journal.successors ?? []) {
+      if (covered(successor.name)) continue;
+      journal.operations.push({ agent: id, plugin: successor.name, kind: "ensure", inspectionRequired: true, done: false,
+        successor: { predecessors: successor.predecessors, requiredTarget: true,
+          forceRefresh: journal.prepared.some(p => p.name === successor.name && p.runtimeRefreshRequired !== false),
+          ...(successor.enabledByTarget ? { enabledByTarget: { ...successor.enabledByTarget } } : {}) } });
+      changed = true;
+    }
+    for (const name of journal.retire) {
+      if (covered(name) || !journal.before.plugins[name]) continue;
+      journal.operations.push({ agent: id, plugin: name, kind: "retire", inspectionRequired: true, done: false });
+      changed = true;
+    }
+  }
+  if (changed) journal.operations = [...journal.operations.filter(op => op.kind !== "retire"), ...journal.operations.filter(op => op.kind === "retire")];
+  return changed;
+}
+
 function cleanupArtifacts(root: string): void {
   for (const name of ["payload", "cache", "previous", "previous-cache", "before-lock.json", "before-marketplace.json", "after-lock.json", "after-marketplace.json"]) {
     rmSync(join(root, name), { recursive: true, force: true });
@@ -701,9 +743,17 @@ export async function publishMigrationTransaction(
   return await withStoreMutex(initial.pluginsDir, () => {
     const journal = load(journalPath);
     const root = dirname(journalPath);
+    if (!journal.complete && addRepairTargets(journal, options)) {
+      // Upgrade legacy obligations before any existing operation or the final
+      // checkpoint can complete; a process exit cannot erase requested repair.
+      atomicJson(journalPath, journal);
+    }
     const failures: { message: string }[] = [];
     const reports: AgentSyncResult[] = [];
     const stateDecisions: { agent: string; plugin: string }[] = [];
+    const managedNative = [...new Set(journal.operations.map(op => op.agent))].map(agent => ({
+      agent, plugins: [...new Set(journal.operations.filter(op => op.agent === agent).map(op => op.plugin))],
+    }));
     const record = (op: Operation, result: AgentSyncResult): void => {
       const synchronizing = op.kind === "activate" || op.kind === "refresh";
       reports.push({
@@ -734,7 +784,7 @@ export async function publishMigrationTransaction(
     };
     if (journal.complete) {
       cleanupArtifacts(root);
-      return { complete: true, journalPath, failures, agents: [], stateDecisions: [] };
+      return { complete: true, journalPath, failures, agents: [], stateDecisions: [], managedNative };
     }
     if (options.stateDecisions?.length) {
       applyStateDecisions(journal, options.stateDecisions);
@@ -786,6 +836,24 @@ export async function publishMigrationTransaction(
             op.done = true; atomicJson(journalPath, journal); continue;
           }
         }
+        if (op.inspectionRequired && !op.started) {
+          const observed = agent.inspectPlugins?.(ctx);
+          if (!Array.isArray(observed)) {
+            pending(op, `${op.agent} state cannot be inspected before repair; no native mutation was attempted.`);
+            continue;
+          }
+          const native = observed.find(item => item.name === op.plugin && item.installed);
+          const desired = successorEntry(journal, op.plugin);
+          if (op.kind === "disable" && !native) {
+            op.desiredEnabled = false; op.done = true; confirmed(op); atomicJson(journalPath, journal); continue;
+          }
+          if ((op.kind === "activate" || op.kind === "refresh")
+              && ((native && !native.enabled) || (!native && desired?.runtimeStates?.[agent.id] === false))
+              && explicitTargetDecision(op, agent.id) !== true) {
+            op.desiredEnabled = false; op.done = true; confirmed(op); atomicJson(journalPath, journal); continue;
+          }
+          if (op.kind === "refresh" && !native) op.kind = "activate";
+        }
         if (op.started) {
           if (proveInterruptedOperation(journal, op, agent)) {
             confirmed(op);
@@ -793,7 +861,15 @@ export async function publishMigrationTransaction(
             atomicJson(journalPath, journal);
             continue;
           }
-          const native = agent.inspectPlugins?.(ctx);
+          let native = agent.inspectPlugins?.(ctx);
+          if (!agent.inspectPlugins && !op.successor) {
+            const enabled = agent.listInstalled?.(ctx);
+            // The enabled-only contract proves a listed identity is enabled,
+            // but absence cannot prove uninstallation or rule out disablement.
+            if (Array.isArray(enabled) && enabled.includes(op.plugin)) {
+              native = enabled.map(name => ({ id: name, name, installed: true, enabled: true }));
+            }
+          }
           if (Array.isArray(native) && native.some((p) => p.name === op.plugin && p.installed && !p.enabled)
               && op.kind !== "retire" && op.kind !== "disable" && explicitTargetDecision(op, agent.id) !== true) {
             op.desiredEnabled = false;
@@ -836,7 +912,6 @@ export async function publishMigrationTransaction(
         record(op, result);
         if (result.preservedDisabled?.includes(op.plugin)) {
           if (explicitTargetDecision(op, agent.id) === true) {
-            op.started = false;
             atomicJson(journalPath, journal);
             pending(op, `${op.agent} preserved disabled state for ${op.plugin} despite the explicit enable decision; native enablement remains pending.`);
             continue;
@@ -847,7 +922,7 @@ export async function publishMigrationTransaction(
           continue;
         }
         if (result.skipped || result.failures?.length || !result.affected.includes(op.plugin)) {
-          op.started = false;
+          if (result.skipped && !result.failures?.length) op.started = false;
           atomicJson(journalPath, journal);
           pending(op, `${op.agent} ${op.kind} ${op.plugin}: ${result.failures?.map((f) => f.message).join("; ") || "operation not confirmed"}`, !result.failures?.length);
           continue;
@@ -898,6 +973,6 @@ export async function publishMigrationTransaction(
       cleanupArtifacts(root);
     }
     recordTelemetryEvent("adg.migration.publish", { "migration.complete": journal.complete, "failure.count": failures.length });
-    return { complete: journal.complete, journalPath, failures, agents: mergeAgentReports(reports), stateDecisions };
+    return { complete: journal.complete, journalPath, failures, agents: mergeAgentReports(reports), stateDecisions, managedNative };
   });
 }

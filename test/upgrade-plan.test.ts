@@ -142,3 +142,117 @@ test("legacy historical recovery also carries the newer currently selected skill
     assert.deepEqual(result.destinations[0]?.selection?.skills, action === "keep" ? ["current"] : ["before", "current"]);
   }
 });
+
+test("catalog-only rename recoveries union independently selected contributions in either order", () => {
+  const first = old({ name: "first", evidence: "catalog", selectionKnown: false });
+  const second = old({ name: "second", evidence: "catalog", selectionKnown: false });
+  const next = [{ name: "current", version: "3.0.0", contents: contents(["a", "b", "extra"]) }];
+  const run = (installed: HistoricalPlugin[]) => planMigration({ source: origin, installed, candidates: next,
+    renames: { first: "current", second: "current" }, decisions: {
+      [historyIdentity(first)]: { action: "select", skills: ["current:a"] },
+      [historyIdentity(second)]: { action: "select", skills: ["current:b"] },
+    } });
+  assert.deepEqual(run([first, second]), run([second, first]));
+  assert.deepEqual(run([first, second]).destinations[0]?.selection?.skills, ["a", "b"]);
+  assert.deepEqual(run([first, second]).retired, ["first", "second"]);
+});
+
+test("unavailable selected skills require keep or drop before updating a surviving plugin", () => {
+  const installed = [old({ selection: { components: ["skills"], skills: ["a", "b"] } })];
+  const next = [{ name: "old", version: "3.0.0", contents: contents(["b", "extra"]) }];
+  const run = (action?: "keep" | "drop") => planMigration({ source: origin, installed, candidates: next,
+    decisions: action ? { "drop:old:a": { action } } : undefined });
+  assert.deepEqual(run().decisions, [{ id: "drop:old:a", skills: ["old:a"], choices: ["keep", "drop"] }]);
+  assert.deepEqual(run().destinations, []);
+  const kept = run("keep");
+  assert.deepEqual(kept.retained, ["old"]);
+  assert.deepEqual(kept.destinations, []);
+  const dropped = run("drop");
+  assert.deepEqual(dropped.decisions, []);
+  assert.deepEqual(dropped.retained, []);
+  assert.deepEqual(dropped.destinations[0]?.selection, { components: ["skills"], skills: ["b"] });
+});
+
+test("dropping unavailable skills preserves disabled state and merges incoming selections", () => {
+  const installed = [old({ selection: { components: ["skills"], skills: ["a", "b"] }, state: "disabled" }),
+    old({ name: "former", contents: contents(["incoming"]), state: "disabled" })];
+  const result = planMigration({ source: origin, installed,
+    candidates: [{ name: "old", version: "3.0.0", contents: contents(["b", "incoming", "extra"]) }],
+    decisions: { "drop:old:a": { action: "drop" } } });
+  assert.deepEqual(result.decisions, []);
+  assert.deepEqual(result.destinations[0]?.selection?.skills, ["b", "incoming"]);
+  assert.equal(result.destinations[0]?.state, "disabled");
+  assert.deepEqual(result.retired, ["former"]);
+});
+
+test("dropping a newer unavailable skill does not restore uncertain historical skills", () => {
+  const installed = [old({ contents: contents(["b", "c"]), selection: { components: ["skills"], skills: ["b", "c"] } })];
+  const result = planMigration({ source: origin, installed,
+    history: [old({ contents: contents(["historical"]), uncertain: true })],
+    candidates: [{ name: "old", version: "3.0.0", contents: contents(["b", "extra"]) }],
+    decisions: { "drop:old:c": { action: "drop" } } });
+  assert.deepEqual(result.destinations[0]?.selection?.skills, ["b"]);
+});
+
+test("keeping an unavailable skill cannot retire a predecessor contributing to the retained plugin", () => {
+  const installed = [old({ selection: { components: ["skills"], skills: ["a", "b"] } }),
+    old({ name: "former", contents: contents(["incoming"]) })];
+  const result = planMigration({ source: origin, installed,
+    candidates: [{ name: "old", version: "3.0.0", contents: contents(["b", "incoming"]) }],
+    decisions: { "drop:old:a": { action: "keep" } } });
+  assert.deepEqual(result.retired, []);
+  assert.deepEqual(result.destinations, []);
+  assert.ok(result.blockers.length);
+});
+
+test("previously shared skill removal still requires each surviving owner's decision", () => {
+  const installed = [old({ selection: { components: ["skills"], skills: ["a", "b"] } }),
+    old({ name: "peer", contents: contents(["a", "own"]), selection: { components: ["skills"], skills: ["a", "own"] } })];
+  const result = planMigration({ source: origin, installed, candidates: [
+    { name: "old", version: "3.0.0", contents: contents(["b"]) },
+    { name: "peer", version: "3.0.0", contents: contents(["own"]) },
+  ] });
+  assert.deepEqual(result.decisions.map(item => item.id).sort(), ["drop:old:a", "drop:peer:a"]);
+});
+
+test("dropping a legacy skill preserves only independently verified component and MCP exposure", () => {
+  const catalog = { ...contents(["a", "b", "extra"]), agents: ["unselected-agent"], mcp: ["selected-server", "unselected-server"] };
+  for (const effectiveSelection of [
+    { components: ["skills"] as const, skills: ["a", "b"] },
+    { components: ["skills", "mcp"] as const, skills: ["a", "b"], mcp: ["selected-server"] },
+  ]) {
+    const installed = [old({ contents: catalog, selectionKnown: false,
+      effectiveSelection: { ...effectiveSelection, components: [...effectiveSelection.components] } })];
+    const result = planMigration({ source: origin, installed,
+      candidates: [{ name: "old", version: "3.0.0", contents: { ...catalog, skills: ["b", "extra"] } }],
+      decisions: { "drop:old:a": { action: "drop" } } });
+    assert.deepEqual(result.decisions, []);
+    assert.deepEqual(result.destinations[0]?.selection, { ...effectiveSelection, skills: ["b"] });
+  }
+});
+
+test("known full skill subscriptions follow upstream deletions without review or narrowing", () => {
+  for (const selection of [undefined, { components: ["skills"] as const }]) {
+    const installed = [old({ selectionKnown: true,
+      selection: selection ? { components: [...selection.components] } : undefined })];
+    const result = planMigration({ source: origin, installed,
+      candidates: [{ name: "old", version: "3.0.0", contents: contents(["b", "new"]) }] });
+    assert.deepEqual(result.decisions, []);
+    assert.deepEqual(result.retained, []);
+    assert.deepEqual(result.destinations, []);
+  }
+});
+
+test("known full subscriptions retain new owner contents when deletion and relocation happen together", () => {
+  for (const selection of [undefined, { components: ["skills"] as const }]) {
+    const policy = selection ? { components: [...selection.components] } : undefined;
+    const installed = [old({ contents: contents(["deleted", "moved", "retained"]), selectionKnown: true, selection: policy })];
+    const result = planMigration({ source: origin, installed, candidates: [
+      { name: "old", version: "3.0.0", contents: contents(["retained", "new"]) },
+      { name: "successor", version: "3.0.0", contents: contents(["moved", "unrelated"]) },
+    ] });
+    assert.deepEqual(result.decisions, []);
+    assert.deepEqual(result.destinations.find(item => item.name === "old")?.selection, policy);
+    assert.deepEqual(result.destinations.find(item => item.name === "successor")?.selection?.skills, ["moved"]);
+  }
+});

@@ -21,10 +21,11 @@ function fixture() {
 }
 
 test('migration retains predecessor until target succeeds, replays offline, preserves unrelated disabled entry',async()=>{
- const f=fixture();let fail=true;let installs=0;let removes=0;
+ const f=fixture();let fail=true;let installs=0;let removes=0;const native=new Set(['old']);
  const agent:Agent={id:'fake',displayName:'Fake',adaptTarget:'claude',detect:()=>true,available:()=>true,
- activate:()=>{installs++;return {agent:'fake',affected:fail?[]:['next'],skipped:false,...(fail?{failures:[{stage:'install' as const,errorType:'test',message:'retry'}]}:{})};},
- refresh:()=>({agent:'fake',affected:['next'],skipped:false}),deactivate:()=>{removes++;return {agent:'fake',affected:['old'],skipped:false};}};
+ inspectPlugins:()=>[...native].map(name=>({id:name,name,installed:true,enabled:true,version:'1.0.0'})),
+ activate:()=>{installs++;if(!fail)native.add('next');return {agent:'fake',affected:fail?[]:['next'],skipped:false,...(fail?{failures:[{stage:'install' as const,errorType:'test',message:'retry'}]}:{})};},
+ refresh:()=>({agent:'fake',affected:['next'],skipped:false}),deactivate:()=>{removes++;native.delete('old');return {agent:'fake',affected:['old'],skipped:false};}};
  try {
  const journal=await prepareMigrationTransaction({pluginsDir:f.live,source:'(local)',revision:'fixed',prepared:[{name:'next',dir:f.stage,entry:f.entry}],retire:['old'],scope:'project',targets:[agent]});
  rmSync(f.stage,{recursive:true});
@@ -637,4 +638,33 @@ test('Windows durability uses writable file handles without changing read-only s
   } finally {
     Object.defineProperty(process, 'platform', platform); t.mock.restoreAll(); syncBuiltinESMExports(); fs.chmodSync(sourceFile, 0o644); rmSync(f.root, { recursive: true, force: true });
   }
+});
+
+test('rebuilt Claude and Codex projections keep dependency-expanded skills from a hooks selection', async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.stage, '.agents', '.plugin.json'), JSON.stringify({ schemaVersion: 'adg.plugin/v1', name: 'next', version: '1.0.0', description: 'Synthetic', hooks: './hooks/', skills: './skills/', selectionDependencies: { hooks: { components: ['skills'], skills: ['required'] } } }));
+    mkdirSync(join(f.stage, 'hooks')); writeFileSync(join(f.stage, 'hooks', 'hooks.json'), JSON.stringify({ hooks: {} }));
+    mkdirSync(join(f.stage, 'skills', 'required'), { recursive: true }); writeFileSync(join(f.stage, 'skills', 'required', 'SKILL.md'), '# Required');
+    const selection = { components: ['hooks'] as const };
+    const journal = await prepareMigrationTransaction({ pluginsDir: f.live, source: '(local)', revision: 'fixed', prepared: [{ name: 'next', dir: f.stage, entry: { ...f.entry, selection: { components: [...selection.components] } } }], retire: [], scope: 'project', projectionTargets: ['claude', 'codex'] });
+    assert.equal((await publishMigrationTransaction(journal)).complete, true);
+    assert.deepEqual(JSON.parse(readFileSync(join(f.live, 'next', '.claude-plugin', 'plugin.json'), 'utf8')).skills, ['./skills/required']);
+    assert.deepEqual(JSON.parse(readFileSync(join(f.live, 'next', '.codex-plugin', 'plugin.json'), 'utf8')).skills, ['required']);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('a returned failure after install preserves started and uses readback instead of repeating activation', async () => {
+  const f = fixture(); const native = new Map([['old', true]]); let activations = 0; let refreshes = 0;
+  const agent: Agent = { id: 'claude-like', displayName: 'Claude-like', adaptTarget: 'claude', detect: () => true, available: () => true, retrySafeOperations: ['refresh'],
+    inspectPlugins: () => [...native].map(([name, enabled]) => ({ id: name, name, installed: true, enabled, version: '1.0.0' })),
+    activate: ctx => { activations++; assert.equal(activations, 1, 'Repeated activation is not supported'); native.set(ctx.plugins[0]!, false); return { agent: 'claude-like', affected: [], skipped: false, failures: [{ plugin: ctx.plugins[0], stage: 'install', errorType: 'ENABLE_FAILED', message: 'Installed, but explicit enable failed' }] }; },
+    refresh: ctx => { refreshes++; assert.equal(ctx.forceEnable, true); native.set(ctx.plugins[0]!, true); return { agent: 'claude-like', affected: ctx.plugins, skipped: false }; },
+    deactivate: ctx => { native.delete(ctx.plugins[0]!); return { agent: 'claude-like', affected: ctx.plugins, skipped: false }; } };
+  try {
+    const journal = await prepareMigrationTransaction({ pluginsDir: f.live, source: '(local)', revision: 'fixed', prepared: [{ name: 'next', dir: f.stage, entry: f.entry }], retire: ['old'], scope: 'project', targets: [agent], successors: [{ name: 'next', predecessors: ['old'], enabledByTarget: { 'claude-like': true } }] });
+    assert.equal((await publishMigrationTransaction(journal, { targets: [agent] })).complete, false);
+    assert.equal(JSON.parse(readFileSync(journal, 'utf8')).operations[0].started, true);
+    assert.equal((await publishMigrationTransaction(journal, { targets: [agent] })).complete, true); assert.equal(activations, 1); assert.equal(refreshes, 1); assert.equal(native.has('old'), false);
+  } finally { rmSync(f.root, { recursive: true, force: true }); }
 });

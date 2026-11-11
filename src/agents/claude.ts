@@ -193,7 +193,7 @@ export function runClaudeLifecycle(
   let inspection: AgentPluginRecord[] | undefined;
   if (operation === "refresh") {
     const listed = runner(["plugin", "list", "--json"]);
-    inspection = listed.ok ? parseClaudePluginRecords(listed.out, marketplace, ctx.scope) : undefined;
+    inspection = listed.ok ? parseClaudePluginRecords(listed.stdout ?? listed.out, marketplace, ctx.scope) : undefined;
     if (!inspection) {
       result.failures!.push({ stage: "inspect", errorType: "native_failure", message: listed.out.trim() || "Claude state could not be inspected before refresh" });
       return result;
@@ -208,7 +208,7 @@ export function runClaudeLifecycle(
     if (operation === "deactivate" || (operation === "refresh" && native)) {
       const removed = runner(["plugin", "uninstall", `${plugin}@${marketplace}`, "--scope", ctx.scope, ...(operation === "refresh" || ctx.preserveData ? ["--keep-data"] : [])]);
       const listed = !removed.ok ? runner(["plugin", "list", "--json"]) : undefined;
-      const observed = listed?.ok ? parseClaudePluginRecords(listed.out, marketplace, ctx.scope) : undefined;
+      const observed = listed?.ok ? parseClaudePluginRecords(listed.stdout ?? listed.out, marketplace, ctx.scope) : undefined;
       if (!removed.ok && !(observed && !observed.some((p) => p.name === plugin))) {
         result.failures!.push({ plugin, stage: "remove", errorType: "native_failure", message: removed.out.trim() || "Claude uninstall failed" });
         continue;
@@ -250,7 +250,7 @@ export const claudeAgent: Agent = {
     if (!available()) return undefined;
     const result = run(["plugin", "list", "--json"]);
     if (!result.ok) return { error: result.out.trim() || "Claude plugin inspection failed" };
-    const records = parseClaudePluginRecords(result.out, claudeMarketplaceName(ctx.pluginsDir), ctx.scope);
+    const records = parseClaudePluginRecords(result.stdout ?? result.out, claudeMarketplaceName(ctx.pluginsDir), ctx.scope);
     return records ?? { error: UNRECOGNIZED_PLUGIN_LIST };
   },
 

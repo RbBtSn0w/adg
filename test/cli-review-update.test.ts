@@ -68,3 +68,28 @@ test("individual recovery starts with no unproven candidates selected", async ()
   assert.deepEqual(initialValues, []);
   assert.deepEqual(answer?.history, { uncertain: { action: "select", skills: [] } });
 });
+
+test("catalog-only removals offer explicit keep and drop choices", async () => {
+  const answer = await reviewUpdate({ source: "example/public", history: [{ id: "unmapped:old", skills: ["old"], choices: ["keep", "drop"], uncertain: true }], executable: [] }, {
+    select: async options => {
+      assert.deepEqual(options.options?.map(option => option.value), ["keep", "drop"]);
+      assert.equal(options.initialValue, "keep");
+      return "drop";
+    }, multiselect: async () => assert.fail("plugin removal must not ask for skills"), confirm: async () => false, isCancel: () => false,
+  });
+  assert.deepEqual(answer?.history, { "unmapped:old": { action: "drop" } });
+});
+
+test("ownership recovery chooses exactly one destination instead of a skill multiselect", async () => {
+  let calls = 0;
+  const answer = await reviewUpdate({ source: "example/public", history: [{ id: "ownership:old:demo", skills: ["first:demo", "second:demo"], choices: ["keep", "select"] }], executable: [] }, {
+    select: async options => {
+      calls++;
+      if (calls === 1) return "select";
+      assert.deepEqual(options.options?.map(option => option.value), ["first:demo", "second:demo"]);
+      return "second:demo";
+    }, multiselect: async () => assert.fail("an owner must be selected with a single-choice prompt"), confirm: async () => false, isCancel: () => false,
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(answer?.history, { "ownership:old:demo": { action: "select", skills: ["second:demo"] } });
+});

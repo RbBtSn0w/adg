@@ -58,6 +58,20 @@ test("runtime failures already represented by a pending source count once", () =
   const data: PluginUpdateResult = { ...result([{ ...source, pendingRuntime: ["native failed"] }]), agents: [{ agent: "codex", affected: [], skipped: false, failures: [{ plugin: "demo", stage: "verify", errorType: "TEST", message: "native failed" }] }] };
   assert.deepEqual(updateResultCounts(data), { succeeded: 0, failed: 1 });
 });
+
+test("unverified runtime plugins make an update incomplete and matching diagnostics count once", () => {
+  const unverified = { agent: "codex", affected: [], skipped: false, unverified: ["demo", "demo"] };
+  assert.deepEqual(updateResultCounts({ ...result([]), agents: [unverified] }), { succeeded: 0, failed: 1 });
+  const failure = { plugin: "demo", stage: "verify" as const, errorType: "TEST", message: "native failed" };
+  assert.deepEqual(updateResultCounts({ ...result([]), agents: [{ ...unverified, failures: [failure] }] }), { succeeded: 0, failed: 1 });
+  assert.deepEqual(updateResultCounts({ ...result([{ ...source, pendingRuntime: [failure.message] }]), agents: [{ ...unverified, failures: [failure] }] }), { succeeded: 0, failed: 1 });
+});
+
+test("unmapped plugin choices describe retaining or removing the old plugin", () => {
+  const text = stripVTControlCharacters(renderUpdateReport(result([{ ...source, actionRequired: ["Review unmapped:legacy: legacy"] }])).join("\n"));
+  assert.match(text, /keep or remove the old plugin/i);
+  assert.doesNotMatch(text, /restore historical skills/);
+});
 test("default native success is consolidated across runtimes; verbose preserves names", () => {
   const agents = ["claude", "codex", "antigravity"].map(agent => ({ agent, affected: ["one", "two"], verified: ["one", "two"], skipped: false }));
   const normal = renderUpdateAgentReport(agents).join("\n");
