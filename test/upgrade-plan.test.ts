@@ -353,3 +353,18 @@ test("a unique selected peer cannot authorize retirement of a catalog-only forme
   assert.deepEqual(result.retired, []);
   assert.deepEqual(result.destinations, []);
 });
+
+test("a peer dropping a hook dependency cannot replace an explicitly requested shared skill", () => {
+  const survivor = old({ contents: contents(["shared", "own"]), selectionKnown: true,
+    selection: { components: ["skills"], skills: ["shared", "own"] } });
+  const peer = old({ name: "peer", contents: { ...contents(["shared"]), hooks: ["hooks"] }, selectionKnown: true,
+    selection: { components: ["hooks"] }, effectiveSelection: { components: ["hooks", "skills"], skills: ["shared"] } });
+  const result = planMigration({ source: origin, installed: [survivor, peer], history: [survivor], candidates: [
+    { name: "old", version: "3.0.0", contents: contents(["own", "extra"]) },
+    { name: "peer", version: "3.0.0", contents: peer.contents, effectiveSelection: { components: ["hooks"] } },
+  ] });
+  assert.deepEqual(result.decisions, []);
+  assert.deepEqual(result.destinations.find(item => item.name === "peer")?.selection,
+    { components: ["skills", "hooks"], skills: ["shared"] });
+  assert.deepEqual(result.destinations.find(item => item.name === "old")?.selection?.skills, ["own"]);
+});

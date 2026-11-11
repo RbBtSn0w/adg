@@ -242,3 +242,192 @@ test("a retired verified owner transfers to an already-selected unique peer with
   assert.ok(existsSync(join(peer, "skills/shared/SKILL.md")));
   assert.equal(existsSync(join(peer, "skills/extra/SKILL.md")), false);
 });
+
+for (const scenario of [
+  { name: "transfers an explicit request after dependency removal", dependencyRemains: false, explicit: true, ambiguous: false },
+  { name: "preserves an incoming request beyond a continuing dependency", dependencyRemains: true, explicit: true, ambiguous: false },
+  { name: "never promotes an unrequested historical dependency", dependencyRemains: false, explicit: false, ambiguous: false },
+  { name: "reviews ambiguous owners after dependency removal", dependencyRemains: false, explicit: true, ambiguous: true },
+]) {
+  test(`peer hook policy ${scenario.name}`, async t => {
+    const root = mkdtempSync(join(tmpdir(), "adg-planner-peer-dependency-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const remote = join(root, "remote");
+    mkdirSync(remote);
+    const options = { pluginsDir: join(root, "store"), spec: "example/public-peer-dependency", agents: [],
+      gitRunner: (args: string[]) => { if (args[0] === "clone") cpSync(remote, args.at(-1)!, { recursive: true }); } };
+    const peerSource = (version: string, requiresSkill: boolean) => {
+      plugin(remote, "peer", version, ["shared", "unrelated"]);
+      const dir = join(remote, "peer");
+      mkdirSync(join(dir, ".agents"));
+      mkdirSync(join(dir, "hooks"));
+      writeFileSync(join(dir, "hooks/hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf synthetic" }] }] } }));
+      writeFileSync(join(dir, ".agents/.plugin.json"), JSON.stringify({ schemaVersion: "adg.plugin/v1", name: "peer", version,
+        description: "Synthetic dependency peer", skills: "./skills/", hooks: "./hooks/",
+        ...(requiresSkill ? { selectionDependencies: { hooks: { skills: ["shared"] } } } : {}) }));
+    };
+    plugin(remote, "survivor", "1.0.0", ["shared", "own"]);
+    peerSource("1.0.0", true);
+    await addPlugins({ ...options, plugins: ["survivor"], only: ["skills"],
+      skillsSubset: scenario.explicit ? ["shared", "own"] : ["own"] });
+    await addPlugins({ ...options, plugins: ["peer"], only: ["hooks"], preserveExisting: true });
+    const before = readLock(lockPath(options.pluginsDir));
+    assert.deepEqual(before.plugins.peer?.selection, { components: ["hooks"] });
+    for (const source of before.sources ?? []) source.history = source.history?.filter(item => item.name !== "peer");
+    writeLock(lockPath(options.pluginsDir), before);
+    plugin(remote, "survivor", "2.0.0", ["own", "extra"]);
+    peerSource("2.0.0", scenario.dependencyRemains);
+    if (scenario.ambiguous) plugin(remote, "alternative", "2.0.0", ["shared"]);
+    const prompts: string[] = [];
+    const updated = await updatePlugins({ ...options, review: async ({ history, executable }) => {
+      assert.equal(scenario.ambiguous, true);
+      assert.deepEqual(history.map(item => item.id), ["ownership:survivor:shared"]);
+      assert.deepEqual(history[0]?.skills, ["alternative:shared", "peer:shared"]);
+      assert.deepEqual(executable, []);
+      prompts.push(...history.map(item => item.id));
+      return { history: { "ownership:survivor:shared": { action: "select", skills: ["peer:shared"] } }, allow: [] };
+    } });
+    assert.equal(updated.remote[0]?.failed, undefined);
+    assert.equal(updated.remote[0]?.actionRequired, undefined);
+    assert.deepEqual(prompts, scenario.ambiguous ? ["ownership:survivor:shared"] : []);
+    const after = readLock(lockPath(options.pluginsDir));
+    const transferred = scenario.explicit;
+    assert.deepEqual(after.plugins.survivor?.selection, { components: ["skills"], skills: ["own"] });
+    assert.deepEqual(after.plugins.peer?.selection, transferred
+      ? { components: ["skills", "hooks"], skills: ["shared"] } : { components: ["hooks"] });
+    const peer = installedPluginDir(options.pluginsDir, "peer", after.plugins.peer!.origin);
+    assert.equal(existsSync(join(peer, "skills/shared/SKILL.md")), scenario.explicit || scenario.dependencyRemains);
+    assert.ok(existsSync(join(peer, "hooks/hooks.json")));
+    assert.equal(existsSync(join(peer, "skills/unrelated/SKILL.md")), false);
+    const survivor = installedPluginDir(options.pluginsDir, "survivor", after.plugins.survivor!.origin);
+    assert.equal(existsSync(join(survivor, "skills/extra/SKILL.md")), false);
+    assert.equal(after.plugins.alternative, undefined);
+    if (scenario.dependencyRemains) {
+      peerSource("3.0.0", false);
+      const next = await updatePlugins({ ...options,
+        review: async () => { throw new Error("An earlier explicit skill request must survive dependency removal"); } });
+      assert.equal(next.remote[0]?.failed, undefined);
+      assert.equal(next.remote[0]?.actionRequired, undefined);
+      const final = readLock(lockPath(options.pluginsDir));
+      const finalPeer = installedPluginDir(options.pluginsDir, "peer", final.plugins.peer!.origin);
+      assert.ok(existsSync(join(finalPeer, "skills/shared/SKILL.md")));
+    }
+  });
+}
+
+test("incoming skills preserve an all-MCP request across prior and subsequent executable denials", async t => {
+  const root = mkdtempSync(join(tmpdir(), "adg-planner-requested-peer-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const remote = join(root, "remote");
+  mkdirSync(remote);
+  const options = { pluginsDir: join(root, "store"), spec: "example/public-requested-peer", agents: [],
+    gitRunner: (args: string[]) => { if (args[0] === "clone") cpSync(remote, args.at(-1)!, { recursive: true }); } };
+  const peerSource = (version: string, servers: string[], requiresSkill: boolean) => {
+    plugin(remote, "peer", version, ["shared", "unrelated"]);
+    const dir = join(remote, "peer");
+    mkdirSync(join(dir, ".agents"));
+    mkdirSync(join(dir, "hooks"));
+    writeFileSync(join(dir, "hooks/hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "printf synthetic" }] }] } }));
+    writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: Object.fromEntries(servers.map(name => [name, { command: name }])) }));
+    writeFileSync(join(dir, ".agents/.plugin.json"), JSON.stringify({ schemaVersion: "adg.plugin/v1", name: "peer", version,
+      description: "Synthetic requested policy peer", skills: "./skills/", hooks: "./hooks/", mcpServers: "./.mcp.json",
+      ...(requiresSkill ? { selectionDependencies: { hooks: { skills: ["shared"] } } } : {}) }));
+  };
+  plugin(remote, "survivor", "1.0.0", ["shared", "own"]);
+  peerSource("1.0.0", ["base"], true);
+  await addPlugins({ ...options, plugins: ["survivor"], only: ["skills"], skillsSubset: ["shared", "own"] });
+  await addPlugins({ ...options, plugins: ["peer"], only: ["hooks", "mcp"], targets: ["codex"], preserveExisting: true });
+  const requested = () => readLock(lockPath(options.pluginsDir)).sources?.[0]?.desiredSelections?.peer;
+  const services = () => {
+    const lock = readLock(lockPath(options.pluginsDir));
+    const peer = installedPluginDir(options.pluginsDir, "peer", lock.plugins.peer!.origin);
+    return Object.keys(JSON.parse(readFileSync(join(peer, ".mcp.json"), "utf8")).mcpServers).sort();
+  };
+  peerSource("2.0.0", ["base", "optional"], true);
+  const declined = await updatePlugins({ ...options, review: async ({ history, executable }) => {
+    assert.deepEqual(history, []);
+    assert.equal(executable.length, 1);
+    assert.match(executable[0]!.label, /optional/);
+    return { history: {}, allow: [] };
+  } });
+  assert.equal(declined.remote[0]?.failed, undefined);
+  assert.deepEqual(services(), ["base"]);
+  assert.deepEqual(requested(), { components: ["mcp", "hooks"] });
+
+  plugin(remote, "survivor", "2.0.0", ["own"]);
+  peerSource("3.0.0", ["base", "optional", "later"], false);
+  const laterPrompts: string[] = [];
+  const migrated = await updatePlugins({ ...options, review: async ({ history, executable }) => {
+    assert.deepEqual(history, []);
+    laterPrompts.push(...executable.map(item => item.label));
+    return { history: {}, allow: [] };
+  } });
+  assert.equal(migrated.remote[0]?.failed, undefined);
+  assert.equal(migrated.remote[0]?.actionRequired, undefined);
+  assert.equal(laterPrompts.length, 1);
+  assert.match(laterPrompts[0]!, /later/);
+  assert.deepEqual(services(), ["base"]);
+  assert.deepEqual(requested(), { components: ["skills", "mcp", "hooks"], skills: ["shared"] });
+  const lock = readLock(lockPath(options.pluginsDir));
+  assert.deepEqual(lock.plugins.peer?.selection, { components: ["skills", "mcp", "hooks"], skills: ["shared"], mcp: ["base"] });
+  assert.deepEqual(lock.plugins.survivor?.selection?.skills, ["own"]);
+  const peer = installedPluginDir(options.pluginsDir, "peer", lock.plugins.peer!.origin);
+  assert.ok(existsSync(join(peer, "skills/shared/SKILL.md")));
+  assert.equal(existsSync(join(peer, "skills/unrelated/SKILL.md")), false);
+
+  peerSource("4.0.0", ["base", "optional", "later", "future"], false);
+  const futurePrompts: string[] = [];
+  const repeated = await updatePlugins({ ...options, review: async ({ executable }) => {
+    futurePrompts.push(...executable.map(item => item.label));
+    return { history: {}, allow: [] };
+  } });
+  assert.equal(repeated.remote[0]?.failed, undefined);
+  assert.equal(futurePrompts.length, 1);
+  assert.match(futurePrompts[0]!, /future/);
+  assert.deepEqual(services(), ["base"]);
+  assert.deepEqual(requested(), { components: ["skills", "mcp", "hooks"], skills: ["shared"] });
+});
+
+test("declining a newly executable hook does not remove a relocated explicit skill request", async t => {
+  const root = mkdtempSync(join(tmpdir(), "adg-planner-declined-hook-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const remote = join(root, "remote");
+  mkdirSync(remote);
+  const options = { pluginsDir: join(root, "store"), spec: "example/public-declined-hook", agents: [], targets: ["codex" as const],
+    gitRunner: (args: string[]) => { if (args[0] === "clone") cpSync(remote, args.at(-1)!, { recursive: true }); } };
+  const peerSource = (version: string, executable: boolean) => {
+    plugin(remote, "peer", version, ["shared", "unrelated"]);
+    const dir = join(remote, "peer");
+    mkdirSync(join(dir, ".agents"));
+    mkdirSync(join(dir, "hooks"));
+    writeFileSync(join(dir, "hooks/hooks.json"), JSON.stringify({ hooks: executable
+      ? { SessionStart: [{ hooks: [{ type: "command", command: "printf synthetic" }] }] } : {} }));
+    writeFileSync(join(dir, ".agents/.plugin.json"), JSON.stringify({ schemaVersion: "adg.plugin/v1", name: "peer", version,
+      description: "Synthetic newly executable hook", skills: "./skills/", hooks: "./hooks/",
+      selectionDependencies: { hooks: { skills: ["shared"] } } }));
+  };
+  plugin(remote, "survivor", "1.0.0", ["shared", "own"]);
+  peerSource("1.0.0", false);
+  await addPlugins({ ...options, plugins: ["survivor"], only: ["skills"], skillsSubset: ["shared", "own"] });
+  await addPlugins({ ...options, plugins: ["peer"], only: ["hooks"], preserveExisting: true });
+  plugin(remote, "survivor", "2.0.0", ["own"]);
+  peerSource("2.0.0", true);
+  let reviewed = 0;
+  const updated = await updatePlugins({ ...options, review: async ({ history, executable }) => {
+    assert.deepEqual(history, []);
+    assert.equal(executable.length, 1);
+    assert.match(executable[0]!.label, /peer.*hook/);
+    reviewed++;
+    return { history: {}, allow: [] };
+  } });
+  assert.equal(updated.remote[0]?.failed, undefined);
+  assert.equal(updated.remote[0]?.actionRequired, undefined);
+  assert.equal(reviewed, 1);
+  const lock = readLock(lockPath(options.pluginsDir));
+  assert.deepEqual(lock.plugins.peer?.selection, { components: ["skills"], skills: ["shared"] });
+  assert.deepEqual(lock.sources?.[0]?.desiredSelections?.peer, { components: ["skills", "hooks"], skills: ["shared"] });
+  const peer = installedPluginDir(options.pluginsDir, "peer", lock.plugins.peer!.origin);
+  assert.ok(existsSync(join(peer, "skills/shared/SKILL.md")));
+  assert.equal(existsSync(join(peer, "skills/unrelated/SKILL.md")), false);
+  assert.equal(existsSync(join(peer, "hooks/hooks.json")), false);
+});

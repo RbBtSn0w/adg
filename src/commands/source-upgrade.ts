@@ -261,6 +261,23 @@ async function upgradeCandidates(
   }));
   const source = { type: "github" as const, repo: group.source, ref: group.ref };
   const currentHistory = installedHistory(pluginsDir, lock, group.source, group.ref);
+  const existingSelectionFor = (name: string): PluginSelection | undefined => {
+    const saved = intent.desiredSelections;
+    if (saved && Object.hasOwn(saved, name)) return saved[name] ?? undefined;
+    const old = lock.plugins[name];
+    if (!old) return undefined;
+    const proof = currentHistory.find(item => item.name === name);
+    return old.selection ?? (proof?.selectionKnown === false ? proof.effectiveSelection : undefined) ??
+      (old.definition?.authorizedComponents && COMPONENT_TYPES.some(type =>
+        !old.definition!.authorizedComponents!.includes(type) && inventory.find(item => item.name === name)!.contents[type].length)
+        ? { components: old.definition.authorizedComponents } : undefined);
+  };
+  const plannerInventory = inventory.map(item => ({ ...item,
+    ...(lock.plugins[item.name] ? {
+      requestedSelection: existingSelectionFor(item.name) ?? null,
+      effectiveSelection: resolveSelectionDependencies(candidates.get(item.name)!.manifest, existingSelectionFor(item.name)) ?? null,
+    } : {}),
+  }));
   const unverifiable = group.installed.filter(name => !currentHistory.some(item => item.name === name) && !requestedSelectionKnown(lock.plugins[name]!));
   if (unverifiable.length) return needsDecision(unverifiable.map(name => `Cannot verify the historical selection of ${name}; preserve its contents until a selection is provided.`));
   const historicalInventory = intent.history?.length ? intent.history : await recoverLegacyHistory({
@@ -282,7 +299,7 @@ async function upgradeCandidates(
       uncertain: proof?.evidence === "catalog" && proof.selectionKnown !== true };
   });
   const { plan, notRestored, restored, blockers } = await resolveHistoricalSelections(
-    { source, installed, history, candidates: inventory, renames: marketplaceRenames(checkout), deferredRecovery: intent.deferredRecovery },
+    { source, installed, history, candidates: plannerInventory, renames: marketplaceRenames(checkout), deferredRecovery: intent.deferredRecovery },
     intent, opts.review, opts.repair,
   );
   if (blockers.length) return needsDecision(blockers);
@@ -376,16 +393,7 @@ async function upgradeCandidates(
     const mapped = destinations.get(name);
     const saved = intent.desiredSelections;
     if (mapped) return mapped.selection;
-    if (saved && Object.hasOwn(saved, name)) return saved[name] ?? undefined;
-    if (old)
-      return (
-        old.selection ??
-        (currentHistory.find(item => item.name === name)?.selectionKnown === false
-          ? currentHistory.find(item => item.name === name)?.effectiveSelection : undefined) ??
-        (old.definition?.authorizedComponents && COMPONENT_TYPES.some(type =>
-          !old.definition!.authorizedComponents!.includes(type) && inventory.find(item => item.name === name)!.contents[type].length)
-          ? { components: old.definition.authorizedComponents } : undefined)
-      );
+    if (old || (saved && Object.hasOwn(saved, name))) return existingSelectionFor(name);
     if (!follow) return undefined;
     const selection = intent.selection;
     if (!selection) return undefined;

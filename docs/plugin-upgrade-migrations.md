@@ -213,10 +213,16 @@ entry into an occupied mutation. Permission errors and waiting stay bounded.
 Detected runtimes retain saved work while their CLI is unavailable. Explicit
 Codex repair uses Codex projections consistently without changing subscriptions.
 Peer ownership checks fall back to verified current exposure per missing history
-entry; surviving partial selections still reconcile relocated names. A unique
+entry and require the peer's planned selection to keep exposing the skill;
+catalog membership alone cannot justify relinquishing an explicit request.
+Surviving partial selections still reconcile relocated names. A unique
 newly observed peer can receive a retired plugin's skills only when that plugin
 has its own verified selection or installation evidence. Known historical
 sharing and catalog-only predecessors retain their retirement review.
+Relocated explicit skill requests remain recorded even while a peer also
+provides them as a dependency. Destination merges preserve the user's component
+policy separately from executable approvals, so later MCP services still require
+review after an earlier service was declined.
 
 The mutex publishes a complete process-birth record before entering the choosing
 phase. It reclaims a reused PID only when comparable OS identity evidence differs;
@@ -230,7 +236,7 @@ OS identity probes run only for contenders that actually block progress, with a
 short per-operation cache and bounded revalidation. Reading an ordinary ticket
 snapshot never starts one system process per contender.
 
-Frozen installation with npm 12.2.2, type checking, build and all 930 product
+Frozen installation with npm 12.2.2, type checking, build and all 937 product
 tests passed locally. The real Windows path is covered by the PR's Windows
 matrix; local Windows handle tests simulate the required access boundary.
 PR checks and subsequent review resolutions bind to the published head.
@@ -281,6 +287,13 @@ regressions use generated fixtures.
 
 Native acceptance covers registration and discovered/cache skill contents.
 Model-session invocation, hooks and MCP execution are separate operations.
+The macOS acceptance harness keeps ADG and the real provider CLIs under its
+strict filesystem and network restrictions. That profile cannot launch the
+setuid system `ps`, so a read-only host coordinator services only the fixed
+birth-time query for its own still-live ADG child. It audits the real query and
+result; it cannot proxy provider execution, arbitrary commands, files or network
+requests. Direct process-identity probing is covered separately by product
+tests and macOS CI.
 
 ## Baseline evidence
 

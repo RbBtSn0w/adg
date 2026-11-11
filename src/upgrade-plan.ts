@@ -30,6 +30,10 @@ export interface UpgradeCandidate {
   name: string;
   version: string;
   contents: PluginContents;
+  /** Exposure under this update's requested policy and current dependencies; null means full. */
+  effectiveSelection?: PluginSelection | null;
+  /** Current requested policy before executable authorization; null means full. */
+  requestedSelection?: PluginSelection | null;
 }
 export interface MigrationDestination {
   name: string;
@@ -107,11 +111,17 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
   const ownSelections = new Map<string, PluginSelection>();
   const renamedFrom = new Map<string, HistoricalPlugin[]>();
   const visible = new Set([...current.values()].flatMap(p => exposedContents(p.contents, p.effectiveSelection ?? p.selection).skills));
+  const requestedSelectionFor = (name: string): PluginSelection | undefined => {
+    const candidate = candidates.get(name);
+    if (candidate && Object.hasOwn(candidate, "requestedSelection")) return candidate.requestedSelection ?? undefined;
+    const existing = current.get(name);
+    return existing?.selection ?? (existing?.selectionKnown === false ? existing.effectiveSelection ?? { components: [] } : undefined);
+  };
   const ensure = (name: string, predecessor: HistoricalPlugin, full = false): MigrationDestination | undefined => {
     const unrelated = options.installed.find(p => p.name === name && !sameSource(p.origin, options.source));
     if (unrelated) { result.blockers.push(`Destination belongs to a different source: ${name}`); return; }
     const existing = current.get(name);
-    const existingSelection = existing?.selection ?? (existing?.selectionKnown === false ? existing.effectiveSelection ?? { components: [] } : undefined);
+    const existingSelection = requestedSelectionFor(name);
     let dest = destinations.get(name);
     if (!dest) {
       dest = { name, state: enabledState(existing ?? predecessor), predecessors: [],
@@ -180,7 +190,10 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
     const actual = exposedContents(old.contents, old.effectiveSelection ?? old.selection);
     const requested = exposedContents(basis.contents, basis.selection);
     const policy = basis.uncertain ? old : basis;
-    const policySelection = policy.selectionKnown === false ? policy.effectiveSelection ?? { components: [] } : policy.selection;
+    const candidatePolicy = candidates.get(old.name);
+    const policySelection = candidatePolicy && Object.hasOwn(candidatePolicy, "requestedSelection")
+      ? candidatePolicy.requestedSelection ?? undefined
+      : policy.selectionKnown === false ? policy.effectiveSelection ?? { components: [] } : policy.selection;
     const exposed = { ...actual, skills: unique([...historical.skills, ...actual.skills]) };
     const moves: Array<{ skill: string; owner: string }> = [];
     const explicitMoves = new Set<string>();
@@ -217,8 +230,16 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
           ? proof.effectiveSelection ?? { components: [] } : proof.effectiveSelection ?? proof.selection;
         return exposedContents(proof.contents, selection).skills.includes(skill);
       });
-      const sharedBefore = sharedPeers.some(peer => candidates.get(peer.name)?.contents.skills.includes(skill));
-      if (sharedBefore && candidates.has(old.name)) {
+      const sharedBefore = sharedPeers.some(peer => {
+        const candidate = candidates.get(peer.name);
+        return candidate && exposedContents(candidate.contents, candidate.effectiveSelection ?? undefined).skills.includes(skill);
+      });
+      // A derived dependency cannot carry another owner's explicit request after that dependency changes.
+      const directlyRequestedByPeer = sharedPeers.some(peer => {
+        const candidate = candidates.get(peer.name);
+        return candidate && exposedContents(candidate.contents, requestedSelectionFor(peer.name)).skills.includes(skill);
+      });
+      if (sharedBefore && candidates.has(old.name) && (!policySelection?.skills?.includes(skill) || directlyRequestedByPeer)) {
         if (policySelection?.skills?.includes(skill)) relinquished.add(skill);
         continue;
       }
@@ -312,7 +333,7 @@ export function planMigration(options: MigrationPlanOptions): MigrationPlan {
       continue;
     }
     const existing = current.get(name);
-    const existingSelection = existing?.selection ?? (existing?.selectionKnown === false ? existing.effectiveSelection ?? { components: [] } : undefined);
+    const existingSelection = requestedSelectionFor(name);
     let selection = ownSelections.get(name) ?? (existingSelection ? structuredClone(existingSelection) : dest.selection);
     const renamed = renamedFrom.get(name) ?? [];
     if (renamed.length === 1 && !existing) {
