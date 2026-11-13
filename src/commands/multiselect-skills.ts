@@ -63,7 +63,7 @@ export interface BuildRowsState {
  * `showDesc` is true, so the picker performs zero SKILL.md reads until the user
  * presses `d`. Exported as the pure core of the picker for direct testing.
  */
-export function buildSkillRows(options: SkillOption[], state: BuildRowsState): string[] {
+export function buildSkillRows(options: readonly SkillOption[], state: BuildRowsState): string[] {
   return options.map((o, i) => {
     const sel = state.selected.includes(o.value);
     const active = i === state.cursor;
@@ -112,7 +112,7 @@ export function multiselectSkills(opts: MultiselectSkillsOptions): Promise<strin
       }
       return undefined;
     },
-    render(this: { state: string; value?: string[]; cursor: number; options: SkillOption[]; error?: string }) {
+    render() {
       const selected = this.value ?? [];
       const head = `${pc.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
       if (this.state === "submit" || this.state === "cancel") {
