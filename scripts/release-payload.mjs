@@ -39,7 +39,7 @@ export async function verifyRelease(_options, { cwd, env = process.env, nextRele
   if (query.status !== 0) {
     throw Error('npm publication history could not be verified');
   }
-  if (!history || typeof history !== 'object' || Array.isArray(history) || history.error) throw Error('npm publication history is unverifiable');
+  if (!history || typeof history !== 'object' || Array.isArray(history) || history.error || Object.keys(history).length === 0) throw Error('npm publication history is unverifiable');
   if (Object.hasOwn(history, nextRelease.version)) {
     throw Error(`${manifest.name}@${nextRelease.version} has already been used in npm; preserve the original tag and receipts, and issue a fresh release version`);
   }

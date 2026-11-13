@@ -66,6 +66,7 @@ test('an unused version may proceed while ambiguous and failed history reads fai
     [{error: {code: 'E404'}}, 1, false],
     [{error: {code: 'E404', summary: 'Unpublished on 2026-01-01T00:00:00Z'}}, 1, false],
     [[{}, {}], 0, false],
+    [{}, 0, false],
     [{error: {code: 'E500'}}, 1, false],
   ]) {
     const result = release(response, status);

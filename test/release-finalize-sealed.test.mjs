@@ -29,7 +29,7 @@ const pipeline = createPipelinePlan({
   identity: { repository: 'owner/fixture', candidate_sha: candidate, version, tag: 'v2.0.0', notes: 'Public fixture notes' },
 });
 
-function finalize(order, receiptHash = sha256) {
+function finalize(order, receiptHash = sha256, verificationEvidence = 'pipeline', verificationFields = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'release-finalize-sealed-'));
   try {
     mkdirSync(join(cwd, '.github'));
@@ -46,7 +46,7 @@ function finalize(order, receiptHash = sha256) {
     const sources = {
       verify: { ...base,
         targets: Object.fromEntries(names.map(name => [name, { status: 'not-run' }])),
-        artifacts: [{ candidate_sha: candidate, version, pipeline }],
+        artifacts: [{ ...(verificationEvidence === 'digest' ? { candidate_sha: candidate, version, sha256, ...verificationFields } : { candidate_sha: candidate, version, pipeline }), ...verificationFields }],
       },
       release: { ...base,
         targets: Object.fromEntries(names.map(name => [name, {
@@ -91,6 +91,29 @@ test('pipeline-only verification retains the completed sealed publication in eit
     assert.equal(result.artifacts[0].sha256, sha256);
     assert.equal(result.artifacts[0].artifact_id, '34');
     for (const name of names) assert.equal(result.targets[name].status, 'completed');
+  }
+});
+
+test('digest-only verification cannot replace sealed artifact lineage in either order', () => {
+  for (const order of [{ release: 'release', verify: 'verify' }, { first: 'verify', last: 'release' }]) {
+    const { run, result } = finalize(order, sha256, 'digest');
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(result.artifacts[0].artifact_id, '34');
+    assert.equal(result.artifacts[0].source_run_id, '12');
+    assert.deepEqual(result.artifacts[0].pipeline, pipeline);
+  }
+});
+
+test('malformed artifact identities cannot impersonate sealed evidence or abort reporting', () => {
+  for (const identity of [
+    { artifact_id: ['99'], source_run_id: ['98'] },
+    { artifact_id: { toString: null }, source_run_id: '98' },
+    { artifact_id: '99', source_run_id: { toString: null } },
+  ]) {
+    const { run, result } = finalize({ release: 'release', verify: 'verify' }, sha256, 'digest', identity);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(result.artifacts[0].artifact_id, '34');
+    assert.equal(result.artifacts[0].source_run_id, '12');
   }
 });
 
