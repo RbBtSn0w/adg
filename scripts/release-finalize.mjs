@@ -24,7 +24,7 @@ function observations(root){
   }catch{observationErrors.push(`producer observation could not be parsed or validated: ${relative('release-observations',path)}`);return [];}
  });
 }
-const sources=observations('release-observations').sort((a,b)=>Number(Boolean(a.artifacts?.length||a.recovery?.source_run_id))-Number(Boolean(b.artifacts?.length||b.recovery?.source_run_id)));
+const sources=observations('release-observations').sort((a,b)=>Number(Boolean(a.artifacts?.some(artifact=>/^[a-f0-9]{64}$/.test(artifact.sha256||''))||a.recovery?.source_run_id))-Number(Boolean(b.artifacts?.some(artifact=>/^[a-f0-9]{64}$/.test(artifact.sha256||''))||b.recovery?.source_run_id)));
 const config=existsSync('.github/release-train.json')?JSON.parse(readFileSync('.github/release-train.json')):{};
 let intended=config.intended_targets||['npm','github-packages','github-release',...(process.env.RELEASE_HOMEBREW==='true'?['homebrew']:[])];
 const targets={};

@@ -34,6 +34,13 @@ verification before publication. npmjs and GitHub Packages receive identical
 final bytes, with SHA512 integrity reconciliation and per-target receipts. GitHub
 attaches the archive and metadata. No version/changelog commit is written to main.
 
+Before prepare or tag creation, the normal npm publisher checks the package's
+publication history. A known previously used version is rejected even if its
+version endpoint now returns E404; withdrawn npm version numbers cannot be reused.
+Unreadable or ambiguous history fails closed. Preserve an already created failed
+tag and its original receipts; semantic-release selects the next version from
+that history. Recovery keeps its separate original-version contract.
+
 Before normal publication of a missing version, each registry receives a read-only
 channel check. An already newer `latest` stops that write; read errors and malformed
 channel data fail closed. Older, equal or missing `latest` retains the ordinary

@@ -1,5 +1,5 @@
 import { validateOriginalPlan } from '../.github/release-train/release-entrypoint.mjs';
-import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest} from '../.github/release-train/npm-view.mjs';
+import {createNpmObservationBudget,npmRequestState,npmRequestFacts,parseNpmIntegrity,allowRecoveryRequest,parseNpmView} from '../.github/release-train/npm-view.mjs';
 import {verifyLatest,assertNoKnownNewerLatest,sealedTagFormat} from '../.github/release-train/npm-channel.mjs';
 import {recoveryTag,cleanRecoveryTag,reconcileLatest} from '../.github/release-train/npm-recovery-tag.mjs';
 // Stateless semantic-release payload hooks. Version selection belongs to the engine.
@@ -21,6 +21,28 @@ function assertLiveMain(cwd, env) {
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, env, encoding: 'utf8', timeout: 10000 }).trim();
   const live = execFileSync('gh', ['api', `repos/${env.GITHUB_REPOSITORY}/git/ref/heads/main`, '--jq', '.object.sha'], { cwd, env, encoding: 'utf8', timeout: 10000 }).trim();
   if (head !== candidate || live !== candidate) throw Error('Main changed or could not be read; verify a fresh candidate.');
+}
+export async function verifyRelease(_options, { cwd, env = process.env, nextRelease }) {
+  const input = join(cwd, 'release-input');
+  const analysis = JSON.parse(readFileSync(join(input, 'analysis.json'), 'utf8'));
+  validateOriginalPlan(analysis);
+  if (analysis.version !== nextRelease.version || analysis.tag !== nextRelease.gitTag) throw Error('Engine release differs from verified analysis');
+  const manifest = JSON.parse(readFileSync(join(input, 'unpacked/package/package.json'), 'utf8'));
+  if (typeof manifest.name !== 'string' || !manifest.name) throw Error('Verified package name is unavailable');
+  // A withdrawn version returns E404, but remains reserved in the package history.
+  // This hook runs before prepare and semantic-release's immutable tag creation.
+  const query = spawnSync('npm', ['view', manifest.name, 'time', '--json', '--registry', 'https://registry.npmjs.org'], {
+    cwd, env: { ...env, NPM_CONFIG_USERCONFIG: '/dev/null' }, encoding: 'utf8', timeout: 120000,
+  });
+  if (query.error) throw query.error;
+  const history = parseNpmView(query.stdout);
+  if (query.status !== 0) {
+    throw Error('npm publication history could not be verified');
+  }
+  if (!history || typeof history !== 'object' || Array.isArray(history) || history.error) throw Error('npm publication history is unverifiable');
+  if (Object.hasOwn(history, nextRelease.version)) {
+    throw Error(`${manifest.name}@${nextRelease.version} has already been used in npm; preserve the original tag and receipts, and issue a fresh release version`);
+  }
 }
 export async function prepare(_options, { cwd, env = process.env, nextRelease }) {
   const input = join(cwd, 'release-input'), root = join(input, 'unpacked/package');
