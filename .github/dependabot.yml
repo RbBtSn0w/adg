@@ -9,6 +9,17 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # Stable trace SDK 2.x requires API <1.10; the 3.x cohort requires >=1.10.
+      - dependency-name: "@opentelemetry/api"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@opentelemetry/resources"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@opentelemetry/exporter-trace-otlp-proto"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # notes-generator 14 uses writer 8; preset 10 requires writer 9.
+      - dependency-name: "conventional-changelog-conventionalcommits"
+        update-types: ["version-update:semver-major"]
     groups:
       opentelemetry:
         patterns:
