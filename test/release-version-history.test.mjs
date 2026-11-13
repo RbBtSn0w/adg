@@ -11,7 +11,10 @@ const engine = pathToFileURL(resolve('node_modules/semantic-release/index.js')).
 function release(history, status = 0) {
   const cwd = mkdtempSync(join(tmpdir(), 'release-version-history-'));
   const remote = cwd + '-remote.git';
-  const git = (...args) => execFileSync('git', args, {cwd, encoding: 'utf8'}).trim();
+  const env = {PATH: process.env.PATH, HOME: join(cwd, 'home'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null'};
+  for (const key of ['TMPDIR', 'TMP', 'TEMP', 'SYSTEMROOT', 'SystemRoot']) if (process.env[key]) env[key] = process.env[key];
+  mkdirSync(env.HOME);
+  const git = (...args) => execFileSync('git', args, {cwd, env, encoding: 'utf8'}).trim();
   try {
     git('init', '--quiet', '-b', 'main');
     git('config', 'user.name', 'Fixture');
@@ -25,6 +28,9 @@ function release(history, status = 0) {
     writeFileSync(join(cwd, 'release-input/analysis.json'), JSON.stringify({candidate_sha: git('rev-parse', 'HEAD'), version: '1.0.0', tag: 'v1.0.0', notes: 'Public fixture notes'}));
     mkdirSync(join(cwd, 'bin'));
     writeFileSync(join(cwd, 'bin/npm'), `#!/usr/bin/env node\nconst fs=require('fs');fs.appendFileSync('queries',JSON.stringify(process.argv.slice(2))+'\\n');console.log(${JSON.stringify(JSON.stringify(history))});process.exit(${status});\n`, {mode: 0o755});
+    // The local engine fixture must not inherit a pull-request ref or publisher credentials.
+    env.PATH = join(cwd, 'bin') + ':' + process.env.PATH;
+    env.FIXTURE_REMOTE = pathToFileURL(remote).href;
     const run = spawnSync(process.execPath, ['--input-type=module', '-e', `
       import semanticRelease from ${JSON.stringify(engine)};
       import * as payload from ${JSON.stringify(payload)};
@@ -34,7 +40,7 @@ function release(history, status = 0) {
           {verifyRelease:(options,context)=>payload.verifyRelease?.(options,context)},
           {prepare:()=>writeFileSync('prepared','yes')}]
       },{cwd:process.cwd(),env:process.env});
-    `], {cwd, encoding: 'utf8', env: {...process.env, PATH: join(cwd, 'bin') + ':' + process.env.PATH, FIXTURE_REMOTE: pathToFileURL(remote).href}});
+    `], {cwd, encoding: 'utf8', env});
     return {run, tags: git('tag', '--list'), prepared: existsSync(join(cwd, 'prepared')), queries: existsSync(join(cwd, 'queries')) ? readFileSync(join(cwd, 'queries'), 'utf8') : ''};
   } finally {
     rmSync(cwd, {recursive: true, force: true});
