@@ -4,6 +4,7 @@ import { runSubprocessSync } from "./subprocess.ts";
 
 export interface ProcessIdentity { kind: string; version: 1; birthToken: string }
 let ownIdentity: ProcessIdentity | undefined;
+let ownWindowsFailure: string | undefined;
 
 /** Return only OS birth evidence. Failure is uncertainty, never proof of death. */
 export function queryProcessIdentity(pid: number): ProcessIdentity | undefined {
@@ -33,18 +34,36 @@ export function queryProcessIdentity(pid: number): ProcessIdentity | undefined {
       return { kind: "darwin-ps-lstart", version: 1, birthToken: token };
     }
     if (process.platform === "win32") {
-      const systemRoot = process.env.SystemRoot;
-      if (!systemRoot || !win32.isAbsolute(systemRoot)) return undefined;
-      const executable = win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-      // Capture self identity before publishing a contender, allowing a cold shell start.
-      const result = runSubprocessSync(executable, ["-NoProfile", "-NonInteractive", "-Command",
-        `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc().ToString([System.Globalization.CultureInfo]::InvariantCulture)`], {
-        encoding: "utf8", timeout: pid === process.pid ? 10_000 : 2000, maxBuffer: 1024, windowsHide: true,
-      });
-      if (result.error || result.status !== 0) return undefined;
-      const token = result.stdout.trim();
-      if (!/^[1-9]\d*$/.test(token)) return undefined;
-      return { kind: "windows-start-filetime", version: 1, birthToken: token };
+      // Retain only bounded categories for self failures; never expose OS output,
+      // paths, or another process's diagnostic in the mutation error.
+      const fail = (reason: string): undefined => {
+        if (pid === process.pid) ownWindowsFailure = `Windows process query: ${reason}`;
+        return undefined;
+      };
+      try {
+        const systemRoot = process.env.SystemRoot;
+        if (!systemRoot || !win32.isAbsolute(systemRoot)) return fail("missing or non-absolute SystemRoot");
+        const executable = win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+        // Capture self identity before publishing a contender, allowing a cold shell start.
+        const timeout = pid === process.pid ? 10_000 : 2000;
+        const result = runSubprocessSync(executable, ["-NoProfile", "-NonInteractive", "-Command",
+          `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc().ToString([System.Globalization.CultureInfo]::InvariantCulture)`], {
+          encoding: "utf8", timeout, maxBuffer: 1024, windowsHide: true,
+        });
+        if (result.error) {
+          const code = (result.error as NodeJS.ErrnoException).code;
+          if (code === "ETIMEDOUT") return fail(`timeout after ${timeout}ms (ETIMEDOUT)`);
+          const category = code && ["ENOENT", "EACCES", "EPERM", "ENOBUFS"].includes(code) ? code : "unclassified";
+          return fail(`spawn failed (${category})`);
+        }
+        if (result.signal) return fail("terminated by signal");
+        if (result.status !== 0) return fail(Number.isSafeInteger(result.status) ? `exit status ${result.status}` : "missing exit status");
+        const token = result.stdout.trim();
+        if (!/^[1-9]\d*$/.test(token)) return fail("invalid birth token output");
+        return { kind: "windows-start-filetime", version: 1, birthToken: token };
+      } catch {
+        return fail("unexpected query failure");
+      }
     }
   } catch { /* Access failures do not establish process identity. */ }
   return undefined;
@@ -52,6 +71,6 @@ export function queryProcessIdentity(pid: number): ProcessIdentity | undefined {
 
 export function getCurrentProcessIdentity(): ProcessIdentity {
   ownIdentity ??= queryProcessIdentity(process.pid);
-  if (!ownIdentity) throw new Error("Cannot establish ADG mutation process identity; restore access to OS process information and retry.");
+  if (!ownIdentity) throw new Error(`Cannot establish ADG mutation process identity; restore access to OS process information and retry.${ownWindowsFailure ? ` ${ownWindowsFailure}.` : ""}`);
   return ownIdentity;
 }

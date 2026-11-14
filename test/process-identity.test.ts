@@ -55,3 +55,34 @@ for (const platform of ['darwin', 'win32']) {
       commandMock(`return ${outcome};`), `assert.equal(identity,undefined); assert.throws(getCurrentProcessIdentity,/Cannot establish ADG mutation process identity/);`));
   }
 }
+
+for (const [outcome, reason] of [
+  [`{status:null,error:Object.assign(new Error('secret path and stderr'),{code:'ETIMEDOUT'}),stdout:''}`, 'timeout after 10000ms (ETIMEDOUT)'],
+  [`{status:null,error:Object.assign(new Error('secret path and stderr'),{code:'ENOENT'}),stdout:''}`, 'spawn failed (ENOENT)'],
+  [`{status:null,error:Object.assign(new Error('secret path and stderr'),{code:'EACCES'}),stdout:''}`, 'spawn failed (EACCES)'],
+  [`{status:null,error:Object.assign(new Error('secret path and stderr'),{code:'secret-code'}),stdout:''}`, 'spawn failed (unclassified)'],
+  [`{status:1,stdout:'',stderr:'secret path and stderr'}`, 'exit status 1'],
+  [`{status:null,signal:'SIGTERM',stdout:''}`, 'terminated by signal'],
+  [`{status:null,stdout:''}`, 'missing exit status'],
+  [`{status:0,stdout:'secret-token'}`, 'invalid birth token output'],
+] as const) {
+  test(`Windows self identity failure reports sanitized ${reason}`, () => probe('win32', commandMock(`return ${outcome};`), `
+    assert.equal(identity,undefined);
+    assert.throws(getCurrentProcessIdentity, error => {
+      assert.ok(error.message.includes(${JSON.stringify(`Windows process query: ${reason}`)}), error.message);
+      assert.ok(!error.message.includes('secret'));
+      return true;
+    });`));
+}
+test("Windows self identity diagnoses invalid SystemRoot without exposing its value", () => probe('win32',
+  `process.env.SystemRoot='secret-relative-path';`, `assert.throws(getCurrentProcessIdentity,/Windows process query: missing or non-absolute SystemRoot/);`));
+test("Windows self identity sanitizes thrown query failures", () => probe('win32',
+  commandMock(`throw new Error('secret path and stderr');`), `assert.throws(getCurrentProcessIdentity,/Windows process query: unexpected query failure/);`));
+test("Windows identity preserves query deadlines and caches successful self evidence", () => probe('win32', commandMock(`
+  globalThis.queries = (globalThis.queries ?? 0) + 1;
+  const own = args[3].includes('Get-Process -Id ' + process.pid + ' ');
+  if (options.timeout !== (own ? 10000 : 2000)) throw Error('Invalid timeout');
+  return {status:0,stdout:'133700000000000001'};`), `
+    assert.ok(identity);
+    assert.strictEqual(getCurrentProcessIdentity(),getCurrentProcessIdentity());
+    assert.equal(globalThis.queries,2);`));
