@@ -139,7 +139,7 @@ jobs:
       - name: Hand off verified package
         if: steps.analyze.outputs.release == 'true'
         id: artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: npm-package-${{ github.sha }}-${{ github.run_attempt }}
           path: release-input/
@@ -157,7 +157,7 @@ jobs:
       - name: Preserve verification result
         id: observation
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-verification-result-${{ github.sha }}-${{ github.run_attempt }}
           path: release-result.json
@@ -201,7 +201,7 @@ jobs:
         run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Download this run's verified package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.verify.outputs.artifact-id }}
           path: release-input
@@ -249,7 +249,7 @@ jobs:
       - name: Preserve final payload and per-target receipts
         id: sealed
         if: always() && steps.publish.outcome != 'skipped'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-receipts-${{ github.sha }}-${{ github.run_attempt }}
           path: |
@@ -317,7 +317,7 @@ jobs:
         run: node scripts/release-homebrew-receipt.mjs
       - name: Preserve downstream receipt
         if: always() && steps.publish.outputs.released == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: homebrew-receipt-${{ github.sha }}-${{ github.run_attempt }}
           path: release-input/receipts/homebrew.json
@@ -334,7 +334,7 @@ jobs:
       - name: Preserve final result
         id: observation
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-final-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-result.json
@@ -403,7 +403,7 @@ jobs:
       - name: Preserve immutable npm request intent
         id: intent_npm
         if: steps.preflight_npm.outputs.intent_needed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-recovery-intent-${{ inputs.source_run_id }}-npm
           path: ${{ runner.temp }}/release-recovery-intent-npm.json
@@ -435,7 +435,7 @@ jobs:
       - name: Preserve immutable github-packages request intent
         id: intent_github_packages
         if: steps.preflight_github_packages.outputs.intent_needed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-recovery-intent-${{ inputs.source_run_id }}-github-packages
           path: ${{ runner.temp }}/release-recovery-intent-github-packages.json
@@ -475,7 +475,7 @@ jobs:
       - name: Preserve recovery receipts
         id: observation
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-result-receipts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -508,7 +508,7 @@ jobs:
         run: node scripts/release-status.mjs disabled-recovery
       - name: Preserve disabled result
         id: observation
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-disabled-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-result.json
@@ -530,28 +530,28 @@ jobs:
       - name: Collect verify producer observation
         id: collect-verify
         if: ${{ always() && needs.verify.outputs.result-artifact-id != '' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.verify.outputs.result-artifact-id }}
           path: release-observations/verify
       - name: Collect release producer observation
         id: collect-release
         if: ${{ always() && needs.release.outputs.result-artifact-id != '' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.release.outputs.result-artifact-id }}
           path: release-observations/release
       - name: Collect recover producer observation
         id: collect-recover
         if: ${{ always() && needs.recover.outputs.result-artifact-id != '' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.recover.outputs.result-artifact-id }}
           path: release-observations/recover
       - name: Collect disabled-recovery producer observation
         id: collect-disabled-recovery
         if: ${{ always() && needs['disabled-recovery'].outputs.result-artifact-id != '' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs['disabled-recovery'].outputs.result-artifact-id }}
           path: release-observations/disabled-recovery
@@ -579,7 +579,7 @@ jobs:
         run: node scripts/release-finalize.mjs
       - name: Preserve aggregate result
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: final-release-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-result.json
