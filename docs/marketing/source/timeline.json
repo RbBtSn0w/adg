@@ -1,0 +1,29 @@
+{
+  "durationSeconds": 10,
+  "width": 1280,
+  "height": 720,
+  "frames": [
+    {
+      "source": "workflow-01.svg",
+      "durationSeconds": 3.5,
+      "captureLabels": [
+        "add"
+      ]
+    },
+    {
+      "source": "workflow-02.svg",
+      "durationSeconds": 2.5,
+      "captureLabels": [
+        "link-claude"
+      ]
+    },
+    {
+      "source": "workflow-03.svg",
+      "durationSeconds": 4.0,
+      "captureLabels": [
+        "status-codex",
+        "status-claude"
+      ]
+    }
+  ]
+}

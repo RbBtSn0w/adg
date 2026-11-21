@@ -1,0 +1,162 @@
+{
+  "preparedDate": "2026-11-21",
+  "status": "PR candidate; campaign not published",
+  "sourceCommit": "82be3b6c03740a9803fa52f15867d597e2b6376a",
+  "capture": "capture.json",
+  "captureSha256": "b9d0e262af33a925d57da3bbda162f3da5a3197a43575b19ae5a92472b77e2be",
+  "assets": [
+    {
+      "file": "website/assets/favicon.svg",
+      "bytes": 241,
+      "sha256": "7ac023f8bf2552428e58ea496957173bf57549b30e60f38455a51125ae99ebbb"
+    },
+    {
+      "file": "website/assets/social-preview.png",
+      "bytes": 62392,
+      "sha256": "156b400daf8dd5f919793e62e8bcdf5b3374ad707b994dbbc47b74c21417977b",
+      "width": 1280,
+      "height": 640
+    },
+    {
+      "file": "website/assets/social-preview.svg",
+      "bytes": 3555,
+      "sha256": "fb78d2f0c2d0e44a1e0f62b99819c199c206f86971810fbdb996f26f4ef8bf24"
+    },
+    {
+      "file": "website/assets/workflow-poster.png",
+      "bytes": 85523,
+      "sha256": "11e92797968940905497a865d1b75862744a0f2188e7186aef6b5d86bb3a580f",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "website/assets/workflow.gif",
+      "bytes": 111247,
+      "sha256": "89582f17e3cb9fa10f8f5fc332d212e65803836a827a9bc47f0fde4208f796de",
+      "width": 1280,
+      "height": 720,
+      "frames": 3,
+      "durationSeconds": 10.0,
+      "frameDurationsMs": [
+        3500,
+        2500,
+        4000
+      ]
+    },
+    {
+      "file": "website/assets/workflow.mp4",
+      "bytes": 119761,
+      "sha256": "3cf3995f4f086acd184e386531fb6a1e2dbda045b285f00dc51fed72495ac030",
+      "width": 1280,
+      "height": 720,
+      "durationSeconds": 10.0,
+      "codec": "h264",
+      "pixelFormat": "yuv420p",
+      "hasAudio": false
+    }
+  ],
+  "localChecks": {
+    "htmlLocalResourcesExist": true,
+    "htmlIdsUniqueAndAnchorsValid": true,
+    "inlineOrExternalScriptsAdded": false,
+    "nativeVideoControlsWithoutAutoplay": true,
+    "svgSourcesParse": true,
+    "captureCommandsAllSucceeded": true,
+    "nativeRegistrationEnabledBothRuntimes": true,
+    "onlySelectedSkillInStoreAndNativeCaches": true,
+    "privatePathsAbsentFromPublishedText": true,
+    "documentedExportReproductionIdenticalHashes": true,
+    "xPostWeightedLengths": {
+      "posts.en.md": [
+        233,
+        189,
+        224,
+        225
+      ],
+      "posts.zh-CN.md": [
+        194,
+        153,
+        177,
+        196
+      ]
+    },
+    "documentationLinkCheck": {
+      "command": "npm run check:docs",
+      "markdownFiles": 19,
+      "passed": true
+    },
+    "changedMarkdownTargetCheck": {
+      "files": 6,
+      "localTargets": 65,
+      "passed": true
+    },
+    "typecheck": {
+      "command": "npm run typecheck",
+      "passed": true
+    },
+    "build": {
+      "command": "npm run build",
+      "passed": true
+    },
+    "independentReadOnlyReview": {
+      "actionableFindings": 0,
+      "scope": "marketing claims, native registration behavior, artifacts, privacy, sources and links"
+    },
+    "fullCliTestSuite": {
+      "run": true,
+      "command": "npm test",
+      "passed": true,
+      "tests": 948,
+      "pass": 948,
+      "fail": 0,
+      "skipped": 0,
+      "nodeVersion": "24.22.2",
+      "npmVersion": "12.2.2",
+      "verification": "PR preflight on 2026-11-21; telemetry disabled"
+    },
+    "browser": {
+      "engine": "Chromium (isolated headless Google Chrome via Playwright)",
+      "version": "157.0.8103.51",
+      "playwrightVersion": "1.65.1",
+      "viewportWidths": [
+        320,
+        390,
+        768,
+        1440
+      ],
+      "horizontalOverflow": false,
+      "keyboardSkipLink": true,
+      "ctaAnchor": true,
+      "nativeFaqToggle": true,
+      "productionCspApplied": true,
+      "externalRequests": [],
+      "fullPlayback": {
+        "ended": true,
+        "currentTime": 10,
+        "duration": 10,
+        "error": null
+      },
+      "httpErrorsInFinalPlaybackCheck": [],
+      "consoleErrorsInFinalPlaybackCheck": [],
+      "metadataPreloadCancellation": {
+        "observed": true,
+        "error": "net::ERR_ABORTED",
+        "interpretation": "Chromium cancels the metadata preload after decoding metadata, then resumes a byte range when playback starts. A blanket zero-cancellation assertion in the initial harness failed; a targeted complete playback check verified all 10 seconds without HTTP or decoder errors.",
+        "preloadContentRange": "bytes 0-119760/119761",
+        "playbackContentRange": "bytes 98304-119760/119761"
+      },
+      "functionalChecksPassed": true
+    },
+    "dependencyInstall": {
+      "command": "npm ci --no-audit --no-fund",
+      "passed": true,
+      "npmVersion": "12.2.2"
+    }
+  },
+  "candidateTextSha256": {
+    "README.md": "1cf81d481071e468d5eda22be72c3e7c1025de614eb66efa78c76469ac9e354f",
+    "website/index.html": "3ff3cd35f827265e76a8e461e79328b768d471e468a6d88a1d830f188ad7fbea",
+    "website/styles.css": "ba88947989864b4612737a8cc6c7848de91945ae6bc1772e0efaca8f74275d2e",
+    "website/_headers": "443fbddc168ff7a5075ae2e512332f3e628f156394392bcb0efb5be9a8418d00"
+  }
+}
