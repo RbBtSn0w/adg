@@ -1,50 +1,29 @@
 # Agent Directory Group (ADG)
 
-`adg` is one umbrella CLI with **two domains**, each aligned to an existing
-ecosystem so there is little new to learn:
+**One source. Multiple agents.**
 
-| Domain | Command | Aligns to |
-|--------|---------|-----------|
-| **plugins** | `adg plugins <verb>` | the Codex plugin flow (`~/.agents/plugins/marketplace.json`) |
-| **skills** | `adg skills <verb>` | [vercel-labs/skills](https://github.com/vercel-labs/skills) — a **vendored fork** (see [vendor/skills](vendor/skills/PROVENANCE.md)) |
+Manage AI agent plugins and skills across **Codex, Claude Code, and
+Antigravity** from one CLI. Add an existing plugin repository, choose the
+runtimes you use, and inspect their state without maintaining a separate
+source inventory for each agent.
 
-For plugins, one universal manifest — `.agents/.plugin.json` — is the source
-of truth. Runtime-specific manifests (`.claude-plugin/plugin.json`,
-`.codex-plugin/plugin.json`) are *generated* from it, so a plugin is authored
-once and adapted to each runtime.
+![ADG installs a skill from superpowers, connects Claude Code, and checks Codex and Claude registration.](website/assets/workflow.gif)
 
-**Control plane vs export.** ADG's own management lives in the lock
-(`.plugin-lock.json`: provenance, `sha256` integrity, dependencies) — that is the
-only file ADG treats as authoritative. `marketplace.json` is a thin
-**runtime-facing export** kept in the de-facto shape Codex consumes; ADG never
-manages plugins through it.
-
-See [docs/authoring.md](docs/authoring.md) to author a plugin, and
-[docs/agents-spec.md](docs/agents-spec.md) for the `.agents/` directory spec.
+Real CLI output, edited into a 10-second replay; waits condensed.
+[Watch with playback controls](website/assets/workflow.mp4) ·
+[Static walkthrough](website/assets/workflow-poster.png) ·
+[Text transcript](docs/marketing/transcript.md) ·
+[Website](https://adg.rbbtsn0w.me/) · [Quick start](#install-and-quick-start)
 
 ## Why
 
-- **Skill explosion** — hundreds of skills become unmanageable; ADG groups them
-  into versioned, discoverable plugins.
-- **Runtime fragmentation** — Claude and Codex use different plugin layouts;
-  ADG generates each from a single source.
-- **Reproducibility** — `.plugin-lock.json` records source, version and a content
-  hash for every installed plugin.
+- **Keep using existing plugins.** Import repositories with Claude or Codex
+  manifests, or a standard skills layout, without rewriting their source.
+- **Connect the agents you use.** Manage one source inventory and let ADG
+  generate runtime projections and register plugins through native CLIs.
+- **Know what is installed.** Inspect source, version, content hashes, and
+  runtime drift before deciding what to update.
 
-## Default plugin layout
-
-A repository without a manifest is also installable when it uses the standard
-plugin locations: `skills/<name>/SKILL.md`, `hooks/hooks.json`, or `.mcp.json`.
-ADG derives a default manifest from the locations that exist. Add
-`.agents/.plugin.json` only when a source needs custom component paths or other
-plugin metadata; its `skills`, `hooks`, and `mcpServers` fields override only
-their matching defaults, while omitted fields inherit valid standard locations.
-For structural sources, `--as` sets a stable installed identity and `--only`
-limits both the stored payload and runtime exposure. In non-interactive runs,
-discovered hooks or MCP require explicit `--only`. Default DSL applies only to
-the source root. It is not a monorepo convention: every member of a
-multi-plugin repository must declare its own `.agents/.plugin.json` and be
-selected with `--plugin` or `--all`.
 
 ---
 
@@ -62,23 +41,35 @@ brew install adg
 npx @rbbtsn0w/adg --help
 ```
 
-Typical end-user flow — pull a marketplace into your global store, then load it
-into the runtimes you use:
+Try one skill in a project where you want to use both Codex and Claude Code.
+Install the corresponding agent CLIs first. Every command below names its
+scope explicitly:
 
 ```bash
-# 1) collect plugins into the global store (~/.agents/plugins)
-adg plugins add anthropics/knowledge-work-plugins --ref main --global
-#    large monorepo? fetch only what you need:
-adg plugins add anthropics/knowledge-work-plugins --ref main --sparse engineering --global
+# 1) add just the brainstorming skill and register it with Codex
+adg plugins add obra/superpowers --ref main --only skills \
+  --skill brainstorming --target codex --project
 
-# 2) load into the runtimes you use
-adg plugins link --target codex  --global     # Codex discovers ~/.agents/plugins natively
-adg plugins link --target claude --global     # Claude loads via ~/.claude/skills symlinks
+# 2) connect the same managed plugin to Claude Code
+adg plugins link --target claude --project
 
-# 3) keep it current
-adg plugins update --global
-adg plugins list --global
+# 3) check the store against each runtime's native plugin state
+adg plugins status --target codex --project
+adg plugins status --target claude --project
 ```
+
+The demo uses ADG 1.0.2 and a fixed upstream revision; its
+[capture record](docs/marketing/capture.json) includes exact versions and
+commands. A healthy status confirms plugin registration, not that an LLM has
+executed the skill. Start a new agent session and verify skill discovery before
+relying on it.
+
+For plugins shared across projects, use `--global` consistently instead of
+`--project`. To refresh the project store later, run
+`adg plugins update --project`, then inspect status again. Read
+[update and recovery behavior](docs/plugin-upgrade-migrations.md) before
+changing an existing installation. ADG sends anonymous command telemetry by
+default; see [what is collected and how to opt out](#telemetry).
 
 Machine consumers can use `adg plugins list --json` and
 `adg plugins status --json`; see [docs/cli-json.md](docs/cli-json.md) for the
@@ -151,8 +142,8 @@ adg plugins add anthropics/knowledge-work-plugins --ref main --sparse engineerin
 
 # each category's .claude-plugin manifest is reverse-adapted on import,
 # then projected back onto the runtimes you use
-adg plugins link --target claude --global   # → ~/.claude/skills/<plugin>:<skill>
-adg plugins link --target codex  --global   # native, zero-copy
+adg plugins link --target claude --global   # register and install via the native CLI
+adg plugins link --target codex  --global   # register and install via the native CLI
 adg plugins list --global
 ```
 
@@ -198,6 +189,44 @@ adg plugins add https://github.com/cloudflare/skills --global \
 # Concepts (common)
 
 These apply the same whether you run a released build or the source tree.
+
+## Two command domains
+
+| Domain | Command | Aligns to |
+|--------|---------|-----------|
+| **plugins** | `adg plugins <verb>` | native agent plugin flows and an ADG-managed store |
+| **skills** | `adg skills <verb>` | [vercel-labs/skills](https://github.com/vercel-labs/skills) — a **vendored fork** (see [vendor/skills](vendor/skills/PROVENANCE.md)) |
+
+For plugins, one universal manifest — `.agents/.plugin.json` — is the source
+of truth for authoring. Runtime-specific manifests
+(`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) are generated from
+it, so a plugin is authored once and adapted to each runtime.
+
+**Control plane vs export.** ADG's own management lives in the lock
+(`.plugin-lock.json`: provenance, `sha256` integrity, dependencies) — that is the
+only file ADG treats as authoritative for installed state. `marketplace.json`
+is a thin runtime-facing export in the shape Codex consumes; ADG never manages
+plugins through it.
+
+See [docs/authoring.md](docs/authoring.md) to author a plugin, and
+[docs/agents-spec.md](docs/agents-spec.md) for the `.agents/` directory spec.
+
+## Default plugin layout
+
+A repository without a manifest is also installable when it uses the standard
+plugin locations: `skills/<name>/SKILL.md`, `hooks/hooks.json`, or `.mcp.json`.
+ADG derives a default manifest from the locations that exist. Add
+`.agents/.plugin.json` only when a source needs custom component paths or other
+plugin metadata; its `skills`, `hooks`, and `mcpServers` fields override only
+their matching defaults, while omitted fields inherit valid standard locations.
+For structural sources, `--as` sets a stable installed identity and `--only`
+limits both the stored payload and runtime exposure. In non-interactive runs,
+discovered hooks or MCP require explicit `--only`. Default DSL applies only to
+the source root, not to manifest-free member directories in a monorepo. Each
+member of a multi-plugin repository needs either its own `.agents/.plugin.json`
+or a native manifest (`.claude-plugin/plugin.json` or
+`.codex-plugin/plugin.json`), which ADG reverse-adapts on add. A member with
+neither manifest is not discovered. Select members with `--plugin` or `--all`.
 
 ## Layout
 
@@ -296,7 +325,7 @@ adg plugins import-skills ~/.agents/skills --as asc --prefix asc- --dir plugins
 
 # project installed plugins into a runtime's discovery path (store stays the source of truth)
 adg plugins link   --target codex --global          # enable in one agent (regenerate .codex-plugin)
-adg plugins link   --target claude --global         # symlink into ~/.claude/skills/
+adg plugins link   --target claude --global         # register and install via the native CLI
 adg plugins unlink --target antigravity asc         # disable in one agent only (supports agent-only residuals)
 adg plugins unlink --target all asc                 # disable in all agents
 adg plugins disable --global asc                    # persistently disable everywhere; keep store payload
@@ -374,7 +403,7 @@ under a per-marketplace bucket; local installs stay flat:
 ```
 
 The plugin **name stays the unique key** across the lock, `marketplace.json`, and
-the Claude symlink bridge — nesting is organizational only, so two sources still
+the runtime projections — nesting is organizational only, so two sources still
 can't both install a plugin of the same name. `marketplace.json`'s `source.path`
 tracks the real on-disk path (e.g. `./owner__repo/asc`), keeping the Codex export
 accurate. Run `adg plugins migrate` once to lift an older flat store into this
@@ -438,23 +467,24 @@ optionally filtered by `--prefix`.
 
 ### Runtime mapping (`link`)
 
-A single `.agents/plugins/` source of truth is projected onto each runtime's
-private discovery path:
+A single managed store is projected into each runtime's plugin format. Codex
+and Claude Code registration uses their native CLIs, which own their respective
+registries and caches:
 
-| | Codex (OpenAI) | Claude (Anthropic) |
+| | Codex (OpenAI) | Claude Code (Anthropic) |
 |---|---|---|
 | plugin manifest | `.codex-plugin/plugin.json` (generated) | `.claude-plugin/plugin.json` (generated) |
-| marketplace root | `~/.agents/plugins/` — **native, zero-copy** | `~/.claude/skills/<name>/` — **symlink bridge** |
-| skill name | scanned | namespaced `/<plugin>:<skill>` |
+| marketplace source | ADG-generated catalog and configured source root | ADG-generated `.claude-plugin/marketplace.json` |
+| native activation | `codex plugin marketplace` and `codex plugin add` | `claude plugin marketplace` and `claude plugin install` |
 
-- `link --target codex` only (re)generates `.codex-plugin/plugin.json` —
-  `.agents/plugins/` is already Codex's marketplace root.
-- `link --target claude [--global]` (re)generates `.claude-plugin/plugin.json`
-  and symlinks each plugin into Claude's skills-dir (`~/.claude/skills/` with
-  `--global`, else `<cwd>/.claude/skills/`) so it auto-loads as
-  `<name>@skills-dir`. Symlinks never overwrite a real directory — only a stale
-  symlink is replaced. This writes under Claude's own `~/.claude/`; the
-  never-touched `~/.agents/skills/` and `~/.agents/AGENTS.md` are unaffected.
+`link --target codex` and `link --target claude` generate the matching projection,
+register the catalog, and activate the installed plugins through the native
+CLI. A store-scoped marketplace identity keeps project and explicit stores
+distinct from the global store. Native registries and caches can still live
+outside the project; `--project` is an installation scope, not a security
+sandbox. See [local registration](docs/local-plugin-registration.md) for details
+and the [Antigravity specification](docs/agents/antigravity.md) for its separate
+projection and discovery model.
 
 ---
 
