@@ -82,12 +82,12 @@
     },
     "documentationLinkCheck": {
       "command": "npm run check:docs",
-      "markdownFiles": 19,
+      "markdownFiles": 20,
       "passed": true
     },
     "changedMarkdownTargetCheck": {
-      "files": 6,
-      "localTargets": 65,
+      "files": 7,
+      "localTargets": 71,
       "passed": true
     },
     "typecheck": {
@@ -112,7 +112,8 @@
       "skipped": 0,
       "nodeVersion": "24.22.2",
       "npmVersion": "12.2.2",
-      "verification": "PR preflight on 2026-11-21; telemetry disabled"
+      "verification": "PR preflight on 2026-11-21; telemetry disabled",
+      "verifiedCommit": "bbca63df3fdb7843bb6eac07122e1063b8883145"
     },
     "browser": {
       "engine": "Chromium (isolated headless Google Chrome via Playwright)",
@@ -154,9 +155,74 @@
     }
   },
   "candidateTextSha256": {
-    "README.md": "1cf81d481071e468d5eda22be72c3e7c1025de614eb66efa78c76469ac9e354f",
-    "website/index.html": "3ff3cd35f827265e76a8e461e79328b768d471e468a6d88a1d830f188ad7fbea",
-    "website/styles.css": "ba88947989864b4612737a8cc6c7848de91945ae6bc1772e0efaca8f74275d2e",
-    "website/_headers": "443fbddc168ff7a5075ae2e512332f3e628f156394392bcb0efb5be9a8418d00"
+    "README.md": "d0699498398f7c6c89a473defb600fa6f0f46785266a294f72ea58a795778119",
+    "website/index.html": "8c89b4798c6c1d2b005b8dc6080e46a17ce0276bae7b77ac0869a5f648a1394c",
+    "website/styles.css": "89812d7444b39f7ff711571e61e5d696ac9747a76aba23f351040e73362165c3",
+    "website/_headers": "443fbddc168ff7a5075ae2e512332f3e628f156394392bcb0efb5be9a8418d00",
+    "docs/marketing/transcript.md": "cf688dc518097d63707ad5f336801613760d8d52ae135715e67e31bb6ef169a2"
+  },
+  "reviewFollowUp": {
+    "date": "2026-11-21",
+    "changes": [
+      "Added complete captured replay commands and stdout as Markdown and native HTML disclosure text.",
+      "Clarified native-manifest versus manifest-free monorepo member discovery."
+    ],
+    "validation": [
+      {
+        "command": "node --input-type=module -e 'import assert from \"node:assert/strict\"; import {readFileSync} from \"node:fs\"; const cap=JSON.parse(readFileSync(\"docs/marketing/capture.json\",\"utf8\")); const md=readFileSync(\"docs/marketing/transcript.md\",\"utf8\"); const html=readFileSync(\"website/index.html\",\"utf8\"); const escape=s=>s.replaceAll(\"&\",\"&amp;\").replaceAll(\"<\",\"&lt;\").replaceAll(\">\",\"&gt;\"); for(const label of [\"add\",\"link-claude\",\"status-codex\",\"status-claude\"]){const c=cap.captures.find(x=>x.label===label);const block=\"$ \"+c.command+\"\\n\"+c.stdout;assert(md.includes(block));assert(html.includes(escape(block)));} assert(html.includes('\"'\"'id=\"workflow-transcript\"'\"'\"')); assert(html.includes(\"<summary>Read the workflow transcript</summary>\")); assert(readFileSync(\"README.md\",\"utf8\").includes(\"[Text transcript](docs/marketing/transcript.md)\")); console.log(\"Transcript commands and stdout match the capture in Markdown and HTML.\");'",
+        "result": "passed",
+        "duration_ms": 69
+      },
+      {
+        "command": "npm run check:docs",
+        "result": "passed",
+        "duration_ms": 543
+      },
+      {
+        "command": "node scripts/run-tests.mjs test/sources.test.ts test/normalizer.test.ts",
+        "result": "passed",
+        "duration_ms": 2950
+      }
+    ],
+    "browser": {
+      "widths": [
+        {
+          "width": 320,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        },
+        {
+          "width": 390,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        },
+        {
+          "width": 768,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        },
+        {
+          "width": 1440,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        }
+      ],
+      "consoleErrors": [],
+      "httpErrors": [],
+      "passed": true,
+      "durationMs": 5052
+    }
   }
 }

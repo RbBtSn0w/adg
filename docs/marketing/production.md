@@ -83,8 +83,9 @@ Raw machine paths, usernames, private repository names and tokens are absent.
 [The timeline](source/timeline.json) is the editing source of truth. The GIF
 loops across three held frames; the silent MP4 uses the same cuts at 24 fps.
 There is no synthesized typing or invented native app UI. The website uses
-native controls and a static poster without autoplay; the README links the
-poster and MP4 beside its GIF.
+native controls and a static poster without autoplay, with the commands and
+stdout in a native transcript disclosure beside the figure. The README links
+the poster, MP4 and [text transcript](transcript.md) beside its GIF.
 
 The sources use Arial and Menlo with generic fallbacks; fonts are not bundled.
 Native fonts and renderer versions can change antialiasing, so regenerated
@@ -173,8 +174,8 @@ in [assets.json](assets.json).
 | Responsive behavior | 320, 390, 768 and 1440 px: no horizontal overflow; skip link, CTA anchor and native FAQ toggle checked. |
 | CSP and video | Production CSP applied in the local preview; complete playback to the 10-second `ended` state, no HTTP or decoder errors. |
 | Copy | Four posts per language; each has estimated X weighted length under 280. |
-| Documentation | `npm run check:docs`: 19 Markdown files; separate check resolved 65 local targets across all 6 changed Markdown files. |
-| PR preflight | `npm ci --no-audit --no-fund`, `npm run typecheck`, `npm run build`, and `npm test` passed on Node 24.22.2 / npm 12.2.2; all 948 tests passed, none skipped. |
+| Documentation | `npm run check:docs`: 20 Markdown files; separate check resolved 71 local targets across all 7 changed Markdown files. |
+| Initial PR preflight | `npm ci --no-audit --no-fund`, `npm run typecheck`, `npm run build`, and `npm test` passed on Node 24.22.2 / npm 12.2.2; all 948 tests passed, none skipped. |
 | Independent review | No actionable correctness, safety, or regression findings. |
 
 Chromium intentionally cancelled its initial `preload="metadata"` request after
@@ -186,9 +187,24 @@ cancellation was not silently discarded as a successful HTTP response. The
 favicon's initial missing-resource response was fixed with an original local
 SVG; the final playback check reported no console or HTTP errors.
 
-The required PR preflight completed on 2026-11-21 with a clean dependency
+The initial PR preflight at `bbca63d` completed on 2026-11-21 with a clean dependency
 installation and the full CLI suite: 948 passed, 0 failed, and 0 skipped. Test
 telemetry was disabled. CLI source, dependency manifests and lockfiles are
 unchanged. The campaign's external publication checklist remains separate:
 valid source files and a reviewable PR do not prove the website is deployed or
 a repository setting has changed.
+
+### Review follow-up validation
+
+The replay's full commands and stdout now appear in a Markdown transcript and
+in a native HTML disclosure beside the figure. Both representations were
+compared exactly with `capture.json`. At 320, 390, 768 and 1440 px, the disclosure
+expanded, its output appeared in the accessibility tree, and the code blocks
+accepted keyboard focus without causing horizontal page overflow. No HTTP or
+console errors were observed. The static images and video were not changed.
+
+The monorepo guidance was checked against native-manifest scanning and source
+normalization. `node scripts/run-tests.mjs test/sources.test.ts
+test/normalizer.test.ts` passed all 37 tests. `npm run check:docs` passed for 20
+Markdown files. The full-suite result above belongs to the initial PR preflight;
+this documentation-only follow-up uses focused checks and the updated PR's CI.

@@ -49,7 +49,8 @@ endorsements, or conversion improvements that have not been verified.
 | [README](../../README.md) | Benefit, demo, scoped quick start, then architecture. |
 | [Website](../../website/index.html) | Concrete workflow, quick start, compatibility and privacy FAQ. |
 | [GIF](../../website/assets/workflow.gif) / [MP4](../../website/assets/workflow.mp4) | 10-second edited replay of real CLI stdout, not a screen recording. |
-| [Static walkthrough](../../website/assets/workflow-poster.png) | Accessible alternative and video poster. |
+| [Static walkthrough](../../website/assets/workflow-poster.png) | Visual summary and video poster. |
+| [Text transcript](transcript.md) | Commands and captured output, also available as page text on the website. |
 | [Social image](../../website/assets/social-preview.png) / [editable SVG](../../website/assets/social-preview.svg) | Repository and website link previews; 1280×640 PNG under 1 MB. |
 | [English posts](posts.en.md) / [Chinese posts](posts.zh-CN.md) | Four X drafts each; one language per publication. |
 | [Community outline](posts.en.md#community-discussion-outline) | A starting point for an author-written discussion after channel fit is checked. |

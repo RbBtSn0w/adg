@@ -12,6 +12,7 @@ source inventory for each agent.
 Real CLI output, edited into a 10-second replay; waits condensed.
 [Watch with playback controls](website/assets/workflow.mp4) ·
 [Static walkthrough](website/assets/workflow-poster.png) ·
+[Text transcript](docs/marketing/transcript.md) ·
 [Website](https://adg.rbbtsn0w.me/) · [Quick start](#install-and-quick-start)
 
 ## Why
@@ -221,10 +222,11 @@ their matching defaults, while omitted fields inherit valid standard locations.
 For structural sources, `--as` sets a stable installed identity and `--only`
 limits both the stored payload and runtime exposure. In non-interactive runs,
 discovered hooks or MCP require explicit `--only`. Default DSL applies only to
-the source root. It is not a monorepo convention: every member of a
-multi-plugin repository must declare its own `.agents/.plugin.json` and be
-selected with `--plugin` or `--all`.
-
+the source root, not to manifest-free member directories in a monorepo. Each
+member of a multi-plugin repository needs either its own `.agents/.plugin.json`
+or a native manifest (`.claude-plugin/plugin.json` or
+`.codex-plugin/plugin.json`), which ADG reverse-adapts on add. A member with
+neither manifest is not discovered. Select members with `--plugin` or `--all`.
 
 ## Layout
 

@@ -52,8 +52,36 @@
             <source src="assets/workflow.mp4" type="video/mp4">
             <p><a href="assets/workflow.mp4">Download the workflow video</a> or <a href="assets/workflow-poster.png">view the static walkthrough</a>.</p>
           </video>
-          <figcaption id="demo-caption">A 10-second replay of real CLI output. Waits condensed; temporary paths redacted. No audio. <a href="https://github.com/RbBtSn0w/adg/blob/main/docs/marketing/capture.json">Versions and capture record</a> · <a href="assets/workflow-poster.png">Static walkthrough</a></figcaption>
+          <figcaption id="demo-caption">A 10-second replay of real CLI output. Waits condensed; temporary paths redacted. No audio. <a href="https://github.com/RbBtSn0w/adg/blob/main/docs/marketing/capture.json">Versions and capture record</a> · <a href="assets/workflow-poster.png">Static walkthrough</a> · <a href="#workflow-transcript">Text transcript</a></figcaption>
         </figure>
+        <details id="workflow-transcript">
+          <summary>Read the workflow transcript</summary>
+          <p>Commands and captured output from ADG 1.0.2. Temporary paths are replaced with <code>&lt;DEMO&gt;</code>; waits are condensed in the replay.</p>
+          <h3>Add one skill</h3>
+          <pre tabindex="0" aria-label="Add one skill: command and captured output"><code>$ adg plugins add obra/superpowers --ref 22f0b463e7a5e579904dd6211a520321035526f7 --only skills --skill brainstorming --target codex --project
+converted native manifest -&gt; .agents/.plugin.json: superpowers
+added superpowers -&gt; &lt;DEMO&gt;/project/.agents/plugins/obra__superpowers/superpowers
+enabled in Codex: superpowers
+</code></pre>
+          <h3>Connect Claude Code</h3>
+          <pre tabindex="0" aria-label="Connect Claude Code: command and captured output"><code>$ adg plugins link --target claude --project
+linked superpowers [claude] -&gt; Claude Code
+  adapted: &lt;DEMO&gt;/project/.agents/plugins/obra__superpowers/superpowers/.claude-plugin/plugin.json
+</code></pre>
+          <h3>Check Codex registration</h3>
+          <pre tabindex="0" aria-label="Check Codex registration: command and captured output"><code>$ adg plugins status --target codex --project
+Codex
+  in sync (1): superpowers
+note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure.
+</code></pre>
+          <h3>Check Claude Code registration</h3>
+          <pre tabindex="0" aria-label="Check Claude Code registration: command and captured output"><code>$ adg plugins status --target claude --project
+Claude Code
+  in sync (1): superpowers
+note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure.
+</code></pre>
+          <p>Both registrations were verified. These name-level checks do not establish content equality, model execution, or discovery in a new session. Antigravity was not part of the capture.</p>
+        </details>
         <ol class="workflow-steps"><li><strong>Add</strong> just the skill you want.</li><li><strong>Connect</strong> the same managed plugin to another agent.</li><li><strong>Check</strong> registration in both runtimes.</li></ol>
         <p class="fine-print">Registration is a useful checkpoint. To confirm skill discovery, start a new agent session; this demo does not show a model executing the skill. Antigravity is supported separately and is not part of this recording.</p>
       </section>
