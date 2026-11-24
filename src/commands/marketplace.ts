@@ -12,7 +12,7 @@ import { materializeSource, resolveRemoteRevision } from "../remote/index.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PluginSource } from "../types.ts";
+import { pluginState, type PluginSource } from "../types.ts";
 import { lockPath } from "../paths.ts";
 import { readLock, writeLock } from "../lock.ts";
 import { removePlugin } from "./remove.ts";
@@ -80,31 +80,39 @@ export interface MarketplaceGroup {
   remote: boolean;
 }
 
+export interface MarketplaceListGroup extends MarketplaceGroup {
+  /** Installed names disabled in ADG's store. */
+  disabled: string[];
+}
+
 /** Group installed plugins by source, read straight from the lock. */
-export function marketplaceList(opts: { pluginsDir: string }): MarketplaceGroup[] {
+export function marketplaceList(opts: { pluginsDir: string }): MarketplaceListGroup[] {
   const lock = readLock(lockPath(opts.pluginsDir));
-  const groups = new Map<string, { ref?: string; installed: string[] }>();
+  const groups = new Map<string, MarketplaceListGroup>();
 
   for (const [name, entry] of Object.entries(lock.plugins)) {
-    const key = sourceKey(entry.origin);
+    const source = sourceKey(entry.origin);
     const ref = entry.origin.type === "github" || entry.origin.type === "git" ? entry.origin.ref : undefined;
-    const g = groups.get(key) ?? { ref, installed: [] };
-    g.installed.push(name);
-    if (g.ref === undefined && ref !== undefined) g.ref = ref;
-    groups.set(key, g);
+    const group = groups.get(source) ?? {
+      source, ...(ref ? { ref } : {}), installed: [], disabled: [], remote: isRemoteKey(source),
+    };
+    if (group.ref !== ref) delete group.ref;
+    group.installed.push(name);
+    if (pluginState(entry) === "disabled") group.disabled.push(name);
+    groups.set(source, group);
   }
 
   for (const intent of lock.sources ?? []) {
-    if ((intent.mode === "all" || intent.deferredRecovery?.length) && !groups.has(intent.source)) groups.set(intent.source, {ref:intent.ref, installed:[]});
+    const { source, ref } = intent;
+    if ((intent.mode === "all" || intent.deferredRecovery?.length) && !groups.has(source)) {
+      groups.set(source, { source, ...(ref ? { ref } : {}), installed: [], disabled: [], remote: isRemoteKey(source) });
+    }
   }
-  return [...groups.entries()]
-    .map(([source, g]) => ({
-      source,
-      ...(g.ref ? { ref: g.ref } : {}),
-      installed: g.installed.sort(),
-      remote: isRemoteKey(source),
-    }))
-    .sort((a, b) => a.source.localeCompare(b.source));
+  for (const group of groups.values()) {
+    group.installed.sort();
+    group.disabled.sort();
+  }
+  return [...groups.values()].sort((a, b) => a.source.localeCompare(b.source));
 }
 
 /**

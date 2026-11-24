@@ -3,85 +3,126 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="ADG is the control plane for AI agent plugins and skills. Author once, install reproducibly, and keep every runtime in sync.">
+    <meta name="description" content="Manage AI agent plugins and skills across Codex, Claude Code, and Antigravity. Add a source, connect your agents, and inspect their state with ADG.">
     <meta name="theme-color" content="#0b0f14">
     <link rel="canonical" href="https://adg.rbbtsn0w.me/">
-    <meta property="og:title" content="ADG — One source of truth for your agents">
-    <meta property="og:description" content="Bring plugins and skills under control. ADG makes agent tooling discoverable, reproducible, and portable.">
+    <meta property="og:title" content="ADG — One source. Multiple agents.">
+    <meta property="og:description" content="Manage plugins and skills across Codex, Claude Code, and Antigravity from one CLI. See the real workflow, then try one skill.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://adg.rbbtsn0w.me/">
-    <title>ADG — One source of truth for your agents</title>
+    <meta property="og:image" content="https://adg.rbbtsn0w.me/assets/social-preview.png">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="640">
+    <meta property="og:image:alt" content="ADG: one managed plugin source connects to Codex, Claude Code, and Antigravity.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="ADG — One source. Multiple agents.">
+    <meta name="twitter:description" content="Manage AI agent plugins and skills across the runtimes you use. Watch the real workflow and try one skill.">
+    <meta name="twitter:image" content="https://adg.rbbtsn0w.me/assets/social-preview.png">
+    <meta name="twitter:image:alt" content="ADG: one managed plugin source connects to Codex, Claude Code, and Antigravity.">
+    <title>ADG — Manage AI agent plugins and skills</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div class="noise" aria-hidden="true"></div>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header shell">
-      <a class="brand" href="#top" aria-label="ADG home">
-        <span class="brand-mark" aria-hidden="true">A</span>
-        <span>ADG</span>
-      </a>
-      <nav aria-label="Primary navigation">
-        <a href="#why">Why ADG</a>
-        <a href="#how">How it works</a>
-        <a href="https://github.com/RbBtSn0w/adg">GitHub <span aria-hidden="true">↗</span></a>
-      </nav>
+      <a class="brand" href="#main" aria-label="ADG home"><span class="brand-mark" aria-hidden="true">A</span> ADG</a>
+      <nav aria-label="Primary navigation"><a href="#workflow">Workflow</a><a href="#start">Quick start</a><a href="https://github.com/RbBtSn0w/adg">GitHub <span aria-hidden="true">↗</span></a></nav>
     </header>
-
-    <main id="top">
-      <section class="hero shell">
+    <main id="main">
+      <section class="hero shell" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="pulse"></span> The agent tooling control plane</p>
-          <h1>Make every agent<br><em>feel at home.</em></h1>
-          <p class="lede">ADG brings plugins and skills under one source of truth — so your tools stay discoverable, reproducible, and in sync across the runtimes you use.</p>
-          <div class="hero-actions">
-            <a class="button button-primary" href="https://github.com/RbBtSn0w/adg">Explore ADG <span aria-hidden="true">↗</span></a>
-            <a class="text-link" href="#how">See how it works <span aria-hidden="true">↓</span></a>
-          </div>
+          <p class="eyebrow">Plugin &amp; skill management for AI agents</p>
+          <h1 id="hero-title">One source.<br><em>Multiple agents.</em></h1>
+          <p class="lede">Manage plugins and skills across Codex, Claude Code, and Antigravity. Add an existing source, connect your agents, and check what is installed.</p>
+          <div class="hero-actions"><a class="button button-primary" href="#start">Try one skill <span aria-hidden="true">↗</span></a><a class="text-link" href="#workflow">Watch the 10-second workflow <span aria-hidden="true">↓</span></a></div>
+          <p class="hero-note">Open source · MIT licensed · Node.js CLI</p>
         </div>
-        <div class="hero-visual" role="img" aria-label="A diagram showing one ADG source connecting to multiple agent runtimes">
-          <div class="orb orb-one"></div>
-          <div class="orb orb-two"></div>
-          <div class="orbit orbit-large"></div>
-          <div class="orbit orbit-small"></div>
-          <div class="source-node"><span class="source-icon">✦</span><strong>.agents</strong><small>one source of truth</small></div>
-          <div class="runtime runtime-top"><span>⌘</span> Codex</div>
-          <div class="runtime runtime-right"><span>✺</span> Claude</div>
-          <div class="runtime runtime-bottom"><span>✦</span> Antigravity</div>
-          <div class="connection connection-a"></div><div class="connection connection-b"></div><div class="connection connection-c"></div>
-        </div>
+        <aside class="setup-panel" aria-label="One source connects to multiple agents">
+          <div class="panel-heading"><span class="status-dot" aria-hidden="true"></span> YOUR PLUGINS, UNDER CONTROL</div>
+          <div class="source-card"><span class="source-icon" aria-hidden="true">↳</span><div><strong>Existing plugin repositories</strong><small>One managed source inventory</small></div></div>
+          <div class="runtime-list"><div><span>01</span><strong>Codex</strong><small>Native plugin CLI</small></div><div><span>02</span><strong>Claude Code</strong><small>Native plugin CLI</small></div><div><span>03</span><strong>Antigravity</strong><small>Runtime projection</small></div></div>
+          <p class="panel-note">Choose your runtimes. Inspect their state.<br>Keep the source inventory in one place.</p>
+        </aside>
       </section>
-
-      <section class="signal-strip" aria-label="ADG capabilities">
-        <div class="shell signal-grid">
-          <div><strong>01</strong><span>Author once</span></div>
-          <div><strong>02</strong><span>Adapt everywhere</span></div>
-          <div><strong>03</strong><span>Know what changed</span></div>
-        </div>
+      <section class="workflow shell" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-heading"><div><p class="eyebrow">See it work</p><h2 id="workflow-title">Add. Connect. Check.</h2></div><p>One skill from <a href="https://github.com/obra/superpowers">superpowers</a>.<br>Registered with Codex and Claude Code.</p></div>
+        <figure>
+          <video controls playsinline preload="metadata" poster="assets/workflow-poster.png" width="1280" height="720" aria-label="ADG terminal workflow: install a selected skill, connect Claude Code, and check Codex and Claude registration" aria-describedby="demo-caption">
+            <source src="assets/workflow.mp4" type="video/mp4">
+            <p><a href="assets/workflow.mp4">Download the workflow video</a> or <a href="assets/workflow-poster.png">view the static walkthrough</a>.</p>
+          </video>
+          <figcaption id="demo-caption">A 10-second replay of real CLI output. Waits condensed; temporary paths redacted. No audio. <a href="https://github.com/RbBtSn0w/adg/blob/main/docs/marketing/capture.json">Versions and capture record</a> · <a href="assets/workflow-poster.png">Static walkthrough</a> · <a href="#workflow-transcript">Text transcript</a></figcaption>
+        </figure>
+        <details id="workflow-transcript">
+          <summary>Read the workflow transcript</summary>
+          <p>Commands and captured output from ADG 1.0.2. Temporary paths are replaced with <code>&lt;DEMO&gt;</code>; waits are condensed in the replay.</p>
+          <h3>Add one skill</h3>
+          <pre tabindex="0" aria-label="Add one skill: command and captured output"><code>$ adg plugins add obra/superpowers --ref 22f0b463e7a5e579904dd6211a520321035526f7 --only skills --skill brainstorming --target codex --project
+converted native manifest -&gt; .agents/.plugin.json: superpowers
+added superpowers -&gt; &lt;DEMO&gt;/project/.agents/plugins/obra__superpowers/superpowers
+enabled in Codex: superpowers
+</code></pre>
+          <h3>Connect Claude Code</h3>
+          <pre tabindex="0" aria-label="Connect Claude Code: command and captured output"><code>$ adg plugins link --target claude --project
+linked superpowers [claude] -&gt; Claude Code
+  adapted: &lt;DEMO&gt;/project/.agents/plugins/obra__superpowers/superpowers/.claude-plugin/plugin.json
+</code></pre>
+          <h3>Check Codex registration</h3>
+          <pre tabindex="0" aria-label="Check Codex registration: command and captured output"><code>$ adg plugins status --target codex --project
+Codex
+  in sync (1): superpowers
+note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure.
+</code></pre>
+          <h3>Check Claude Code registration</h3>
+          <pre tabindex="0" aria-label="Check Claude Code registration: command and captured output"><code>$ adg plugins status --target claude --project
+Claude Code
+  in sync (1): superpowers
+note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure.
+</code></pre>
+          <p>Both registrations were verified. These name-level checks do not establish content equality, model execution, or discovery in a new session. Antigravity was not part of the capture.</p>
+        </details>
+        <ol class="workflow-steps"><li><strong>Add</strong> just the skill you want.</li><li><strong>Connect</strong> the same managed plugin to another agent.</li><li><strong>Check</strong> registration in both runtimes.</li></ol>
+        <p class="fine-print">Registration is a useful checkpoint. To confirm skill discovery, start a new agent session; this demo does not show a model executing the skill. Antigravity is supported separately and is not part of this recording.</p>
       </section>
-
-      <section class="section shell" id="why">
-        <div class="section-intro"><p class="eyebrow">Less drift. More intent.</p><h2>Your agent stack<br><em>should compound.</em></h2></div>
+      <section class="section shell" id="why" aria-labelledby="why-title">
+        <div class="section-intro"><p class="eyebrow">For the agents you already use</p><h2 id="why-title">Less repeated setup.<br>More visible state.</h2></div>
         <div class="feature-grid">
-          <article class="feature-card feature-featured"><span class="feature-number">01 / CONTROL</span><div class="feature-icon">◉</div><h3>One manifest.<br>Every runtime.</h3><p>Keep the canonical plugin definition in `.agents/.plugin.json`. ADG generates the runtime-facing shape each agent expects.</p><a href="https://github.com/RbBtSn0w/adg#agents-spec">Read the spec <span aria-hidden="true">↗</span></a></article>
-          <article class="feature-card"><span class="feature-number">02 / TRUST</span><div class="feature-icon">⌁</div><h3>Reproducible<br>by design.</h3><p>Lock provenance, versions, dependencies, and content hashes so installs can be understood and repeated.</p><a href="https://github.com/RbBtSn0w/adg#default-plugin-layout">See the workflow <span aria-hidden="true">↗</span></a></article>
-          <article class="feature-card"><span class="feature-number">03 / FLOW</span><div class="feature-icon">→</div><h3>From setup<br>to momentum.</h3><p>Discover, install, link, update. One CLI keeps the path from a new plugin to a working agent short.</p><a href="https://github.com/RbBtSn0w/adg#install-and-quick-start">Get started <span aria-hidden="true">↗</span></a></article>
+          <article class="feature-card"><span class="feature-number">01 / COMPATIBILITY</span><h3>Keep your existing<br>plugin sources.</h3><p>ADG imports Claude and Codex plugin manifests, or discovers a standard skills layout. You do not need to rewrite the upstream repository.</p><a href="https://github.com/RbBtSn0w/adg#works-with-existing-ecosystems">See supported source layouts <span aria-hidden="true">↗</span></a></article>
+          <article class="feature-card"><span class="feature-number">02 / CHOICE</span><h3>Choose components.<br>Choose runtimes.</h3><p>Select skills without enabling a source's hooks or MCP servers. Use a project store for one repository, or a global store across projects.</p><a href="https://github.com/RbBtSn0w/adg#default-plugin-layout">Understand installation choices <span aria-hidden="true">↗</span></a></article>
+          <article class="feature-card"><span class="feature-number">03 / TRACEABILITY</span><h3>Know what changed.<br>Check what is linked.</h3><p>The lock records sources, versions, and content hashes. Status compares the managed inventory with native plugin state; it does not inspect content drift.</p><a href="https://github.com/RbBtSn0w/adg/blob/main/docs/plugin-upgrade-migrations.md">Read update and recovery behavior <span aria-hidden="true">↗</span></a></article>
         </div>
       </section>
+      <section class="section section-start" id="start" aria-labelledby="start-title">
+        <div class="shell start-layout">
+          <div class="section-intro"><p class="eyebrow">Your first managed skill</p><h2 id="start-title">Start with<br>one project.</h2><p>Use a project where you want the skill available. Install the Codex and Claude Code CLIs first, then run these commands from that project.</p><p class="fine-print">Requires Node.js ^22.22.2, ^24.15.0, or ≥26. For a single agent, connect and check only that runtime.</p><a class="text-link" href="https://github.com/RbBtSn0w/adg#install-and-quick-start">Full installation guide <span aria-hidden="true">↗</span></a></div>
+          <div class="code-panel"><div class="panel-heading">PROJECT SETUP</div><pre><code><span class="code-comment"># Install ADG</span>
+npm install -g @rbbtsn0w/adg
 
-      <section class="section section-process" id="how">
-        <div class="shell process-layout">
-          <div class="section-intro"><p class="eyebrow">A calmer way to compose</p><h2>The system stays<br><em>out of your way.</em></h2><p class="section-note">ADG follows the conventions your agents already use. You get a stable control plane without learning a new ecosystem.</p></div>
-          <ol class="process-list">
-            <li><span>01</span><div><h3>Collect</h3><p>Bring plugins and skills into a versioned global store.</p></div></li>
-            <li><span>02</span><div><h3>Connect</h3><p>Link the capabilities to Codex, Claude, or the runtimes you use.</p></div></li>
-            <li><span>03</span><div><h3>Continue</h3><p>Update with confidence. Inspect status when you need the full picture.</p></div></li>
-          </ol>
+<span class="code-comment"># Add one skill; register with Codex</span>
+adg plugins add obra/superpowers --ref main \
+  --only skills --skill brainstorming \
+  --target codex --project
+
+<span class="code-comment"># Connect Claude Code</span>
+adg plugins link --target claude --project
+
+<span class="code-comment"># Verify each runtime</span>
+adg plugins status --target codex --project
+adg plugins status --target claude --project</code></pre><p>Want the same store across projects? Use <code>--global</code> consistently instead of <code>--project</code>.</p></div>
         </div>
       </section>
-
-      <section class="final-cta shell"><p class="eyebrow">Build your agent stack</p><h2>Give your tools<br><em>a place to grow.</em></h2><a class="button button-primary" href="https://github.com/RbBtSn0w/adg">Start with ADG <span aria-hidden="true">↗</span></a></section>
+      <section class="section shell faq" aria-labelledby="faq-title">
+        <div class="section-intro"><p class="eyebrow">Before you try it</p><h2 id="faq-title">A few practical details.</h2></div>
+        <details><summary>Which agents and components are supported?</summary><p>ADG connects to Codex and Claude Code through their native plugin CLIs, and generates Antigravity projections. Component support differs by runtime; unsupported components may be skipped with warnings. Check the <a href="https://github.com/RbBtSn0w/adg/blob/main/docs/agents-spec.md">compatibility specification</a> before depending on a particular hook or MCP behavior.</p></details>
+        <details><summary>Does my plugin repository need a new manifest?</summary><p>Existing Claude and Codex plugin manifests can be imported. A manifest-free source can use standard skills, hooks, and MCP locations. Multi-plugin repositories have additional discovery requirements; see the <a href="https://github.com/RbBtSn0w/adg#default-plugin-layout">source layout guide</a>.</p></details>
+        <details><summary>What does project scope mean?</summary><p>The managed store belongs to the current project. Agent CLIs may also maintain their own registries and caches. Use <code>--project</code> on every command for that store; use <code>--global</code> consistently for a shared store. Project scope is not a security sandbox for plugin code.</p></details>
+        <details><summary>How do updates and state checks work?</summary><p>Run <code>adg plugins update --project</code> to refresh a project store, then inspect each runtime with <code>status</code>. Status checks names and registration, not skill content or execution. Read the <a href="https://github.com/RbBtSn0w/adg/blob/main/docs/plugin-upgrade-migrations.md">update and recovery guide</a> for selection, disabled-state, and repair behavior.</p></details>
+        <details><summary>Does ADG collect telemetry?</summary><p>By default, ADG sends anonymous OpenTelemetry command names, outcomes, and timings to a maintainer-run gateway. Argument values are redacted. Set <code>DO_NOT_TRACK=1</code>, <code>DISABLE_TELEMETRY=1</code>, or <code>OTEL_SDK_DISABLED=true</code> to opt out. See the <a href="https://github.com/RbBtSn0w/adg#telemetry">full disclosure</a>. This static site adds no analytics script.</p></details>
+        <details><summary>How can I report a first-try problem?</summary><p>Share the ADG and agent versions, operating system, command with private values removed, chosen scope, and expected versus observed result in a <a href="https://github.com/RbBtSn0w/adg/issues">GitHub issue</a>. Remove tokens, usernames, private paths, repository names, and credentials before posting. Successful first tries are useful feedback too.</p></details>
+      </section>
+      <section class="final-cta shell"><p class="eyebrow">Keep your setup understandable</p><h2>Try one source.<br><em>Connect your agents.</em></h2><a class="button button-primary" href="#start">Start with one skill <span aria-hidden="true">↑</span></a></section>
     </main>
-
-    <footer class="site-footer shell"><a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">A</span><span>ADG</span></a><p>Agent Directory Group · Open source under MIT</p><a href="https://github.com/RbBtSn0w/adg">View on GitHub <span aria-hidden="true">↗</span></a></footer>
+    <footer class="site-footer shell"><a class="brand" href="#main"><span class="brand-mark" aria-hidden="true">A</span> ADG</a><p>Agent Directory Group · Open source under MIT</p><a href="https://github.com/RbBtSn0w/adg">View on GitHub <span aria-hidden="true">↗</span></a></footer>
   </body>
 </html>

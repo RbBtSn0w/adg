@@ -1,0 +1,353 @@
+{
+  "recordedAt": "2026-11-21T02:13:45.373671+00:00",
+  "status": "Website and repository social preview live; analytics console finding recorded and deferred by owner",
+  "campaignPublished": false,
+  "source": {
+    "pullRequest": "https://github.com/RbBtSn0w/adg/pull/195",
+    "mergeCommit": "3d62f696b9268045832bdce2e4cc239a8a5c55ba"
+  },
+  "cloudflare": {
+    "project": "adg-marketing",
+    "sourceType": "github",
+    "productionBranchBefore": "beta",
+    "productionBranch": "main",
+    "rootDirectory": "website",
+    "buildCommand": "",
+    "outputDirectory": "",
+    "productionDeploymentsEnabled": true,
+    "previewDeploymentSetting": "all",
+    "buildWatchPaths": [
+      "website/**"
+    ],
+    "deploymentId": "6da4f993-6d3f-4636-89d5-a888b0744ad7",
+    "deploymentUrl": "https://6da4f993.adg-marketing.pages.dev",
+    "productionUrl": "https://adg.rbbtsn0w.me/",
+    "completedAt": "2026-11-21T02:07:26.621569Z",
+    "deploymentStatus": "success",
+    "canonicalProductionPointerVerifiedAt": "2026-11-21T02:10:14.636868+00:00",
+    "previousProductionDeploymentId": "7b1427c7-3c4b-4256-b55d-b95cd70dbe74",
+    "previousProductionCommit": "1f1003e96d548eabd28067e11d90f0906f0c2c68"
+  },
+  "httpVerification": {
+    "checkedAt": "2026-11-21T02:09:02.967738+00:00",
+    "assets": [
+      {
+        "url": "https://adg.rbbtsn0w.me/",
+        "status": 200,
+        "mime": "text/html; charset=utf-8",
+        "bytes": 14134,
+        "sha256": "8c89b4798c6c1d2b005b8dc6080e46a17ce0276bae7b77ac0869a5f648a1394c",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/styles.css",
+        "status": 200,
+        "mime": "text/css; charset=utf-8",
+        "bytes": 8179,
+        "sha256": "89812d7444b39f7ff711571e61e5d696ac9747a76aba23f351040e73362165c3",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/favicon.svg",
+        "status": 200,
+        "mime": "image/svg+xml",
+        "bytes": 241,
+        "sha256": "7ac023f8bf2552428e58ea496957173bf57549b30e60f38455a51125ae99ebbb",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/social-preview.png",
+        "status": 200,
+        "mime": "image/png",
+        "bytes": 62392,
+        "sha256": "156b400daf8dd5f919793e62e8bcdf5b3374ad707b994dbbc47b74c21417977b",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/social-preview.svg",
+        "status": 200,
+        "mime": "image/svg+xml",
+        "bytes": 3555,
+        "sha256": "fb78d2f0c2d0e44a1e0f62b99819c199c206f86971810fbdb996f26f4ef8bf24",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/workflow-poster.png",
+        "status": 200,
+        "mime": "image/png",
+        "bytes": 85523,
+        "sha256": "11e92797968940905497a865d1b75862744a0f2188e7186aef6b5d86bb3a580f",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/workflow.gif",
+        "status": 200,
+        "mime": "image/gif",
+        "bytes": 111247,
+        "sha256": "89582f17e3cb9fa10f8f5fc332d212e65803836a827a9bc47f0fde4208f796de",
+        "matchesMergedSource": true
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/workflow.mp4",
+        "status": 200,
+        "mime": "video/mp4",
+        "bytes": 119761,
+        "sha256": "3cf3995f4f086acd184e386531fb6a1e2dbda045b285f00dc51fed72495ac030",
+        "matchesMergedSource": true
+      }
+    ],
+    "links": [
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/workflow-poster.png",
+        "status": 200
+      },
+      {
+        "url": "https://adg.rbbtsn0w.me/assets/workflow.mp4",
+        "status": 200
+      },
+      {
+        "url": "https://github.com/RbBtSn0w/adg",
+        "status": 200
+      },
+      {
+        "url": "https://github.com/RbBtSn0w/adg/blob/main/docs/agents-spec.md",
+        "status": 200
+      },
+      {
+        "url": "https://github.com/RbBtSn0w/adg/blob/main/docs/marketing/capture.json",
+        "status": 200
+      },
+      {
+        "url": "https://github.com/RbBtSn0w/adg/blob/main/docs/plugin-upgrade-migrations.md",
+        "status": 200
+      },
+      {
+        "url": "https://github.com/RbBtSn0w/adg/issues",
+        "status": 200
+      },
+      {
+        "url": "https://github.com/obra/superpowers",
+        "status": 200
+      }
+    ],
+    "securityHeaders": {
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'self'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'none'",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "referrer-policy": "strict-origin-when-cross-origin"
+    },
+    "passed": true
+  },
+  "websiteSocialMetadata": {
+    "og:title": "ADG — One source. Multiple agents.",
+    "og:description": "Manage plugins and skills across Codex, Claude Code, and Antigravity from one CLI. See the real workflow, then try one skill.",
+    "og:type": "website",
+    "og:url": "https://adg.rbbtsn0w.me/",
+    "og:image": "https://adg.rbbtsn0w.me/assets/social-preview.png",
+    "og:image:width": "1280",
+    "og:image:height": "640",
+    "og:image:alt": "ADG: one managed plugin source connects to Codex, Claude Code, and Antigravity.",
+    "twitter:card": "summary_large_image",
+    "twitter:title": "ADG — One source. Multiple agents.",
+    "twitter:description": "Manage AI agent plugins and skills across the runtimes you use. Watch the real workflow and try one skill.",
+    "twitter:image": "https://adg.rbbtsn0w.me/assets/social-preview.png",
+    "twitter:image:alt": "ADG: one managed plugin source connects to Codex, Claude Code, and Antigravity."
+  },
+  "githubSocialPreview": {
+    "usesCustomOpenGraphImage": true,
+    "url": "https://repository-images.githubusercontent.com/1272397659/0ae427d7-269d-448d-9068-fc072f3af5ac",
+    "status": 200,
+    "mime": "image/png",
+    "bytes": 62392,
+    "sha256": "156b400daf8dd5f919793e62e8bcdf5b3374ad707b994dbbc47b74c21417977b",
+    "dimensions": [
+      1280,
+      640
+    ],
+    "matchesSource": true
+  },
+  "browserVerification": {
+    "checkedAt": "2026-11-21T02:09:14.543Z",
+    "engine": "Isolated headless Chromium",
+    "browserVersion": "157.0.8103.80",
+    "viewportHeight": 900,
+    "viewports": [
+      {
+        "width": 320,
+        "dimensions": {
+          "viewport": 320,
+          "pageWidth": 320
+        },
+        "before": {
+          "paused": true,
+          "controls": true,
+          "autoplay": false,
+          "readyState": 4,
+          "duration": 10
+        },
+        "media": {
+          "ended": true,
+          "currentTime": 10,
+          "duration": 10,
+          "width": 1280,
+          "height": 720,
+          "error": null
+        },
+        "skipLink": true,
+        "quickStartLink": true,
+        "transcriptMatchesCapture": true,
+        "transcriptPreFocusable": true,
+        "faqToggle": true
+      },
+      {
+        "width": 390,
+        "dimensions": {
+          "viewport": 390,
+          "pageWidth": 390
+        },
+        "before": {
+          "paused": true,
+          "controls": true,
+          "autoplay": false,
+          "readyState": 4,
+          "duration": 10
+        },
+        "media": {
+          "ended": true,
+          "currentTime": 10,
+          "duration": 10,
+          "width": 1280,
+          "height": 720,
+          "error": null
+        },
+        "skipLink": true,
+        "quickStartLink": true,
+        "transcriptMatchesCapture": true,
+        "transcriptPreFocusable": true,
+        "faqToggle": true
+      },
+      {
+        "width": 768,
+        "dimensions": {
+          "viewport": 768,
+          "pageWidth": 768
+        },
+        "before": {
+          "paused": true,
+          "controls": true,
+          "autoplay": false,
+          "readyState": 4,
+          "duration": 10
+        },
+        "media": {
+          "ended": true,
+          "currentTime": 10,
+          "duration": 10,
+          "width": 1280,
+          "height": 720,
+          "error": null
+        },
+        "skipLink": true,
+        "quickStartLink": true,
+        "transcriptMatchesCapture": true,
+        "transcriptPreFocusable": true,
+        "faqToggle": true
+      },
+      {
+        "width": 1440,
+        "dimensions": {
+          "viewport": 1440,
+          "pageWidth": 1440
+        },
+        "before": {
+          "paused": true,
+          "controls": true,
+          "autoplay": false,
+          "readyState": 4,
+          "duration": 10
+        },
+        "media": {
+          "ended": true,
+          "currentTime": 10,
+          "duration": 10,
+          "width": 1280,
+          "height": 720,
+          "error": null
+        },
+        "skipLink": true,
+        "quickStartLink": true,
+        "transcriptMatchesCapture": true,
+        "transcriptPreFocusable": true,
+        "faqToggle": true
+      }
+    ],
+    "functionalChecksPassed": true,
+    "httpErrors": [],
+    "consoleClean": false,
+    "overallPassed": false,
+    "finding": {
+      "type": "Cloudflare Web Analytics automatic injection blocked by CSP",
+      "affectedViewportWidths": [
+        320,
+        390,
+        768,
+        1440
+      ],
+      "scriptOrigin": "https://static.cloudflareinsights.com",
+      "csp": "script-src 'none'",
+      "status": "Deferred by owner; retain current analytics settings",
+      "productSourceChanged": false,
+      "accessLimitationObserved": "Existing Wrangler OAuth lacks RUM access (HTTP 403, API code 10000)",
+      "ownerDecision": {
+        "recordedAt": "2026-11-21T02:18:26.226658+00:00",
+        "decision": "Record the finding; do not adjust analytics settings for now",
+        "analyticsSettingsChanged": false,
+        "cspChanged": false,
+        "dashboardLoginPending": false,
+        "remediationDeferred": true
+      }
+    },
+    "metadataPreloadCancellation": {
+      "observed": true,
+      "error": "net::ERR_ABORTED",
+      "interpretation": "Chromium cancelled an MP4 metadata preload; full playback then completed in all four viewports."
+    }
+  },
+  "manualBrowserObservation": {
+    "title": "ADG — Manage AI agent plugins and skills",
+    "viewportWidth": 1280,
+    "pageWidth": 1280,
+    "videoReadyState": 4,
+    "videoDurationSeconds": 10,
+    "videoError": null
+  },
+  "baseline": {
+    "collectedAt": "2026-11-21T02:10:14.638301+00:00",
+    "window": "GitHub rolling 14 days",
+    "views": {
+      "count": 34,
+      "uniques": 11
+    },
+    "clones": {
+      "count": 1696,
+      "uniques": 299
+    },
+    "referrers": [
+      {
+        "referrer": "github.com",
+        "count": 6,
+        "uniques": 1
+      },
+      {
+        "referrer": "aocr.org",
+        "count": 1,
+        "uniques": 1
+      }
+    ]
+  },
+  "limits": [
+    "X and Reddit rendered-card caches were not tested.",
+    "No X or community post was published; D1 has not started.",
+    "The original CLI capture remains the registration evidence; no new CLI compatibility run or model execution was performed."
+  ]
+}

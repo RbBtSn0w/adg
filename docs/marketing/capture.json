@@ -1,0 +1,130 @@
+{
+  "revision": "22f0b463e7a5e579904dd6211a520321035526f7",
+  "capturedAt": "2026-11-20T23:44:48.224Z",
+  "productionTelemetryDisabled": true,
+  "realProfileUnchanged": true,
+  "captures": [
+    {
+      "label": "adg-version",
+      "command": "adg --version",
+      "exitCode": 0,
+      "durationMs": 115,
+      "stdout": "1.0.2\n",
+      "stderr": ""
+    },
+    {
+      "label": "codex-version",
+      "command": "codex --version",
+      "exitCode": 0,
+      "durationMs": 10,
+      "stdout": "codex-cli 0.167.2\n",
+      "stderr": ""
+    },
+    {
+      "label": "claude-version",
+      "command": "claude --version",
+      "exitCode": 0,
+      "durationMs": 10,
+      "stdout": "2.1.312 (Claude Code)\n",
+      "stderr": ""
+    },
+    {
+      "label": "add",
+      "command": "adg plugins add obra/superpowers --ref 22f0b463e7a5e579904dd6211a520321035526f7 --only skills --skill brainstorming --target codex --project",
+      "exitCode": 0,
+      "durationMs": 2427,
+      "stdout": "converted native manifest -> .agents/.plugin.json: superpowers\nadded superpowers -> <DEMO>/project/.agents/plugins/obra__superpowers/superpowers\nenabled in Codex: superpowers\n",
+      "stderr": ""
+    },
+    {
+      "label": "link-claude",
+      "command": "adg plugins link --target claude --project",
+      "exitCode": 0,
+      "durationMs": 705,
+      "stdout": "linked superpowers [claude] -> Claude Code\n  adapted: <DEMO>/project/.agents/plugins/obra__superpowers/superpowers/.claude-plugin/plugin.json\n",
+      "stderr": ""
+    },
+    {
+      "label": "status-codex",
+      "command": "adg plugins status --target codex --project",
+      "exitCode": 0,
+      "durationMs": 153,
+      "stdout": "Codex\n  in sync (1): superpowers\nnote: name-level only; content drift isn't shown \u2014 run `adg plugins sync` if unsure.\n",
+      "stderr": ""
+    },
+    {
+      "label": "status-claude",
+      "command": "adg plugins status --target claude --project",
+      "exitCode": 0,
+      "durationMs": 298,
+      "stdout": "Claude Code\n  in sync (1): superpowers\nnote: name-level only; content drift isn't shown \u2014 run `adg plugins sync` if unsure.\n",
+      "stderr": ""
+    },
+    {
+      "label": "native-codex",
+      "command": "codex plugin list --json",
+      "exitCode": 0,
+      "durationMs": 17,
+      "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"superpowers@adg-94d92dcc\",\n      \"name\": \"superpowers\",\n      \"marketplaceName\": \"adg-94d92dcc\",\n      \"version\": \"7.0.2\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"<DEMO>/project/.agents/plugins/obra__superpowers/superpowers\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"<DEMO>/project\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n",
+      "stderr": ""
+    },
+    {
+      "label": "native-claude",
+      "command": "claude plugin list --json",
+      "exitCode": 0,
+      "durationMs": 110,
+      "stdout": "[\n  {\n    \"id\": \"superpowers@adg-94d92dcc\",\n    \"version\": \"7.0.2\",\n    \"scope\": \"project\",\n    \"enabled\": true,\n    \"installPath\": \"<DEMO>/claude-home/plugins/cache/adg-94d92dcc/superpowers/7.0.2\",\n    \"readFromFolder\": \"<DEMO>/project/.agents/plugins/obra__superpowers/superpowers\",\n    \"folderVersion\": \"7.0.2\",\n    \"installedAt\": \"2026-11-20T23:44:47.622Z\",\n    \"lastUpdated\": \"2026-11-20T23:44:47.622Z\",\n    \"projectPath\": \"<DEMO>/project\",\n    \"projectEnabled\": true\n  }\n]\n",
+      "stderr": ""
+    }
+  ],
+  "schemaVersion": 1,
+  "productVersion": "1.0.2",
+  "nodeVersion": "24.22.2",
+  "source": {
+    "repository": "https://github.com/obra/superpowers",
+    "visibility": "public",
+    "license": "MIT",
+    "revision": "22f0b463e7a5e579904dd6211a520321035526f7",
+    "pluginVersion": "7.0.2",
+    "selectedComponents": [
+      "skills"
+    ],
+    "selectedSkills": [
+      "brainstorming"
+    ]
+  },
+  "isolation": {
+    "projectScope": true,
+    "nativeAgentConfiguration": "temporary directories only",
+    "adgCacheAndMutex": "temporary directories only",
+    "realProfileCheck": "SHA-256 comparison of Codex config and Claude settings/plugin registry files before and after capture; not a snapshot of all user data",
+    "telemetry": "DO_NOT_TRACK=1, DISABLE_TELEMETRY=1, OTEL_SDK_DISABLED=true"
+  },
+  "editing": {
+    "format": "Typeset replay of captured CLI stdout, not a screen recording",
+    "durationSeconds": 10,
+    "waits": "condensed",
+    "pathReplacement": "Temporary capture root replaced with <DEMO>; native outputs otherwise preserved",
+    "scopeOfEvidence": "Native plugin registration and name-level status only. No model execution or interactive skill discovery was tested."
+  },
+  "payloadVerification": {
+    "managedStore": {
+      "skillDirectories": [
+        "brainstorming"
+      ],
+      "skillCount": 1
+    },
+    "codexNativeCache": {
+      "skillDirectories": [
+        "brainstorming"
+      ],
+      "skillCount": 1
+    },
+    "claudeNativeCache": {
+      "skillDirectories": [
+        "brainstorming"
+      ],
+      "skillCount": 1
+    }
+  }
+}

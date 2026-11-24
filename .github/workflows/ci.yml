@@ -105,3 +105,131 @@ jobs:
           npm run test:package -- "$RUNNER_TEMP"/packed/*.tgz
       - run: npm run check:vendor-upstream
         if: matrix.package-smoke == true
+
+  pr-preview:
+    name: PR dev preview
+    needs: test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      panel: ${{ steps.summary.outputs.panel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+          cache: 'npm'
+      - name: Use npm 12
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Pack and verify the PR head
+        id: pack
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ && "$PR_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$PR_HEAD"
+          base_version="$(node -p 'require("./package.json").version.split(/[-+]/, 1)[0]')"
+          [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          short_sha="${PR_HEAD:0:7}"
+          # SemVer forbids leading zeroes in numeric prerelease identifiers.
+          if [[ "$short_sha" =~ ^0[0-9]{6}$ ]]; then short_sha="g$short_sha"; fi
+          version="${base_version}-dev.pr${PR_NUMBER}.${short_sha}"
+          npm pkg set "version=$version"
+
+          preview="$RUNNER_TEMP/pr-preview"
+          mkdir "$preview"
+          npm pack --ignore-scripts --json --pack-destination "$preview" > "$RUNNER_TEMP/pr-preview-pack.json"
+          node .github/release-train/npm-pack.mjs "$RUNNER_TEMP/pr-preview-pack.json" package.json "$preview/adg-pr-preview.tgz"
+          (cd "$preview" && shasum -a 256 adg-pr-preview.tgz > SHA256SUMS)
+          npm run test:package -- "$preview/adg-pr-preview.tgz"
+          (cd "$preview" && shasum -a 256 -c SHA256SUMS)
+          printf '%s\n' "$PR_HEAD" > "$preview/commit.txt"
+          printf '%s\n' "$version" > "$preview/version.txt"
+      - name: Upload verified preview
+        id: preview
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: adg-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-preview/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Show preview verification commands
+        id: summary
+        env:
+          ARTIFACT_NAME: adg-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-attempt-${{ github.run_attempt }}
+          ARTIFACT_URL: ${{ steps.preview.outputs.artifact-url }}
+        run: |
+          preview="$RUNNER_TEMP/pr-preview"
+          # shellcheck disable=SC2016
+          {
+            printf '### PR dev preview\n\n'
+            commit="$(cat "$preview/commit.txt")"
+            printf 'Version `%s` · Commit [`%s`](%s/%s/commit/%s)\n\n' \
+              "$(cat "$preview/version.txt")" "${commit:0:12}" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$commit"
+            printf '[Download the preview ZIP](%s) (available for 14 days). Extract it and open a terminal in the extracted folder.\n\n' "$ARTIFACT_URL"
+            printf '#### Run without installing\n\n'
+            printf '```bash\nnpm exec --yes --package=./adg-pr-preview.tgz -- adg --version\n```\n\n'
+            printf 'Replace `--version` with the `adg` arguments you want to test.\n\n'
+            printf '#### Install globally\n\n'
+            printf '```bash\nnpm install -g ./adg-pr-preview.tgz\nadg --version\n```\n\n'
+            printf '<details>\n<summary>GitHub CLI download and checksum</summary>\n\n'
+            printf 'Run this to download, verify, and enter the preview folder.\n\n```bash\n'
+            printf 'preview_dir="$(mktemp -d)"\n'
+            printf 'gh run download %s --repo %s \\\n' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY"
+            printf '  --name %s \\\n' "$ARTIFACT_NAME"
+            printf '  --dir "$preview_dir" &&\n  cd "$preview_dir" &&\n  shasum -a 256 -c SHA256SUMS\n'
+            printf '```\n\n'
+            printf 'PR head commit `%s`\n\n' "$commit"
+            printf 'SHA-256 `%s`\n\n</details>\n' "$(cut -d ' ' -f 1 "$preview/SHA256SUMS")"
+          } | tee -a "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/pr-preview-panel.md"
+          {
+            printf 'panel<<ADG_PREVIEW_PANEL\n'
+            cat "$RUNNER_TEMP/pr-preview-panel.md"
+            printf 'ADG_PREVIEW_PANEL\n'
+          } >> "$GITHUB_OUTPUT"
+
+  pr-preview-comment:
+    name: Announce PR dev preview
+    needs: pr-preview
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PREVIEW_PANEL: ${{ needs.pr-preview.outputs.panel }}
+        with:
+          script: |
+            const panel = process.env.PREVIEW_PANEL;
+            if (!panel) throw new Error('The verified preview panel is missing');
+
+            const marker = '<!-- adg-pr-dev-preview -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.state !== 'open' || pr.head.sha !== context.payload.pull_request.head.sha) {
+              core.notice('The PR changed while the preview was building.');
+              return;
+            }
+
+            const body = marker + '\n' + panel;
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
