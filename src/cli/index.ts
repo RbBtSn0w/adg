@@ -308,8 +308,8 @@ look back over what you installed.
 
 Commands:
   adg plugins marketplace list [--verbose] [--global | --project | --dir <dir>]
-        Group installed plugins by source. --verbose expands each plugin to its
-        components (skills, agents, commands, …).
+        Group local installation records by source and show their ADG state.
+        --verbose expands each plugin to its components (skills, agents, commands, …).
   adg plugins marketplace remove <source> [--force] [--global | --project | --dir <dir>]
         Uninstall every plugin that came from <source>.
   adg plugins marketplace sync <source> --target <agent> [--global | --project | --dir <dir>]

@@ -19,20 +19,21 @@ export const ui = {
 
 /**
  * Lay items out in aligned columns sized to the terminal width (row-major).
- * Items longer than `maxColWidth` are truncated with an ellipsis. Falls back to
- * a single column on narrow terminals. Returns the block as a string.
+ * Items longer than `maxColWidth` are truncated with an ellipsis. Use false to
+ * keep full labels. Falls back to a single column on narrow terminals.
  */
 export function formatColumns(
   items: string[],
-  opts: { indent?: number; gutter?: number; maxColWidth?: number; width?: number } = {},
+  opts: { indent?: number; gutter?: number; maxColWidth?: number | false; width?: number } = {},
 ): string {
   const indent = opts.indent ?? 2;
   const gutter = opts.gutter ?? 2;
   const maxColWidth = opts.maxColWidth ?? 24;
   const termWidth = opts.width ?? process.stdout.columns ?? 80;
 
-  const cells = items.map((s) => (s.length > maxColWidth ? s.slice(0, maxColWidth - 1) + "…" : s));
-  const colWidth = Math.min(Math.max(1, ...cells.map((c) => c.length)), maxColWidth);
+  const cells = maxColWidth === false ? items : items.map((s) =>
+    s.length > maxColWidth ? s.slice(0, maxColWidth - 1) + "…" : s);
+  const colWidth = cells.reduce((width, cell) => Math.max(width, cell.length), 1);
   const cols = Math.max(1, Math.floor((termWidth - indent + gutter) / (colWidth + gutter)));
 
   const lines: string[] = [];

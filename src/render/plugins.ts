@@ -3,7 +3,7 @@ import { installedPluginDir } from "../paths.ts";
 import { agentsForComponents, getAgent, type AgentSyncResult } from "../agents/index.ts";
 import type { ComponentType } from "../types.ts";
 import type { ListedPlugin } from "../commands/list.ts";
-import type { MarketplaceGroup, PluginUpdateResult } from "../commands/marketplace.ts";
+import type { MarketplaceListGroup, PluginUpdateResult } from "../commands/marketplace.ts";
 import type { AgentStatus } from "../commands/status.ts";
 import type { AgentPruneResult } from "../agents/types.ts";
 import { pluginState } from "../types.ts";
@@ -346,31 +346,42 @@ export function renderPrune(results: AgentPruneResult[]): string[] {
   return out;
 }
 
-/**
- * `adg plugins marketplace list` — installed plugins grouped by source.
- * `details` (name → ListedPlugin) enables the verbose per-plugin component drill;
- * pass it only when --verbose is set.
- */
-export function renderMarketplaceList(
-  groups: MarketplaceGroup[],
-  details?: Map<string, ListedPlugin>,
-): string[] {
-  if (groups.length === 0) return [ui.meta("No plugins installed.")];
+export function marketplaceListCounts(groups: readonly MarketplaceListGroup[]) {
+  let installed = 0;
+  let disabled = 0;
+  for (const group of groups) {
+    installed += group.installed.length;
+    disabled += group.disabled.length;
+  }
+  return { sources: groups.length, installed, enabled: installed - disabled, disabled };
+}
 
-  const out: string[] = [];
-  for (const g of groups) {
-    const ref = g.ref ? `@${g.ref}` : "";
-    const n = g.installed.length;
-    const tag = g.remote ? "" : ui.warn("  (local — re-run add to update)");
-    out.push(`${ui.name(`${g.source}${ref}`)}  ${ui.meta(`(${n} plugin${n !== 1 ? "s" : ""})`)}${tag}`);
-    if (details) {
-      for (const name of g.installed) {
-        const p = details.get(name);
-        out.push(`  ${ui.name(name)}${p?.selection ? ui.meta("  (partial)") : ""}`);
+/** Render installed plugins grouped by source, with optional component details. */
+export function renderMarketplaceList(
+  groups: readonly MarketplaceListGroup[],
+  opts: { scope: string; details?: ReadonlyMap<string, ListedPlugin>; width?: number },
+): string[] {
+  const { sources, installed, enabled, disabled } = marketplaceListCounts(groups);
+  const sourceLabel = sources === 1 ? "source" : "sources";
+  const out = [ui.title(`${opts.scope} · ${sources} ${sourceLabel} · ${installed} installed · ${enabled} enabled · ${disabled} disabled`)];
+  if (groups.length === 0) return [...out, "", ui.meta("No plugins installed.")];
+
+  for (const group of groups) {
+    const ref = group.ref ? `@${group.ref}` : "";
+    const disabledCount = group.disabled.length ? ` · ${group.disabled.length} disabled` : "";
+    const tag = group.remote ? "" : ui.warn("  (local — re-run add to update)");
+    const disabledNames = new Set(group.disabled);
+    const stateSuffix = (name: string) => disabledNames.has(name) ? " [disabled]" : "";
+    out.push("", `${ui.name(`${group.source}${ref}`)}  ${ui.meta(`(${group.installed.length} installed${disabledCount})`)}${tag}`);
+    if (opts.details) {
+      for (const name of group.installed) {
+        const p = opts.details.get(name);
+        out.push(`  ${ui.name(name)}${stateSuffix(name)}${p?.selection ? ui.meta("  (partial)") : ""}`);
         out.push(...renderContents(p?.contents, 4));
       }
-    } else {
-      out.push(...formatColumns(g.installed).split("\n"));
+    } else if (group.installed.length > 0) {
+      const labels = group.installed.map((name) => name + stateSuffix(name));
+      out.push(...formatColumns(labels, { maxColWidth: false, width: opts.width }).split("\n"));
     }
   }
   return out;
