@@ -19,22 +19,28 @@ The panel links the zip download and shows its version and PR head commit.
 After extraction, run it with `npm exec` or install it with `npm install -g`.
 The expandable GitHub CLI section includes the exact head SHA and archive
 checksum. Builds use
-`<base>-dev.pr<number>.g<short-sha>`. Match the full SHA against the PR's current
-head before testing. Artifacts expire after 14 days. A CI rerun creates a new
-artifact for that run attempt.
+`<base>-dev.pr<number>.<7-character-sha>`. A seven-character prefix consisting
+of digits and starting with zero gets a leading `g` so the version remains
+valid SemVer. Match the full SHA against the PR's current head before testing.
+Artifacts expire after 14 days. A CI rerun creates a new artifact for that run
+attempt.
 
-For an open same-repository PR, the default-branch **Publish PR preview to npm**
-workflow takes the verified CI archive and publishes that exact prerelease to
-npm's `next` dist-tag. Once npm reports the archive's integrity, the bot updates
-the Conversation panel with `npx @rbbtsn0w/adg@<version>`,
+For an open same-repository PR, the default-branch **Publish PR dev preview**
+workflow publishes the same verified archive to npm and GitHub Packages under
+the `next` dist-tag. The bot lists each registry that confirms the archive's
+integrity. When npm confirms the version, the Conversation panel includes
+`npx @rbbtsn0w/adg@<version>`,
 `adg update --tag <version>`, and `npm install -g @rbbtsn0w/adg@<version>`.
 Use `adg update --dev` to follow the moving `next` tag and an exact version to
-test a particular PR revision.
+test a particular PR revision. A GitHub Packages-only preview instead includes
+authenticated mirror commands.
 
 On npmjs.com, add `pr-preview-publish.yml` as a GitHub Actions trusted publisher
 for `RbBtSn0w/adg` and allow direct `npm publish`. Keep the existing
-`release.yml` publisher for stable releases. After the preview workflow lands on
-`main`, run CI on an open same-repository PR to verify the new publisher.
+`release.yml` publisher for stable releases. The GitHub Packages mirror uses
+the workflow's `GITHUB_TOKEN` and needs write access to the package. After the
+preview workflow lands on `main`, run CI on an open same-repository PR to verify
+both publishers.
 The Actions artifact and its verification commands remain available while the
 registry build is pending or if npm rejects publication.
 

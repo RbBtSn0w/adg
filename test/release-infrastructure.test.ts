@@ -93,6 +93,8 @@ test("PR previews package the exact head after CI and expose only a verification
   const upload = steps.findIndex((step: { id?: string }) => step.id === "preview");
   assert.ok(pack >= 0 && upload > pack);
   assert.match(steps[pack].run, /git rev-parse HEAD/);
+  assert.ok(steps[pack].run.includes('${PR_HEAD:0:7}'));
+  assert.ok(steps[pack].run.includes('^0[0-9]{6}$'));
   assert.match(steps[pack].run, /npm run test:package/);
   assert.match(steps[pack].run, /shasum -a 256/);
   assert.match(steps[upload].uses, /^actions\/upload-artifact@/);
@@ -146,23 +148,28 @@ test("PR preview announcements update one bot comment for the current head", asy
   }
 });
 
-test("the npm preview publisher selects the current head's verified artifact from a successful CI run", async () => {
+test("the registry preview publisher selects the current head's verified artifact from a successful CI run", async () => {
   const workflow = YAML.parse(readFileSync(".github/workflows/pr-preview-publish.yml", "utf8"));
   assert.deepEqual(workflow.on.workflow_run, { workflows: ["CI"], types: ["completed"] });
   assert.deepEqual(workflow.permissions, {});
   const { publish, announce } = workflow.jobs;
   assert.equal(publish.permissions["id-token"], "write");
+  assert.equal(publish.permissions.packages, "write");
   assert.equal(announce.permissions["id-token"], undefined);
   assert.ok(publish.steps.every((step: { uses?: string }) => !step.uses?.startsWith("actions/checkout@")));
   const download = publish.steps.find((step: { uses?: string }) => step.uses?.startsWith("actions/download-artifact@"));
   assert.equal(download.with["artifact-ids"], "${{ steps.source.outputs.artifact }}");
-  assert.match(publish.steps.at(-1).run, /npm publish \.\/adg-pr-preview\.tgz --ignore-scripts --access public --tag next --registry https:\/\/registry\.npmjs\.org/);
-  assert.match(publish.steps.at(-1).run, /test "\$integrity" = "\$expected"/);
-  assert.equal(announce.if, "needs.publish.outputs.version != ''");
-  const panel = announce.steps[0].with.script;
-  for (const command of ["npx ", "adg update --tag ", "adg update --dev", "npm install -g "]) {
-    assert.ok(panel.includes(command));
-  }
+  const verify = publish.steps.find((step: { id?: string }) => step.id === "verify");
+  assert.ok(verify.run.includes('${PR_HEAD:0:7}'));
+  assert.match(verify.run, /npm publish \.\/adg-pr-preview\.tgz --ignore-scripts --access public --tag next --registry "\$registry"/);
+  assert.match(verify.run, /test "\$integrity" = "\$PREVIEW_INTEGRITY"/);
+  const npm = publish.steps.find((step: { id?: string }) => step.id === "npm");
+  const mirror = publish.steps.find((step: { id?: string }) => step.id === "mirror");
+  assert.match(npm.run, /https:\/\/registry\.npmjs\.org$/m);
+  assert.match(mirror.run, /https:\/\/npm\.pkg\.github\.com$/m);
+  assert.equal(npm.env.NODE_AUTH_TOKEN, undefined);
+  assert.equal(mirror.env.NODE_AUTH_TOKEN, "${{ github.token }}");
+  assert.equal(announce.if, "needs.publish.outputs.npm == 'true' || needs.publish.outputs.github-packages == 'true'");
 
   const run = new Function("github", "context", "core", `return (async () => {${publish.steps[0].with.script}\n})();`);
   const sha = "a".repeat(40);
@@ -189,6 +196,45 @@ test("the npm preview publisher selects the current head's verified artifact fro
     await run(github, { repo: { owner: "example", repo: "adg" }, payload: { workflow_run: { id: 11, run_attempt: 2 } } },
       { notice() {}, setOutput(key: string, value: string | number) { outputs[key] = value; } });
     assert.deepEqual(outputs, stale ? {} : { number: 198, head: sha, artifact: 7 });
+  }
+});
+
+test("the released preview card lists and gives commands for available registries", async () => {
+  const workflow = YAML.parse(readFileSync(".github/workflows/pr-preview-publish.yml", "utf8"));
+  const script = workflow.jobs.announce.steps[0].with.script;
+  const run = new Function("github", "context", "process", `return (async () => {${script}\n})();`);
+  const head = "b8c43a6" + "a".repeat(33);
+  const version = "0.10.1-dev.pr152.b8c43a6";
+  for (const [npm, mirror, stale] of [[true, true, false], [true, false, false], [false, true, false], [false, false, false], [true, true, true]]) {
+    const cards: string[] = [];
+    const github = {
+      paginate: async () => [{ id: 9, user: { login: "github-actions[bot]" }, body: "<!-- adg-pr-dev-preview -->" }],
+      rest: {
+        pulls: { get: async () => ({ data: { state: "open", head: { sha: stale ? "b".repeat(40) : head } } }) },
+        issues: {
+          listComments() {},
+          updateComment: async ({ body, comment_id }: { body: string; comment_id: number }) => {
+            assert.equal(comment_id, 9);
+            cards.push(body);
+          },
+        },
+      },
+    };
+    await run(github, { repo: { owner: "example", repo: "adg" }, payload: { workflow_run: { id: 11 } } },
+      { env: { PR_NUMBER: "152", PR_HEAD: head, ARTIFACT_ID: "7", VERSION: version,
+        NPM_AVAILABLE: String(npm), MIRROR_AVAILABLE: String(mirror) } });
+    assert.equal(cards.length, (npm || mirror) && !stale ? 1 : 0);
+    if (cards.length === 0) continue;
+    const card = cards[0]!;
+    assert.match(card, /PR Dev Preview Released/);
+    assert.ok(card.includes("/commit/" + head));
+    assert.equal(card.includes("| **npm** |"), npm);
+    assert.equal(card.includes("| **GitHub Packages** |"), mirror);
+    assert.equal(card.includes(`npx @rbbtsn0w/adg@${version} --version`), npm);
+    assert.equal(card.includes(`adg update --tag ${version}`), npm);
+    assert.equal(card.includes("adg update --dev"), npm);
+    assert.equal(card.includes(`npm install -g @rbbtsn0w/adg@${version}`), npm);
+    assert.equal(card.includes(`npm install -g --registry=https://npm.pkg.github.com @rbbtsn0w/adg@${version}`), !npm && mirror);
   }
 });
 
