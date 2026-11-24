@@ -7,6 +7,25 @@ than PR style. Real merge metadata and the first initialization snapshot are han
 from commit ancestry; malformed ordinary commits and fake merges still fail. No
 commit SHA exemptions are permitted.
 
+## PR dev previews
+
+After the CI test matrix passes for a PR targeting `main`, the **PR dev
+preview** job adds a panel to the CI run summary. For same-repository PRs, the
+**Announce PR dev preview** job also posts or updates the panel in the PR's
+Conversation after checking that the preview matches the current head. Fork PRs
+can use the panel from the PR's checks.
+
+The panel links the installable npm archive and shows its version, exact PR head
+commit, SHA-256 checksum, and download and verification commands. Builds use
+`<base>-dev.pr<number>.g<short-sha>`. Match the full SHA against the PR's current
+head before testing. Artifacts expire after 14 days. A CI rerun creates a new
+artifact for that run attempt.
+
+Use the summary's `npm exec` command to check the version, then replace
+`--version` with the CLI command under review. Previews are available through
+GitHub Actions artifacts. Registry publication and dist-tags follow the release
+workflow below.
+
 ## Automated Friday/manual publication
 
 The existing `.github/workflows/release.yml` runs Friday 07:00 UTC (15:00 UTC+8),
