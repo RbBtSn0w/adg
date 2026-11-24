@@ -148,7 +148,7 @@ test("PR preview announcements update one bot comment for the current head", asy
   }
 });
 
-test("the registry preview publisher selects the current head's verified artifact from a successful CI run", async () => {
+test("the registry preview publisher uses the successful preview job's attempt after a comment-only rerun", async () => {
   const workflow = YAML.parse(readFileSync(".github/workflows/pr-preview-publish.yml", "utf8"));
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.equal(workflow.on.workflow_dispatch.inputs.source_run_id.required, true);
@@ -184,18 +184,31 @@ test("the registry preview publisher selects the current head's verified artifac
   for (const stale of [false, true]) {
     const outputs: Record<string, string | number> = {};
     const github = {
-      paginate: async () => [{ id: 7, name, expired: false }, { id: 8, name: name.replace(/2$/, "1"), expired: false }],
+      paginate: async (method: unknown, options: { filter?: string; name?: string }) => {
+        if (method === github.rest.actions.listJobsForWorkflowRun) {
+          assert.equal(options.filter, "all");
+          return [
+            { name: "PR dev preview", run_id: 11, run_attempt: 1, conclusion: "failure" },
+            { name: "PR dev preview", run_id: 11, run_attempt: 2, conclusion: "success",
+              steps: [{ name: "Upload verified preview", conclusion: "success" }] },
+            { name: "Announce PR dev preview", run_id: 11, run_attempt: 3, conclusion: "success" },
+          ];
+        }
+        assert.equal(options.name, name);
+        return [{ id: 7, name, expired: false }, { id: 8, name: name.replace(/2$/, "1"), expired: false }];
+      },
       rest: {
         actions: {
           getWorkflowRun: async ({ run_id }: { run_id: number }) => {
             assert.equal(run_id, 11);
             return { data: {
-              id: 11, path: ".github/workflows/ci.yml", event: "pull_request", conclusion: "success", run_attempt: 2,
+              id: 11, path: ".github/workflows/ci.yml", event: "pull_request", conclusion: "success", run_attempt: 3,
               repository: { full_name: "example/adg" },
               head_sha: sha, head_repository: { id: 13, full_name: "example/adg" },
               pull_requests: [{ number: 198, head: { sha } }],
             } };
           },
+          listJobsForWorkflowRun() {},
           listWorkflowRunArtifacts() {},
         },
         pulls: { get: async () => ({ data: {

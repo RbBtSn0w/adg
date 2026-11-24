@@ -60,7 +60,18 @@ jobs:
               core.notice('The source is no longer the current head of an open same-repository PR to main.');
               return;
             }
-            const name = `adg-pr-${number}-${run.head_sha}-attempt-${run.run_attempt}`;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id: run.id, filter: 'all',
+            });
+            const [preview, duplicate] = jobs.filter(job =>
+              job.name === 'PR dev preview' && job.run_id === run.id &&
+              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt)
+              .sort((a, b) => b.run_attempt - a.run_attempt);
+            if (preview?.conclusion !== 'success' || duplicate?.run_attempt === preview.run_attempt ||
+                !preview.steps?.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success')) {
+              throw new Error('The latest preview job did not upload a verified artifact.');
+            }
+            const name = `adg-pr-${number}-${run.head_sha}-attempt-${preview.run_attempt}`;
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
               owner, repo, run_id: run.id, name,
             });
