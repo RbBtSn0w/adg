@@ -150,15 +150,22 @@ test("PR preview announcements update one bot comment for the current head", asy
 
 test("the registry preview publisher selects the current head's verified artifact from a successful CI run", async () => {
   const workflow = YAML.parse(readFileSync(".github/workflows/pr-preview-publish.yml", "utf8"));
-  assert.deepEqual(workflow.on.workflow_run, { workflows: ["CI"], types: ["completed"] });
+  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  assert.equal(workflow.on.workflow_dispatch.inputs.source_run_id.required, true);
   assert.deepEqual(workflow.permissions, {});
   const { publish, announce } = workflow.jobs;
+  const gate = publish.if.replace(/\s+/g, " ").trim();
+  assert.equal(gate, "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'");
   assert.equal(publish.permissions["id-token"], "write");
   assert.equal(publish.permissions.packages, "write");
   assert.equal(announce.permissions["id-token"], undefined);
   assert.ok(publish.steps.every((step: { uses?: string }) => !step.uses?.startsWith("actions/checkout@")));
   const download = publish.steps.find((step: { uses?: string }) => step.uses?.startsWith("actions/download-artifact@"));
   assert.equal(download.with["artifact-ids"], "${{ steps.source.outputs.artifact }}");
+  assert.equal(download.with["run-id"], "${{ inputs.source_run_id }}");
+  assert.equal(download.with["merge-multiple"], true);
+  const sourceStep = publish.steps.find((step: { id?: string }) => step.id === "source");
+  assert.equal(sourceStep.env.SOURCE_RUN_ID, "${{ inputs.source_run_id }}");
   const verify = publish.steps.find((step: { id?: string }) => step.id === "verify");
   assert.ok(verify.run.includes('${PR_HEAD:0:7}'));
   assert.match(verify.run, /npm publish \.\/adg-pr-preview\.tgz --ignore-scripts --access public --tag next --registry "\$registry"/);
@@ -171,7 +178,7 @@ test("the registry preview publisher selects the current head's verified artifac
   assert.equal(mirror.env.NODE_AUTH_TOKEN, "${{ github.token }}");
   assert.equal(announce.if, "needs.publish.outputs.npm == 'true' || needs.publish.outputs.github-packages == 'true'");
 
-  const run = new Function("github", "context", "core", `return (async () => {${publish.steps[0].with.script}\n})();`);
+  const run = new Function("github", "context", "core", "process", `return (async () => {${sourceStep.with.script}\n})();`);
   const sha = "a".repeat(40);
   const name = `adg-pr-198-${sha}-attempt-2`;
   for (const stale of [false, true]) {
@@ -180,11 +187,15 @@ test("the registry preview publisher selects the current head's verified artifac
       paginate: async () => [{ id: 7, name, expired: false }, { id: 8, name: name.replace(/2$/, "1"), expired: false }],
       rest: {
         actions: {
-          getWorkflowRun: async () => ({ data: {
-            id: 11, path: ".github/workflows/ci.yml", event: "pull_request", conclusion: "success", run_attempt: 2,
-            head_sha: sha, head_repository: { id: 13, full_name: "example/adg" },
-            pull_requests: [{ number: 198, head: { sha } }],
-          } }),
+          getWorkflowRun: async ({ run_id }: { run_id: number }) => {
+            assert.equal(run_id, 11);
+            return { data: {
+              id: 11, path: ".github/workflows/ci.yml", event: "pull_request", conclusion: "success", run_attempt: 2,
+              repository: { full_name: "example/adg" },
+              head_sha: sha, head_repository: { id: 13, full_name: "example/adg" },
+              pull_requests: [{ number: 198, head: { sha } }],
+            } };
+          },
           listWorkflowRunArtifacts() {},
         },
         pulls: { get: async () => ({ data: {
@@ -193,8 +204,9 @@ test("the registry preview publisher selects the current head's verified artifac
         } }) },
       },
     };
-    await run(github, { repo: { owner: "example", repo: "adg" }, payload: { workflow_run: { id: 11, run_attempt: 2 } } },
-      { notice() {}, setOutput(key: string, value: string | number) { outputs[key] = value; } });
+    await run(github, { repo: { owner: "example", repo: "adg" } },
+      { notice() {}, setOutput(key: string, value: string | number) { outputs[key] = value; } },
+      { env: { SOURCE_RUN_ID: "11" } });
     assert.deepEqual(outputs, stale ? {} : { number: 198, head: sha, artifact: 7 });
   }
 });
@@ -220,14 +232,15 @@ test("the released preview card lists and gives commands for available registrie
         },
       },
     };
-    await run(github, { repo: { owner: "example", repo: "adg" }, payload: { workflow_run: { id: 11 } } },
-      { env: { PR_NUMBER: "152", PR_HEAD: head, ARTIFACT_ID: "7", VERSION: version,
+    await run(github, { repo: { owner: "example", repo: "adg" } },
+      { env: { PR_NUMBER: "152", PR_HEAD: head, SOURCE_RUN_ID: "11", ARTIFACT_ID: "7", VERSION: version,
         NPM_AVAILABLE: String(npm), MIRROR_AVAILABLE: String(mirror) } });
     assert.equal(cards.length, (npm || mirror) && !stale ? 1 : 0);
     if (cards.length === 0) continue;
     const card = cards[0]!;
     assert.match(card, /PR Dev Preview Released/);
     assert.ok(card.includes("/commit/" + head));
+    assert.ok(card.includes("/actions/runs/11/artifacts/7"));
     assert.equal(card.includes("| **npm** |"), npm);
     assert.equal(card.includes("| **GitHub Packages** |"), mirror);
     assert.equal(card.includes(`npx @rbbtsn0w/adg@${version} --version`), npm);

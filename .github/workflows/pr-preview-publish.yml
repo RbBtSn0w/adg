@@ -1,9 +1,12 @@
 name: Publish PR dev preview
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful CI run ID for the current PR head
+        required: true
+        type: string
 
 permissions: {}
 
@@ -11,9 +14,9 @@ jobs:
   publish:
     name: Publish verified preview on next
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -31,14 +34,20 @@ jobs:
       - name: Resolve the verified artifact for the current PR head
         id: source
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         with:
           script: |
             const { owner, repo } = context.repo;
             const repository = owner + '/' + repo;
-            const source = context.payload.workflow_run;
-            const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: source.id });
+            const run_id = Number(process.env.SOURCE_RUN_ID);
+            if (!/^[1-9][0-9]*$/.test(process.env.SOURCE_RUN_ID) || !Number.isSafeInteger(run_id)) {
+              throw new Error('Enter a positive CI run ID.');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
             if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
-                run.conclusion !== 'success' || run.run_attempt !== source.run_attempt ||
+                run.conclusion !== 'success' ||
+                run.repository?.full_name?.toLowerCase() !== repository.toLowerCase() ||
                 run.head_repository?.full_name?.toLowerCase() !== repository.toLowerCase() ||
                 !/^[0-9a-f]{40}$/.test(run.head_sha) || run.pull_requests.length !== 1) {
               throw new Error('The successful CI run has no unique eligible pull request.');
@@ -75,9 +84,10 @@ jobs:
         if: steps.source.outputs.artifact != ''
         with:
           artifact-ids: ${{ steps.source.outputs.artifact }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/npm-preview
+          merge-multiple: true
       - name: Verify the exact preview archive
         id: verify
         if: steps.source.outputs.artifact != ''
@@ -197,13 +207,14 @@ jobs:
           PR_NUMBER: ${{ needs.publish.outputs.number }}
           PR_HEAD: ${{ needs.publish.outputs.head }}
           ARTIFACT_ID: ${{ needs.publish.outputs.artifact }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           VERSION: ${{ needs.publish.outputs.version }}
           NPM_AVAILABLE: ${{ needs.publish.outputs.npm }}
           MIRROR_AVAILABLE: ${{ needs.publish.outputs.github-packages }}
         with:
           script: |
             const { owner, repo } = context.repo;
-            const { PR_NUMBER, PR_HEAD, ARTIFACT_ID, VERSION, NPM_AVAILABLE, MIRROR_AVAILABLE } = process.env;
+            const { PR_NUMBER, PR_HEAD, ARTIFACT_ID, SOURCE_RUN_ID, VERSION, NPM_AVAILABLE, MIRROR_AVAILABLE } = process.env;
             const issue_number = Number(PR_NUMBER);
             const marker = '<!-- adg-pr-dev-preview -->';
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
@@ -214,7 +225,7 @@ jobs:
 
             const spec = '@rbbtsn0w/adg@' + VERSION;
             const root = 'https://github.com/' + owner + '/' + repo;
-            const artifact = root + '/actions/runs/' + context.payload.workflow_run.id + '/artifacts/' + ARTIFACT_ID;
+            const artifact = root + '/actions/runs/' + SOURCE_RUN_ID + '/artifacts/' + ARTIFACT_ID;
             const rows = [];
             if (NPM_AVAILABLE === 'true') rows.push('| **npm** | `' + spec + '` | `next` |');
             if (MIRROR_AVAILABLE === 'true') rows.push('| **GitHub Packages** | `' + spec + '` | `next` |');
