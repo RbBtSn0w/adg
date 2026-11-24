@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img"><title>ADG — One source. Multiple agents.</title>
+<rect width="1280" height="640" fill="#0b0f14"/>
+<polygon points="81,55 98,63.5 98,80.5 81,89 64,80.5 64,63.5" fill="#d8ff63"/>
+<text x="73" y="81" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#0b0f14" xml:space="preserve">A</text>
+<text x="112" y="81" font-family="Arial, sans-serif" font-size="27" font-weight="700" fill="#f0f2ed" xml:space="preserve">ADG</text>
+<text x="837" y="78" font-family="Menlo, monospace" font-size="14" font-weight="400" fill="#a9b3b1" xml:space="preserve">AI AGENT PLUGINS &amp; SKILLS</text>
+<line x1="64" y1="116" x2="1216" y2="116" stroke="#303b46" stroke-width="1"/>
+<text x="64" y="241" font-family="Arial, sans-serif" font-size="83" font-weight="700" fill="#f0f2ed" xml:space="preserve">One source.</text>
+<text x="64" y="338" font-family="Arial, sans-serif" font-size="83" font-weight="700" fill="#d8ff63" xml:space="preserve">Multiple agents.</text>
+<text x="68" y="411" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#a9b3b1" xml:space="preserve">Manage plugins and skills without</text>
+<text x="68" y="447" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#a9b3b1" xml:space="preserve">repeating the setup.</text>
+<text x="68" y="577" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#f0f2ed" xml:space="preserve">adg.rbbtsn0w.me</text>
+<text x="886" y="577" font-family="Menlo, monospace" font-size="14" font-weight="400" fill="#a9b3b1" xml:space="preserve">OPEN SOURCE / MIT</text>
+<rect x="851" y="175" width="365" height="99" fill="#17201b" stroke="#647546"/>
+<text x="875" y="207" font-family="Menlo, monospace" font-size="13" font-weight="400" fill="#d8ff63" xml:space="preserve">ONE MANAGED SOURCE</text>
+<text x="875" y="243" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#f0f2ed" xml:space="preserve">Your plugin inventory</text>
+<line x1="851" y1="224" x2="818" y2="224" stroke="#9abaff" stroke-width="1"/>
+<line x1="818" y1="224" x2="818" y2="499" stroke="#9abaff" stroke-width="1"/>
+<line x1="818" y1="352" x2="851" y2="352" stroke="#9abaff" stroke-width="1"/>
+<rect x="851" y="326" width="365" height="54" fill="#11171f" stroke="#303b46"/>
+<text x="873" y="360" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#f0f2ed" xml:space="preserve">Codex</text>
+<text x="1039" y="359" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a9b3b1" xml:space="preserve">Native plugin CLI</text>
+<line x1="818" y1="425" x2="851" y2="425" stroke="#9abaff" stroke-width="1"/>
+<rect x="851" y="399" width="365" height="54" fill="#11171f" stroke="#303b46"/>
+<text x="873" y="433" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#f0f2ed" xml:space="preserve">Claude Code</text>
+<text x="1039" y="432" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a9b3b1" xml:space="preserve">Native plugin CLI</text>
+<line x1="818" y1="498" x2="851" y2="498" stroke="#9abaff" stroke-width="1"/>
+<rect x="851" y="472" width="365" height="54" fill="#11171f" stroke="#303b46"/>
+<text x="873" y="506" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#f0f2ed" xml:space="preserve">Antigravity</text>
+<text x="1039" y="505" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a9b3b1" xml:space="preserve">Runtime projection</text>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img"><title>ADG workflow: add a skill, connect another agent, check registration</title>
+<rect width="1280" height="720" fill="#0b0f14"/>
+<text x="48" y="45" font-family="Menlo, monospace" font-size="15" font-weight="400" fill="#d8ff63" xml:space="preserve">ADG / WORKFLOW</text>
+<text x="48" y="130" font-family="Arial, sans-serif" font-size="57" font-weight="700" fill="#f0f2ed" xml:space="preserve">One source. Multiple agents.</text>
+<text x="50" y="173" font-family="Arial, sans-serif" font-size="24" font-weight="400" fill="#a9b3b1" xml:space="preserve">Add one skill from superpowers. Register it with Codex and Claude Code.</text>
+<rect x="48" y="233" width="384" height="345" fill="#11171f" stroke="#303b46"/>
+<text x="72" y="270" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#9abaff" xml:space="preserve">01</text>
+<text x="72" y="314" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#f0f2ed" xml:space="preserve">Add one skill</text>
+<rect x="448" y="233" width="384" height="345" fill="#11171f" stroke="#303b46"/>
+<text x="472" y="270" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#9abaff" xml:space="preserve">02</text>
+<text x="472" y="314" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#f0f2ed" xml:space="preserve">Connect Claude</text>
+<rect x="848" y="233" width="384" height="345" fill="#11171f" stroke="#303b46"/>
+<text x="872" y="270" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#9abaff" xml:space="preserve">03</text>
+<text x="872" y="314" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#f0f2ed" xml:space="preserve">Check both</text>
+<text x="72" y="369" font-family="Menlo, monospace" font-size="20" font-weight="400" fill="#f0f2ed" xml:space="preserve">obra/superpowers</text>
+<text x="72" y="404" font-family="Arial, sans-serif" font-size="18" font-weight="400" fill="#a9b3b1" xml:space="preserve">Skill: brainstorming</text>
+<text x="72" y="439" font-family="Menlo, monospace" font-size="16" font-weight="400" fill="#a9b3b1" xml:space="preserve">Revision: 22f0b463e7a5</text>
+<text x="72" y="505" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#d8ff63" xml:space="preserve">enabled in Codex:</text>
+<text x="72" y="534" font-family="Menlo, monospace" font-size="19" font-weight="400" fill="#f0f2ed" xml:space="preserve">superpowers</text>
+<text x="472" y="369" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#d8ff63" xml:space="preserve">$ adg plugins link</text>
+<text x="472" y="400" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#d8ff63" xml:space="preserve">  --target claude</text>
+<text x="472" y="431" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#d8ff63" xml:space="preserve">  --project</text>
+<text x="472" y="505" font-family="Menlo, monospace" font-size="17" font-weight="400" fill="#f0f2ed" xml:space="preserve">linked superpowers</text>
+<text x="472" y="534" font-family="Menlo, monospace" font-size="16" font-weight="400" fill="#f0f2ed" xml:space="preserve">[claude] -&gt; Claude Code</text>
+<text x="872" y="369" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#f0f2ed" xml:space="preserve">Codex</text>
+<text x="872" y="403" font-family="Menlo, monospace" font-size="16" font-weight="400" fill="#d8ff63" xml:space="preserve">in sync (1): superpowers</text>
+<text x="872" y="460" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#f0f2ed" xml:space="preserve">Claude Code</text>
+<text x="872" y="494" font-family="Menlo, monospace" font-size="16" font-weight="400" fill="#d8ff63" xml:space="preserve">in sync (1): superpowers</text>
+<text x="872" y="549" font-family="Arial, sans-serif" font-size="16" font-weight="400" fill="#a9b3b1" xml:space="preserve">Name-level checks only.</text>
+<text x="48" y="635" font-family="Menlo, monospace" font-size="16" font-weight="400" fill="#a9b3b1" xml:space="preserve">Selected real output / ADG 1.0.2 / full transcript in docs/marketing/capture.json</text>
+<text x="48" y="677" font-family="Arial, sans-serif" font-size="17" font-weight="400" fill="#a9b3b1" xml:space="preserve">Registration verified. Model execution and interactive skill discovery were not tested.</text>
+</svg>

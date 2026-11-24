@@ -6,7 +6,8 @@ import { join, resolve } from "node:path";
 
 import { ADAPTER_TARGETS } from "../src/adapters/index.ts";
 import { installPlugin } from "../src/commands/install.ts";
-import { ADG_SCHEMA_VERSION } from "../src/types.ts";
+import { ADG_SCHEMA_VERSION, LOCK_VERSION } from "../src/types.ts";
+import { spawnAdg } from "./sandbox-helpers.mjs";
 import {
   CACHE_USAGE,
   MARKETPLACE_USAGE,
@@ -327,6 +328,55 @@ test("runPlugins marketplace <sub> -h prints the marketplace usage", async () =>
 
   const viaAlias = await captureLog(() => runPlugins("mp", ["-h"]));
   assert.equal(viaAlias, MARKETPLACE_USAGE);
+});
+
+test("marketplace list reports the selected store and disabled members", () => {
+  const root = mkdtempSync(join(tmpdir(), "adg-marketplace-list-"));
+  try {
+    const store = join(root, ".agents", "plugins");
+    mkdirSync(store, { recursive: true });
+    const origin = { type: "github", repo: "example/tools" };
+    const name = "disabled-marketplace-plugin-with-a-long-name";
+    writeFileSync(join(store, ".plugin-lock.json"), JSON.stringify({
+      version: LOCK_VERSION,
+      plugins: {
+        enabled: { origin },
+        [name]: { origin: { ...origin, ref: "v1" }, state: "disabled", selection: { skills: ["demo"] } },
+        pinned: { origin: { ...origin, repo: "example/pinned", ref: "v2" }, state: "enabled" },
+      },
+      sources: [{ source: "example/pending", ref: "next", mode: "all", roots: [], excluded: [] }],
+    }));
+    const skillDir = join(store, "example__tools", name, "skills", "demo");
+    const manifestDir = join(store, "example__tools", name, ".agents");
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(manifestDir);
+    writeFileSync(join(manifestDir, ".plugin.json"), JSON.stringify({
+      schemaVersion: ADG_SCHEMA_VERSION, name, version: "1.0.0", description: "Synthetic plugin", skills: "./skills/",
+    }));
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: demo\ndescription: Synthetic skill\n---\n");
+    const run = (...args: string[]) => {
+      const { result } = spawnAdg(["plugins", "marketplace", "list", ...args], {
+        cwd: root, isolationRoot: join(root, "isolation"),
+        env: { ADG_PLUGINS_HOME: store, DISABLE_TELEMETRY: "1", NO_COLOR: "1" },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout;
+    };
+    const totals = "3 sources · 3 installed · 2 enabled · 1 disabled";
+    const output = run("-g");
+    assert.ok(output.startsWith(`Global · ${totals}\n`), output);
+    assert.ok(output.includes("example/tools  (2 installed · 1 disabled)"));
+    assert.ok(output.includes("example/pending@next  (0 installed)"));
+    assert.ok(output.includes("example/pinned@v2  (1 installed)"));
+    assert.ok(output.includes(`${name} [disabled]`));
+    assert.ok(run().startsWith(`Project · ${totals}\n`));
+    assert.ok(run("--project").startsWith(`Project · ${totals}\n`));
+    const verbose = run("--dir", store, "--verbose");
+    assert.ok(verbose.startsWith(`Directory ${store} · ${totals}\n`));
+    assert.ok(verbose.includes(`${name} [disabled]  (partial)\n    skills (1):\n      demo`), verbose);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("runPlugins cache exposes delegated help and status", async () => {

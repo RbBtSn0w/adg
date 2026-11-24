@@ -7,7 +7,7 @@ import { formatColumns, abbrevHome, ellipsizeStart } from "../src/render/ui.ts";
 import { renderAgentReport, renderContents, renderPluginList, renderMarketplaceList, renderPrune, renderStatus } from "../src/render/plugins.ts";
 import { pluginsListJson, pluginsStatusJson } from "../src/render/json.ts";
 import type { ListedPlugin } from "../src/commands/list.ts";
-import type { MarketplaceGroup } from "../src/commands/marketplace.ts";
+import type { MarketplaceListGroup } from "../src/commands/marketplace.ts";
 import type { AgentStatus } from "../src/commands/status.ts";
 import type { AgentPruneResult } from "../src/agents/types.ts";
 
@@ -232,17 +232,32 @@ test("renderPrune indents a removed entry like its sibling status lines", () => 
 });
 
 test("renderMarketplaceList groups by source and tags local sources", () => {
-  const groups: MarketplaceGroup[] = [
-    { source: "owner/repo", ref: "main", installed: ["a", "b"], remote: true },
-    { source: "(local)", installed: ["c"], remote: false },
+  const groups: MarketplaceListGroup[] = [
+    { source: "owner/repo", ref: "main", installed: ["a", "b"], disabled: ["b"], remote: true },
+    { source: "(local)", installed: ["c"], disabled: [], remote: false },
   ];
-  const text = renderMarketplaceList(groups).join("\n");
+  const text = renderMarketplaceList(groups, { scope: "Global" }).join("\n");
   assert.ok(text.includes("owner/repo@main"), "remote source with ref");
-  assert.ok(text.includes("(2 plugins)"), "pluralized count");
-  assert.ok(text.includes("(1 plugin)"), "singular count");
+  assert.ok(text.includes("(2 installed · 1 disabled)"));
+  assert.ok(text.includes("(1 installed)"));
   assert.ok(text.includes("local — re-run add"), "local sources tagged");
 });
 
+test("renderMarketplaceList keeps full labels when resizing columns", () => {
+  const name = "plugin-name-longer-than-the-default-column";
+  const label = `${name} [disabled]`;
+  const groups: MarketplaceListGroup[] = [
+    { source: "owner/repo", installed: ["a", name, "z"], disabled: [name], remote: true },
+  ];
+  const render = (width: number) => renderMarketplaceList(groups, { scope: "Global", width }).map(stripAnsi).slice(3);
+  assert.deepEqual(render(120), [`  ${"a".padEnd(label.length)}  ${label}`, "  z"]);
+  assert.deepEqual(render(26), ["  a", `  ${label}`, "  z"]);
+});
+
 test("renderMarketplaceList reports an empty store", () => {
-  assert.deepEqual(renderMarketplaceList([]).map(stripAnsi), ["No plugins installed."]);
+  assert.deepEqual(renderMarketplaceList([], { scope: "Project" }).map(stripAnsi), [
+    "Project · 0 sources · 0 installed · 0 enabled · 0 disabled",
+    "",
+    "No plugins installed.",
+  ]);
 });
