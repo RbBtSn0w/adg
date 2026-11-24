@@ -15,22 +15,35 @@ preview** job adds a panel to the CI run summary. For same-repository PRs, the
 Conversation after checking that the preview matches the current head. Fork PRs
 can use the panel from the PR's checks.
 
-The panel links the installable npm archive and shows its version, exact PR head
-commit, SHA-256 checksum, and download and verification commands. Builds use
+The panel links the zip download and shows its version and PR head commit.
+After extraction, run it with `npm exec` or install it with `npm install -g`.
+The expandable GitHub CLI section includes the exact head SHA and archive
+checksum. Builds use
 `<base>-dev.pr<number>.g<short-sha>`. Match the full SHA against the PR's current
 head before testing. Artifacts expire after 14 days. A CI rerun creates a new
 artifact for that run attempt.
 
-Use the summary's `npm exec` command to check the version, then replace
-`--version` with the CLI command under review. Previews are available through
-GitHub Actions artifacts. Registry publication and dist-tags follow the release
-workflow below.
+For an open same-repository PR, the default-branch **Publish PR preview to npm**
+workflow takes the verified CI archive and publishes that exact prerelease to
+npm's `next` dist-tag. Once npm reports the archive's integrity, the bot updates
+the Conversation panel with `npx @rbbtsn0w/adg@<version>`,
+`adg update --tag <version>`, and `npm install -g @rbbtsn0w/adg@<version>`.
+Use `adg update --dev` to follow the moving `next` tag and an exact version to
+test a particular PR revision.
+
+On npmjs.com, add `pr-preview-publish.yml` as a GitHub Actions trusted publisher
+for `RbBtSn0w/adg` and allow direct `npm publish`. Keep the existing
+`release.yml` publisher for stable releases. After the preview workflow lands on
+`main`, run CI on an open same-repository PR to verify the new publisher.
+The Actions artifact and its verification commands remain available while the
+registry build is pending or if npm rejects publication.
 
 ## Automated Friday/manual publication
 
 The existing `.github/workflows/release.yml` runs Friday 07:00 UTC (15:00 UTC+8),
 or manually on `main` with `operation=release` (the default). No release PR or
-recurring approval is required. CI and PRs never publish. Read-only analysis and
+recurring approval is required. Stable publication runs from this workflow.
+Read-only analysis and
 verification run independently of `RELEASE_ENABLED`; every publication path still
 requires that variable to equal `true`. This implementation does not enable it.
 
