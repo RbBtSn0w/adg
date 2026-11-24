@@ -91,7 +91,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
           echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: steps.source.outputs.artifact != ''
         with:
           artifact-ids: ${{ steps.source.outputs.artifact }}
