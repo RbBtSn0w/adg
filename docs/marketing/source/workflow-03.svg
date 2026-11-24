@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img"><title>ADG workflow 03: Check both runtimes</title>
+<rect width="1280" height="720" fill="#0b0f14"/>
+<text x="48" y="42" font-family="Menlo, monospace" font-size="14" font-weight="400" fill="#d8ff63" xml:space="preserve">ADG / REAL CLI OUTPUT</text>
+<text x="1045" y="42" font-family="Menlo, monospace" font-size="14" font-weight="400" fill="#a9b3b1" xml:space="preserve">STEP 03 / 03</text>
+<text x="48" y="105" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#f0f2ed" xml:space="preserve">Check both runtimes</text>
+<text x="49" y="143" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#a9b3b1" xml:space="preserve">Compare the store with each native plugin registry.</text>
+<rect x="48" y="181" width="1184" height="455" fill="#11171f" stroke="#303b46"/>
+<line x1="48" y1="224" x2="1232" y2="224" stroke="#303b46" stroke-width="1"/>
+<text x="76" y="209" font-family="Menlo, monospace" font-size="14" font-weight="400" fill="#a9b3b1" xml:space="preserve">adg 1.0.2   /   project scope   /   obra/superpowers</text>
+<text x="76" y="262" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#d8ff63" xml:space="preserve">$ adg plugins status --target codex --project</text>
+<text x="76" y="290" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#f0f2ed" xml:space="preserve">Codex</text>
+<text x="76" y="318" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#f0f2ed" xml:space="preserve">  in sync (1): superpowers</text>
+<text x="76" y="346" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#a9b3b1" xml:space="preserve">note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure.</text>
+<text x="76" y="392" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#d8ff63" xml:space="preserve">$ adg plugins status --target claude --project</text>
+<text x="76" y="420" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#f0f2ed" xml:space="preserve">Claude Code</text>
+<text x="76" y="448" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#f0f2ed" xml:space="preserve">  in sync (1): superpowers</text>
+<text x="76" y="476" font-family="Menlo, monospace" font-size="18" font-weight="400" fill="#a9b3b1" xml:space="preserve">note: name-level only; content drift isn't shown — run `adg plugins sync` if unsure.</text>
+<text x="48" y="681" font-family="Arial, sans-serif" font-size="15" font-weight="400" fill="#a9b3b1" xml:space="preserve">Real output replay. Waits condensed. Paths redacted. No skill execution shown.</text>
+</svg>

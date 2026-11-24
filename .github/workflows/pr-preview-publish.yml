@@ -1,0 +1,273 @@
+name: Publish PR dev preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful CI run ID for the current PR head
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish verified preview on next
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: read
+      packages: write
+      id-token: write
+    outputs:
+      number: ${{ steps.source.outputs.number }}
+      head: ${{ steps.source.outputs.head }}
+      artifact: ${{ steps.source.outputs.artifact }}
+      version: ${{ steps.verify.outputs.version }}
+      npm: ${{ steps.npm.outputs.available }}
+      github-packages: ${{ steps.mirror.outputs.available }}
+    steps:
+      - name: Resolve the verified artifact for the current PR head
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repository = owner + '/' + repo;
+            const run_id = Number(process.env.SOURCE_RUN_ID);
+            if (!/^[1-9][0-9]*$/.test(process.env.SOURCE_RUN_ID) || !Number.isSafeInteger(run_id)) {
+              throw new Error('Enter a positive CI run ID.');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id });
+            if (run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
+                run.conclusion !== 'success' ||
+                run.repository?.full_name?.toLowerCase() !== repository.toLowerCase() ||
+                run.head_repository?.full_name?.toLowerCase() !== repository.toLowerCase() ||
+                !/^[0-9a-f]{40}$/.test(run.head_sha) || run.pull_requests.length !== 1) {
+              throw new Error('The successful CI run has no unique eligible pull request.');
+            }
+            const [{ number, head }] = run.pull_requests;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.head.sha !== run.head_sha ||
+                head.sha !== run.head_sha || pr.head.repo?.id !== run.head_repository.id ||
+                pr.base.repo.id !== run.head_repository.id) {
+              core.notice('The source is no longer the current head of an open same-repository PR to main.');
+              return;
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id: run.id, filter: 'all',
+            });
+            const [preview, duplicate] = jobs.filter(job =>
+              job.name === 'PR dev preview' && job.run_id === run.id &&
+              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt)
+              .sort((a, b) => b.run_attempt - a.run_attempt);
+            if (preview?.conclusion !== 'success' || duplicate?.run_attempt === preview.run_attempt ||
+                !preview.steps?.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success')) {
+              throw new Error('The latest preview job did not upload a verified artifact.');
+            }
+            const name = `adg-pr-${number}-${run.head_sha}-attempt-${preview.run_attempt}`;
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner, repo, run_id: run.id, name,
+            });
+            const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
+            if (matches.length !== 1) throw new Error('The verified PR preview artifact is unavailable.');
+            core.setOutput('number', number);
+            core.setOutput('head', run.head_sha);
+            core.setOutput('artifact', matches[0].id);
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.source.outputs.artifact != ''
+        with:
+          node-version: 24.15.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use npm 12
+        if: steps.source.outputs.artifact != ''
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
+          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.source.outputs.artifact != ''
+        with:
+          artifact-ids: ${{ steps.source.outputs.artifact }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/npm-preview
+          merge-multiple: true
+      - name: Verify the exact preview archive
+        id: verify
+        if: steps.source.outputs.artifact != ''
+        env:
+          PR_NUMBER: ${{ steps.source.outputs.number }}
+          PR_HEAD: ${{ steps.source.outputs.head }}
+        working-directory: ${{ runner.temp }}/npm-preview
+        run: |
+          test "$(cat commit.txt)" = "$PR_HEAD"
+          version="$(cat version.txt)"
+          short_sha="${PR_HEAD:0:7}"
+          if [[ "$short_sha" =~ ^0[0-9]{6}$ ]]; then short_sha="g$short_sha"; fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev\.pr${PR_NUMBER}\.${short_sha}$ ]]
+          test "$(shasum -a 256 adg-pr-preview.tgz)" = "$(cat SHA256SUMS)"
+          tar -xOzf adg-pr-preview.tgz package/package.json | node -e '
+            const { name, version, publishConfig } = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+            if (name !== "@rbbtsn0w/adg" || version !== process.argv[1] ||
+                JSON.stringify(publishConfig) !== JSON.stringify({ access: "public" })) {
+              throw new Error("Unexpected npm preview package identity or publish configuration");
+            }
+          ' "$version"
+
+          expected="sha512-$(openssl dgst -sha512 -binary adg-pr-preview.tgz | openssl base64 -A)"
+          printf 'version=%s\nintegrity=%s\n' "$version" "$expected" >> "$GITHUB_OUTPUT"
+
+          cat > "$RUNNER_TEMP/publish-preview.sh" <<'BASH'
+          registry="$1"
+          if [ "$registry" = 'https://npm.pkg.github.com' ]; then
+            export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/preview-github-packages.npmrc"
+            # shellcheck disable=SC2016
+            printf '%s\n' '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
+          fi
+          lookup() {
+            node -e '
+              const { spawnSync } = require("node:child_process");
+              const [version, registry] = process.argv.slice(1);
+              const result = spawnSync("npm", ["view", "@rbbtsn0w/adg@" + version,
+                "dist.integrity", "--json", "--prefer-online", "--registry", registry],
+                { encoding: "utf8", timeout: 30000 });
+              if (result.error) throw result.error;
+              const value = result.stdout.trim() && JSON.parse(result.stdout);
+              if (result.status !== 0) {
+                if (value?.error?.code === "E404") process.exit(0);
+                throw new Error("Registry lookup failed: " + (value?.error?.code ?? result.status));
+              }
+              const integrity = Array.isArray(value) && value.length === 1 ? value[0] : value;
+              if (typeof integrity !== "string" || !integrity.startsWith("sha512-")) {
+                throw new Error("Missing or ambiguous npm registry integrity");
+              }
+              console.log(integrity);
+            ' "$PREVIEW_VERSION" "$registry"
+          }
+          integrity="$(lookup)"
+          if [ -z "$integrity" ]; then
+            current="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'select(.state == "open" and .base.ref == "main") | .head.sha')"
+            if [ "$current" != "$PR_HEAD" ]; then
+              echo "::notice::The PR head changed before publication."
+              exit 0
+            fi
+            publish_status=0
+            npm publish ./adg-pr-preview.tgz --ignore-scripts --access public --tag next --registry "$registry" || publish_status=$?
+            for attempt in 1 2 3 4 5; do
+              integrity="$(lookup)"
+              [ -z "$integrity" ] || break
+              sleep "$((attempt * 2))"
+            done
+            if [ -z "$integrity" ] && [ "$publish_status" -ne 0 ]; then
+              exit "$publish_status"
+            fi
+          fi
+          test "$integrity" = "$PREVIEW_INTEGRITY"
+          printf 'available=true\n' >> "$GITHUB_OUTPUT"
+          BASH
+      - name: Publish to npm next
+        id: npm
+        if: steps.verify.outputs.version != ''
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ steps.source.outputs.number }}
+          PR_HEAD: ${{ steps.source.outputs.head }}
+          PREVIEW_VERSION: ${{ steps.verify.outputs.version }}
+          PREVIEW_INTEGRITY: ${{ steps.verify.outputs.integrity }}
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/npm-preview
+        run: bash -eu -o pipefail "$RUNNER_TEMP/publish-preview.sh" https://registry.npmjs.org
+      - name: Mirror to GitHub Packages next
+        id: mirror
+        if: steps.verify.outputs.version != ''
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ steps.source.outputs.number }}
+          PR_HEAD: ${{ steps.source.outputs.head }}
+          PREVIEW_VERSION: ${{ steps.verify.outputs.version }}
+          PREVIEW_INTEGRITY: ${{ steps.verify.outputs.integrity }}
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/npm-preview
+        run: bash -eu -o pipefail "$RUNNER_TEMP/publish-preview.sh" https://npm.pkg.github.com
+      - name: Require an available registry preview
+        if: >-
+          steps.npm.outputs.available != 'true' && steps.mirror.outputs.available != 'true' &&
+          (steps.npm.outcome == 'failure' || steps.mirror.outcome == 'failure')
+        run: |
+          echo "::error::Neither registry confirmed the PR preview archive."
+          exit 1
+
+  announce:
+    name: Announce released PR preview
+    needs: publish
+    if: needs.publish.outputs.npm == 'true' || needs.publish.outputs.github-packages == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.publish.outputs.number }}
+          PR_HEAD: ${{ needs.publish.outputs.head }}
+          ARTIFACT_ID: ${{ needs.publish.outputs.artifact }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          VERSION: ${{ needs.publish.outputs.version }}
+          NPM_AVAILABLE: ${{ needs.publish.outputs.npm }}
+          MIRROR_AVAILABLE: ${{ needs.publish.outputs.github-packages }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { PR_NUMBER, PR_HEAD, ARTIFACT_ID, SOURCE_RUN_ID, VERSION, NPM_AVAILABLE, MIRROR_AVAILABLE } = process.env;
+            const issue_number = Number(PR_NUMBER);
+            const marker = '<!-- adg-pr-dev-preview -->';
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.state !== 'open' || pr.head.sha !== PR_HEAD) return;
+
+            const spec = '@rbbtsn0w/adg@' + VERSION;
+            const root = 'https://github.com/' + owner + '/' + repo;
+            const artifact = root + '/actions/runs/' + SOURCE_RUN_ID + '/artifacts/' + ARTIFACT_ID;
+            const rows = [];
+            if (NPM_AVAILABLE === 'true') rows.push('| **npm** | `' + spec + '` | `next` |');
+            if (MIRROR_AVAILABLE === 'true') rows.push('| **GitHub Packages** | `' + spec + '` | `next` |');
+            if (rows.length === 0) return;
+            const lines = [
+              marker, '### 🚀 PR Dev Preview Released', '',
+              '| Registry | Package / Version | Dist-tag |', '| --- | --- | --- |',
+              ...rows, '',
+              'PR head commit [`' + PR_HEAD.slice(0, 7) + '`](' + root + '/commit/' + PR_HEAD + ')', '',
+              '#### Quick Verification Options', '',
+            ];
+            if (NPM_AVAILABLE === 'true') {
+              lines.push(
+                '**1. Run directly with npx**', '', '```bash', 'npx ' + spec + ' --version', '```', '',
+                '**2. Self-update via ADG CLI**', '', '```bash', 'adg update --tag ' + VERSION, '```', '',
+                'Use `adg update --dev` to follow the moving `next` channel.', '',
+                '**3. Global install with npm**', '', '```bash', 'npm install -g ' + spec, '```', '',
+              );
+            } else {
+              lines.push(
+                'Use a GitHub token with `read:packages` to [authenticate to the npm registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#authenticating-to-github-packages).', '',
+                '**Run without installing**', '', '```bash',
+                'npm exec --registry=https://npm.pkg.github.com --package=' + spec + ' -- adg --version', '```', '',
+                '**Install globally**', '', '```bash',
+                'npm install -g --registry=https://npm.pkg.github.com ' + spec, '```', '',
+              );
+            }
+            lines.push('[Download the verified build archive](' + artifact + ') (available for 14 days).');
+            const body = lines.join('\n');
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

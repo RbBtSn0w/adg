@@ -1,0 +1,228 @@
+{
+  "preparedDate": "2026-11-21",
+  "status": "PR candidate; campaign not published",
+  "sourceCommit": "82be3b6c03740a9803fa52f15867d597e2b6376a",
+  "capture": "capture.json",
+  "captureSha256": "b9d0e262af33a925d57da3bbda162f3da5a3197a43575b19ae5a92472b77e2be",
+  "assets": [
+    {
+      "file": "website/assets/favicon.svg",
+      "bytes": 241,
+      "sha256": "7ac023f8bf2552428e58ea496957173bf57549b30e60f38455a51125ae99ebbb"
+    },
+    {
+      "file": "website/assets/social-preview.png",
+      "bytes": 62392,
+      "sha256": "156b400daf8dd5f919793e62e8bcdf5b3374ad707b994dbbc47b74c21417977b",
+      "width": 1280,
+      "height": 640
+    },
+    {
+      "file": "website/assets/social-preview.svg",
+      "bytes": 3555,
+      "sha256": "fb78d2f0c2d0e44a1e0f62b99819c199c206f86971810fbdb996f26f4ef8bf24"
+    },
+    {
+      "file": "website/assets/workflow-poster.png",
+      "bytes": 85523,
+      "sha256": "11e92797968940905497a865d1b75862744a0f2188e7186aef6b5d86bb3a580f",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "file": "website/assets/workflow.gif",
+      "bytes": 111247,
+      "sha256": "89582f17e3cb9fa10f8f5fc332d212e65803836a827a9bc47f0fde4208f796de",
+      "width": 1280,
+      "height": 720,
+      "frames": 3,
+      "durationSeconds": 10.0,
+      "frameDurationsMs": [
+        3500,
+        2500,
+        4000
+      ]
+    },
+    {
+      "file": "website/assets/workflow.mp4",
+      "bytes": 119761,
+      "sha256": "3cf3995f4f086acd184e386531fb6a1e2dbda045b285f00dc51fed72495ac030",
+      "width": 1280,
+      "height": 720,
+      "durationSeconds": 10.0,
+      "codec": "h264",
+      "pixelFormat": "yuv420p",
+      "hasAudio": false
+    }
+  ],
+  "localChecks": {
+    "htmlLocalResourcesExist": true,
+    "htmlIdsUniqueAndAnchorsValid": true,
+    "inlineOrExternalScriptsAdded": false,
+    "nativeVideoControlsWithoutAutoplay": true,
+    "svgSourcesParse": true,
+    "captureCommandsAllSucceeded": true,
+    "nativeRegistrationEnabledBothRuntimes": true,
+    "onlySelectedSkillInStoreAndNativeCaches": true,
+    "privatePathsAbsentFromPublishedText": true,
+    "documentedExportReproductionIdenticalHashes": true,
+    "xPostWeightedLengths": {
+      "posts.en.md": [
+        233,
+        189,
+        224,
+        225
+      ],
+      "posts.zh-CN.md": [
+        194,
+        153,
+        177,
+        196
+      ]
+    },
+    "documentationLinkCheck": {
+      "command": "npm run check:docs",
+      "markdownFiles": 20,
+      "passed": true
+    },
+    "changedMarkdownTargetCheck": {
+      "files": 7,
+      "localTargets": 71,
+      "passed": true
+    },
+    "typecheck": {
+      "command": "npm run typecheck",
+      "passed": true
+    },
+    "build": {
+      "command": "npm run build",
+      "passed": true
+    },
+    "independentReadOnlyReview": {
+      "actionableFindings": 0,
+      "scope": "marketing claims, native registration behavior, artifacts, privacy, sources and links"
+    },
+    "fullCliTestSuite": {
+      "run": true,
+      "command": "npm test",
+      "passed": true,
+      "tests": 948,
+      "pass": 948,
+      "fail": 0,
+      "skipped": 0,
+      "nodeVersion": "24.22.2",
+      "npmVersion": "12.2.2",
+      "verification": "PR preflight on 2026-11-21; telemetry disabled",
+      "verifiedCommit": "bbca63df3fdb7843bb6eac07122e1063b8883145"
+    },
+    "browser": {
+      "engine": "Chromium (isolated headless Google Chrome via Playwright)",
+      "version": "157.0.8103.51",
+      "playwrightVersion": "1.65.1",
+      "viewportWidths": [
+        320,
+        390,
+        768,
+        1440
+      ],
+      "horizontalOverflow": false,
+      "keyboardSkipLink": true,
+      "ctaAnchor": true,
+      "nativeFaqToggle": true,
+      "productionCspApplied": true,
+      "externalRequests": [],
+      "fullPlayback": {
+        "ended": true,
+        "currentTime": 10,
+        "duration": 10,
+        "error": null
+      },
+      "httpErrorsInFinalPlaybackCheck": [],
+      "consoleErrorsInFinalPlaybackCheck": [],
+      "metadataPreloadCancellation": {
+        "observed": true,
+        "error": "net::ERR_ABORTED",
+        "interpretation": "Chromium cancels the metadata preload after decoding metadata, then resumes a byte range when playback starts. A blanket zero-cancellation assertion in the initial harness failed; a targeted complete playback check verified all 10 seconds without HTTP or decoder errors.",
+        "preloadContentRange": "bytes 0-119760/119761",
+        "playbackContentRange": "bytes 98304-119760/119761"
+      },
+      "functionalChecksPassed": true
+    },
+    "dependencyInstall": {
+      "command": "npm ci --no-audit --no-fund",
+      "passed": true,
+      "npmVersion": "12.2.2"
+    }
+  },
+  "candidateTextSha256": {
+    "README.md": "d0699498398f7c6c89a473defb600fa6f0f46785266a294f72ea58a795778119",
+    "website/index.html": "8c89b4798c6c1d2b005b8dc6080e46a17ce0276bae7b77ac0869a5f648a1394c",
+    "website/styles.css": "89812d7444b39f7ff711571e61e5d696ac9747a76aba23f351040e73362165c3",
+    "website/_headers": "443fbddc168ff7a5075ae2e512332f3e628f156394392bcb0efb5be9a8418d00",
+    "docs/marketing/transcript.md": "cf688dc518097d63707ad5f336801613760d8d52ae135715e67e31bb6ef169a2"
+  },
+  "reviewFollowUp": {
+    "date": "2026-11-21",
+    "changes": [
+      "Added complete captured replay commands and stdout as Markdown and native HTML disclosure text.",
+      "Clarified native-manifest versus manifest-free monorepo member discovery."
+    ],
+    "validation": [
+      {
+        "command": "node --input-type=module -e 'import assert from \"node:assert/strict\"; import {readFileSync} from \"node:fs\"; const cap=JSON.parse(readFileSync(\"docs/marketing/capture.json\",\"utf8\")); const md=readFileSync(\"docs/marketing/transcript.md\",\"utf8\"); const html=readFileSync(\"website/index.html\",\"utf8\"); const escape=s=>s.replaceAll(\"&\",\"&amp;\").replaceAll(\"<\",\"&lt;\").replaceAll(\">\",\"&gt;\"); for(const label of [\"add\",\"link-claude\",\"status-codex\",\"status-claude\"]){const c=cap.captures.find(x=>x.label===label);const block=\"$ \"+c.command+\"\\n\"+c.stdout;assert(md.includes(block));assert(html.includes(escape(block)));} assert(html.includes('\"'\"'id=\"workflow-transcript\"'\"'\"')); assert(html.includes(\"<summary>Read the workflow transcript</summary>\")); assert(readFileSync(\"README.md\",\"utf8\").includes(\"[Text transcript](docs/marketing/transcript.md)\")); console.log(\"Transcript commands and stdout match the capture in Markdown and HTML.\");'",
+        "result": "passed",
+        "duration_ms": 69
+      },
+      {
+        "command": "npm run check:docs",
+        "result": "passed",
+        "duration_ms": 543
+      },
+      {
+        "command": "node scripts/run-tests.mjs test/sources.test.ts test/normalizer.test.ts",
+        "result": "passed",
+        "duration_ms": 2950
+      }
+    ],
+    "browser": {
+      "widths": [
+        {
+          "width": 320,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        },
+        {
+          "width": 390,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        },
+        {
+          "width": 768,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        },
+        {
+          "width": 1440,
+          "transcriptVisible": true,
+          "screenReaderText": true,
+          "commandsAndStdoutMatchCapture": true,
+          "keyboardFocusablePre": true,
+          "horizontalPageOverflow": false
+        }
+      ],
+      "consoleErrors": [],
+      "httpErrors": [],
+      "passed": true,
+      "durationMs": 5052
+    }
+  }
+}

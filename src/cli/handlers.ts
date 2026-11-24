@@ -21,6 +21,7 @@ import type { AdapterTarget } from "../adapters/index.ts";
 import { ui } from "../render/ui.ts";
 import { createProgress, formatUpdateSummary } from "../render/progress.ts";
 import {
+  marketplaceListCounts,
   renderAgentReport,
   renderMarketplaceList,
   renderUpdateReport,
@@ -48,6 +49,7 @@ import {
 } from "./index.ts";
 import { handleCorePluginVerb } from "./core-plugin-handlers.ts";
 import { commandOutcome, mergeCommandOutcomes, agentCommandOutcome, type CommandOutcome } from "../command-outcome.ts";
+import { recordTelemetryEvent } from "../telemetry.ts";
 
 import { withStoreMutex } from "../store-mutex.ts";
 import { discoverPendingMigrations } from "../migration-transaction.ts";
@@ -642,9 +644,16 @@ async function runMarketplace(args: string[]): Promise<CommandOutcome> {
       const { values } = parseVerb("marketplace", ["verbose", ...SCOPE], rest);
       const dir = resolveScopeDir(values);
       const groups = marketplaceList({ pluginsDir: dir });
-      // Verbose: drill each plugin down to its components (reuses `plugins list -v`).
-      const byName = values.verbose ? new Map(listPlugins(dir).map((p) => [p.name, p])) : undefined;
-      for (const line of renderMarketplaceList(groups, byName)) console.log(line);
+      const scope = typeof values.dir === "string" ? "directory" : values.global ? "global" : "project";
+      const scopeLabel = scope === "directory" ? `Directory ${dir}` : scope === "global" ? "Global" : "Project";
+      const verbose = Boolean(values.verbose);
+      const details = verbose ? new Map(listPlugins(dir).map((p) => [p.name, p])) : undefined;
+      for (const line of renderMarketplaceList(groups, { scope: scopeLabel, details })) console.log(line);
+      const { sources, installed, enabled, disabled } = marketplaceListCounts(groups);
+      recordTelemetryEvent("adg.plugins.marketplace.list", {
+        scope, verbose, "source.count": sources, "plugin.installed.count": installed,
+        "plugin.enabled.count": enabled, "plugin.disabled.count": disabled,
+      });
       return commandOutcome("success");
     }
     case "upgrade": {
