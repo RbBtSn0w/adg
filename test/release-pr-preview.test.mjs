@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import test from 'node:test';
 import {SpanKind, SpanStatusCode} from '@opentelemetry/api';
 import {parse} from 'yaml';
+import {observePreview} from '../.github/pr-preview/registry.mjs';
+import {createNpmObservationBudget} from '../.github/release-train/npm-view.mjs';
 
 const ci = parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
 const publish = parse(readFileSync('.github/workflows/pr-preview-publish.yml', 'utf8'));
@@ -29,10 +31,12 @@ if (args[0] === 'pkg') process.exit(13);
 if (args[0] === 'publish') {
   writeFileSync(process.env.CALLS + '-published', '');
 } else if (args[2] === 'dist-tags') {
-  console.log(process.env.NPM_LATEST_JSON);
+  const tags = JSON.parse(process.env.NPM_LATEST_JSON);
+  if (!Array.isArray(tags) && existsSync(process.env.CALLS + '-published')) tags.next = process.env.PREVIEW_VERSION;
+  console.log(JSON.stringify(tags));
   process.exit(Number(process.env.NPM_LATEST_STATUS || 0));
 } else if (args[0] === 'view' && existsSync(process.env.CALLS + '-published')) {
-  console.log(JSON.stringify(process.env.PREVIEW_INTEGRITY));
+  console.log(JSON.stringify(process.env.REGISTRY_INTEGRITY || process.env.PREVIEW_INTEGRITY));
 } else {
   console.log('{"error":{"code":"E404"}}');
   process.exit(1);
@@ -172,6 +176,23 @@ function seal(preview, baseline = '1.0.2', sealedVersion = version) {
   return 'sha512-' + createHash('sha512').update(archive).digest('base64');
 }
 
+test('the selected upload attempt must match the downloaded preview receipt', t => {
+  const preview = fixture(t);
+  seal(preview);
+  const sha256 = readFileSync(join(preview.cwd, 'SHA256SUMS'), 'utf8').split(' ', 1)[0];
+  writeFileSync(join(preview.cwd, 'receipt.json'), JSON.stringify({
+    pr: '200', head, runId: '11', attempt: '1', name: '@rbbtsn0w/adg', version, sha256,
+  }));
+  const verify = step(publish.jobs.publish, 'verify');
+  const expected = {SOURCE_RUN_ID: '11', SOURCE_ATTEMPT: '1'};
+  const mismatched = preview.run(verify, {...expected, SOURCE_ATTEMPT: '2'});
+  assert.notEqual(mismatched.status, 0);
+  assert.match(mismatched.stderr, /Preview receipt does not match the selected archive/);
+  assert.deepEqual(preview.calls(), []);
+  const matched = preview.run(verify, expected);
+  assert.equal(matched.status, 0, matched.stderr);
+});
+
 test('the actual publish workflow refuses an artifact without a build baseline', t => {
   const preview = fixture(t);
   seal(preview, '');
@@ -207,8 +228,53 @@ for (const [id, registry] of [['npm', 'https://registry.npmjs.org'], ['mirror', 
     assert.equal(preview.calls().some(args => args[0] === 'publish'), false);
     const fresh = preview.run(command, env);
     assert.equal(fresh.status, 0, fresh.stderr);
+    const outputs = readFileSync(preview.env.GITHUB_OUTPUT, 'utf8');
+    assert.match(outputs, /^accepted=true$/m);
+    assert.match(outputs, /^available=true$/m);
+    assert.match(outputs, /^next=true$/m);
     assert.deepEqual(preview.calls().filter(args => args[0] === 'publish'), [
-      ['publish', './adg-pr-preview.tgz', '--ignore-scripts', '--access', 'public', '--tag', 'next', '--registry', registry],
+      ['publish', realpathSync(join(preview.cwd, 'adg-pr-preview.tgz')), '--ignore-scripts', '--access', 'public', '--tag', 'next', '--registry', registry],
     ]);
   });
 }
+
+function observationBudget(timeoutMs = 10) {
+  let tick = 0;
+  return createNpmObservationBudget({timeoutMs, intervalMs: 1, now: () => tick, sleep: ms => { tick += ms; }});
+}
+
+test('registry verification waits through delayed package and tag visibility', async () => {
+  let integrityReads = 0;
+  let tagReads = 0;
+  const result = await observePreview({
+    version, budget: observationBudget(),
+    readIntegrity: () => ++integrityReads >= 7 ? true : null,
+    readNext: () => ++tagReads === 2 ? version : null,
+    waitForNext: true,
+  });
+  assert.deepEqual(result, {available: true, next: true, status: 'verified'});
+  assert.equal(integrityReads, 7);
+  assert.equal(tagReads, 2);
+});
+
+test('registry verification preserves matching bytes when the tag has not converged', async () => {
+  const result = await observePreview({
+    version, budget: observationBudget(3), readIntegrity: () => true,
+    readNext: () => '1.0.4-dev.pr201.c6ce45e', waitForNext: true,
+  });
+  assert.deepEqual(result, {available: true, next: false, status: 'pending'});
+});
+
+test('a conflicting package already in the registry blocks the actual publish script', t => {
+  const preview = fixture(t);
+  const integrity = seal(preview);
+  const verified = preview.run(step(publish.jobs.publish, 'verify'));
+  assert.equal(verified.status, 0, verified.stderr);
+  writeFileSync(preview.env.CALLS + '-published', '');
+  const result = preview.run(step(publish.jobs.publish, 'npm'), {
+    PREVIEW_VERSION: version, PREVIEW_INTEGRITY: integrity, REGISTRY_INTEGRITY: 'sha512-conflict',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /existing version differs from sealed original bytes/);
+  assert.equal(preview.calls().some(args => args[0] === 'publish'), false);
+});

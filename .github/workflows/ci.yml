@@ -165,6 +165,14 @@ jobs:
           npm run test:package -- "$preview/adg-pr-preview.tgz"
           (cd "$preview" && shasum -a 256 -c SHA256SUMS)
           printf '%s\n' "$PR_HEAD" > "$preview/commit.txt"
+          (cd "$preview" && node -e '
+            const [pr, head, runId, attempt] = process.argv.slice(1);
+            const fs = require("node:fs");
+            const receipt = { pr, head, runId, attempt, name: "@rbbtsn0w/adg",
+              version: fs.readFileSync("version.txt", "utf8").trim(),
+              sha256: fs.readFileSync("SHA256SUMS", "utf8").split(" ")[0] };
+            fs.writeFileSync("receipt.json", JSON.stringify(receipt) + "\n");
+          ' "$PR_NUMBER" "$PR_HEAD" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")
       - name: Upload verified preview
         id: preview
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -178,6 +186,7 @@ jobs:
         env:
           ARTIFACT_NAME: adg-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-attempt-${{ github.run_attempt }}
           ARTIFACT_URL: ${{ steps.preview.outputs.artifact-url }}
+          ARTIFACT_ID: ${{ steps.preview.outputs.artifact-id }}
         run: |
           preview="$RUNNER_TEMP/pr-preview"
           # shellcheck disable=SC2016
@@ -185,13 +194,15 @@ jobs:
             printf '### PR dev preview\n\n'
             commit="$(cat "$preview/commit.txt")"
             printf 'Version `%s` · Commit [`%s`](%s/%s/commit/%s)\n\n' \
-              "$(cat "$preview/version.txt")" "${commit:0:12}" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$commit"
+              "$(cat "$preview/version.txt")" "$commit" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$commit"
             if [ -f "$preview/stable-baseline.txt" ]; then
               printf 'npm latest at build time: `%s`\n\n' "$(cat "$preview/stable-baseline.txt")"
             else
               printf 'Artifact only. npm latest could not be verified. Rerun PR CI before publishing.\n\n'
             fi
             printf '[Download the preview ZIP](%s) (available for 14 days). Extract it and open a terminal in the extracted folder.\n\n' "$ARTIFACT_URL"
+            printf 'Run `%s` · packaging attempt `%s` · artifact `%s`\n\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$ARTIFACT_ID"
+            printf '`shasum -a 256 -c SHA256SUMS` verifies the archive before use.\n\n'
             printf '#### Run without installing\n\n'
             printf '```bash\nnpm exec --yes --package=./adg-pr-preview.tgz -- adg --version\n```\n\n'
             printf 'Replace `--version` with the `adg` arguments you want to test.\n\n'
@@ -218,6 +229,9 @@ jobs:
     needs: pr-preview
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    concurrency:
+      group: adg-preview-card-${{ github.event.pull_request.number }}
+      queue: max
     permissions:
       pull-requests: write
     steps:
@@ -239,12 +253,22 @@ jobs:
               comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
 
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
-            if (pr.state !== 'open' || pr.head.sha !== context.payload.pull_request.head.sha) {
+            if (pr.state !== 'open' || pr.base.ref !== 'main' ||
+                pr.head.sha !== context.payload.pull_request.head.sha ||
+                pr.head.repo?.full_name?.toLowerCase() !== (owner + '/' + repo).toLowerCase()) {
               core.notice('The PR changed while the preview was building.');
               return;
             }
 
+            const head = pr.head.sha;
+            if (existing?.body.includes('<!-- verified-registry-preview:' + head + ' -->') ||
+                (existing?.body.includes('/commit/' + head + ')') &&
+                 existing.body.includes('PR Dev Preview Released'))) {
+              core.notice('The current head already has a verified registry card.');
+              return;
+            }
             const body = marker + '\n' + panel;
+            if (existing?.body === body) return;
             if (existing) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             } else {
