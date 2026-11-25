@@ -111,17 +111,30 @@ jobs:
     needs: test
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: preview-source
     outputs:
       panel: ${{ steps.summary.outputs.panel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: preview-source
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: preview-tools
+          sparse-checkout: |
+            .github/pr-preview
+            .github/release-train
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.15.0
           cache: 'npm'
+          cache-dependency-path: preview-source/package-lock.json
       - name: Use npm 12
         run: |
           npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
@@ -136,23 +149,18 @@ jobs:
         run: |
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ && "$PR_HEAD" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$PR_HEAD"
-          base_version="$(node -p 'require("./package.json").version.split(/[-+]/, 1)[0]')"
-          [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          short_sha="${PR_HEAD:0:7}"
-          # SemVer forbids leading zeroes in numeric prerelease identifiers.
-          if [[ "$short_sha" =~ ^0[0-9]{6}$ ]]; then short_sha="g$short_sha"; fi
-          version="${base_version}-dev.pr${PR_NUMBER}.${short_sha}"
-          npm pkg set "version=$version"
-
           preview="$RUNNER_TEMP/pr-preview"
           mkdir "$preview"
+          tools="$GITHUB_WORKSPACE/preview-tools/.github"
+          node "$tools/pr-preview/version.mjs" prepare "$(node -p 'require("./package.json").version')" \
+            "$PR_NUMBER" "$PR_HEAD" "$preview"
+          npm pkg set "version=$(cat "$preview/version.txt")"
           npm pack --ignore-scripts --json --pack-destination "$preview" > "$RUNNER_TEMP/pr-preview-pack.json"
-          node .github/release-train/npm-pack.mjs "$RUNNER_TEMP/pr-preview-pack.json" package.json "$preview/adg-pr-preview.tgz"
+          node "$tools/release-train/npm-pack.mjs" "$RUNNER_TEMP/pr-preview-pack.json" package.json "$preview/adg-pr-preview.tgz"
           (cd "$preview" && shasum -a 256 adg-pr-preview.tgz > SHA256SUMS)
           npm run test:package -- "$preview/adg-pr-preview.tgz"
           (cd "$preview" && shasum -a 256 -c SHA256SUMS)
           printf '%s\n' "$PR_HEAD" > "$preview/commit.txt"
-          printf '%s\n' "$version" > "$preview/version.txt"
       - name: Upload verified preview
         id: preview
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -174,6 +182,11 @@ jobs:
             commit="$(cat "$preview/commit.txt")"
             printf 'Version `%s` · Commit [`%s`](%s/%s/commit/%s)\n\n' \
               "$(cat "$preview/version.txt")" "${commit:0:12}" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$commit"
+            if [ -f "$preview/stable-baseline.txt" ]; then
+              printf 'npm latest at build time: `%s`\n\n' "$(cat "$preview/stable-baseline.txt")"
+            else
+              printf 'Artifact only. npm latest could not be verified. Rerun PR CI before publishing.\n\n'
+            fi
             printf '[Download the preview ZIP](%s) (available for 14 days). Extract it and open a terminal in the extracted folder.\n\n' "$ARTIFACT_URL"
             printf '#### Run without installing\n\n'
             printf '```bash\nnpm exec --yes --package=./adg-pr-preview.tgz -- adg --version\n```\n\n'
