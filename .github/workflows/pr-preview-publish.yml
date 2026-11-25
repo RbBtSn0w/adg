@@ -68,24 +68,30 @@ jobs:
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
               owner, repo, run_id: run.id, filter: 'all',
             });
-            const [preview, duplicate] = jobs.filter(job =>
-              job.name === 'PR dev preview' && job.run_id === run.id &&
-              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt)
-              .sort((a, b) => b.run_attempt - a.run_attempt);
-            if (preview?.conclusion !== 'success' || duplicate?.run_attempt === preview.run_attempt ||
-                !preview.steps?.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success')) {
-              throw new Error('The latest preview job did not upload a verified artifact.');
-            }
-            const name = `adg-pr-${number}-${run.head_sha}-attempt-${preview.run_attempt}`;
+            const previewJobs = jobs.filter(job =>
+              job.name === 'PR dev preview' && job.run_id === run.id && job.conclusion === 'success' &&
+              Number.isSafeInteger(job.run_attempt) && job.run_attempt > 0 && job.run_attempt <= run.run_attempt &&
+              job.steps?.some(step => step.name === 'Upload verified preview' && step.conclusion === 'success'));
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-              owner, repo, run_id: run.id, name,
+              owner, repo, run_id: run.id,
             });
-            const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
-            if (matches.length !== 1) throw new Error('The verified PR preview artifact is unavailable.');
-            core.setOutput('number', number);
-            core.setOutput('head', run.head_sha);
-            core.setOutput('artifact', matches[0].id);
-            core.setOutput('attempt', preview.run_attempt);
+            const attempts = [...new Set(previewJobs.map(job => job.run_attempt))].sort((a, b) => b - a);
+            // A downstream-only rerun can copy a successful packaging record without uploading anything.
+            for (const attempt of attempts) {
+              const name = `adg-pr-${number}-${run.head_sha}-attempt-${attempt}`;
+              const matches = artifacts.filter(artifact => artifact.name === name && artifact.expired === false);
+              if (matches.length === 0) continue;
+              if (matches.length !== 1 || !Number.isSafeInteger(matches[0].id) || matches[0].id <= 0 ||
+                  previewJobs.filter(job => job.run_attempt === attempt).length !== 1) {
+                throw new Error('The verified PR preview artifact is ambiguous.');
+              }
+              core.setOutput('number', number);
+              core.setOutput('head', run.head_sha);
+              core.setOutput('artifact', matches[0].id);
+              core.setOutput('attempt', attempt);
+              return;
+            }
+            throw new Error('The verified PR preview artifact is unavailable.');
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.source.outputs.artifact != ''
         with:
@@ -125,6 +131,8 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.source.outputs.number }}
           PR_HEAD: ${{ steps.source.outputs.head }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ATTEMPT: ${{ steps.source.outputs.attempt }}
         working-directory: ${{ runner.temp }}/npm-preview
         run: |
           test "$(cat commit.txt)" = "$PR_HEAD"
@@ -133,6 +141,18 @@ jobs:
           if [[ "$short_sha" =~ ^0[0-9]{6}$ ]]; then short_sha="g$short_sha"; fi
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev\.pr${PR_NUMBER}\.${short_sha}$ ]]
           test "$(shasum -a 256 adg-pr-preview.tgz)" = "$(cat SHA256SUMS)"
+          sha256="$(cut -d ' ' -f 1 SHA256SUMS)"
+          # Pre-receipt archives still carry the verified commit, version, and checksum files.
+          if [ -e receipt.json ]; then
+            node -e '
+              const [pr, head, runId, attempt, version, sha256] = process.argv.slice(1);
+              const receipt = JSON.parse(require("node:fs").readFileSync("receipt.json", "utf8"));
+              const expected = { pr, head, runId, attempt, name: "@rbbtsn0w/adg", version, sha256 };
+              if (Object.entries(expected).some(([key, value]) => receipt?.[key] !== value)) {
+                throw new Error("Preview receipt does not match the selected archive");
+              }
+            ' "$PR_NUMBER" "$PR_HEAD" "$SOURCE_RUN_ID" "$SOURCE_ATTEMPT" "$version" "$sha256"
+          fi
           tar -xOzf adg-pr-preview.tgz package/package.json | node -e '
             const { name, version, publishConfig } = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
             if (name !== "@rbbtsn0w/adg" || version !== process.argv[1] ||
@@ -144,7 +164,6 @@ jobs:
             guard "$version" stable-baseline.txt
 
           expected="sha512-$(openssl dgst -sha512 -binary adg-pr-preview.tgz | openssl base64 -A)"
-          sha256="$(cut -d ' ' -f 1 SHA256SUMS)"
           printf 'version=%s\nintegrity=%s\nsha256=%s\n' "$version" "$expected" "$sha256" >> "$GITHUB_OUTPUT"
 
           cat > "$RUNNER_TEMP/publish-preview.sh" <<'BASH'

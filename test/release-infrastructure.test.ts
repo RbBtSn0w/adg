@@ -154,7 +154,7 @@ test("PR preview announcements update one bot comment for the current head", asy
   }
 });
 
-test("the registry preview publisher uses the successful preview job's attempt after a comment-only rerun", async () => {
+test("the registry preview publisher selects an uploaded artifact after a comment-only rerun", async () => {
   const workflow = YAML.parse(readFileSync(".github/workflows/pr-preview-publish.yml", "utf8"));
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.equal(workflow.on.workflow_dispatch.inputs.source_run_id.required, true);
@@ -191,47 +191,59 @@ test("the registry preview publisher uses the successful preview job's attempt a
 
   const run = new Function("github", "context", "core", "process", `return (async () => {${sourceStep.with.script}\n})();`);
   const sha = "a".repeat(40);
-  const name = `adg-pr-198-${sha}-attempt-2`;
-  for (const stale of [false, true]) {
+  const artifact = (id: number, attempt: number, expired = false) =>
+    ({id, name: `adg-pr-198-${sha}-attempt-${attempt}`, expired});
+  const original = artifact(8, 1);
+  const rebuilt = artifact(7, 2);
+  for (const {artifacts, expected, stale, error} of [
+    {artifacts: [original], expected: {number: 198, head: sha, artifact: 8, attempt: 1}},
+    {artifacts: [original, rebuilt], expected: {number: 198, head: sha, artifact: 7, attempt: 2}},
+    {artifacts: [original, artifact(7, 2, true)], expected: {number: 198, head: sha, artifact: 8, attempt: 1}},
+    {artifacts: [original, rebuilt, artifact(9, 2)], error: /ambiguous/},
+    {artifacts: [artifact(8, 1, true), artifact(9, 3)], error: /unavailable/},
+    {artifacts: [original], stale: true, expected: {}},
+  ]) {
     const outputs: Record<string, string | number> = {};
     const github = {
-      paginate: async (method: unknown, options: { filter?: string; name?: string }) => {
+      paginate: async (method: unknown, options: { filter?: string }) => {
         if (method === github.rest.actions.listJobsForWorkflowRun) {
           assert.equal(options.filter, "all");
           return [
-            { name: "PR dev preview", run_id: 11, run_attempt: 1, conclusion: "failure" },
-            { name: "PR dev preview", run_id: 11, run_attempt: 2, conclusion: "success",
-              steps: [{ name: "Upload verified preview", conclusion: "success" }] },
-            { name: "Announce PR dev preview", run_id: 11, run_attempt: 3, conclusion: "success" },
+            ...[1, 2].map(run_attempt => ({name: "PR dev preview", run_id: 11, run_attempt, conclusion: "success",
+              steps: [{name: "Upload verified preview", conclusion: "success"}]})),
+            {name: "Announce PR dev preview", run_id: 11, run_attempt: 3, conclusion: "success"},
           ];
         }
-        assert.equal(options.name, name);
-        return [{ id: 7, name, expired: false }, { id: 8, name: name.replace(/2$/, "1"), expired: false }];
+        return artifacts;
       },
       rest: {
         actions: {
-          getWorkflowRun: async ({ run_id }: { run_id: number }) => {
+          getWorkflowRun: async ({run_id}: {run_id: number}) => {
             assert.equal(run_id, 11);
-            return { data: {
+            return {data: {
               id: 11, path: ".github/workflows/ci.yml", event: "pull_request", conclusion: "success", run_attempt: 3,
-              repository: { full_name: "example/adg" },
-              head_sha: sha, head_repository: { id: 13, full_name: "example/adg" },
-              pull_requests: [{ number: 198, head: { sha } }],
-            } };
+              repository: {full_name: "example/adg"},
+              head_sha: sha, head_repository: {id: 13, full_name: "example/adg"},
+              pull_requests: [{number: 198, head: {sha}}],
+            }};
           },
           listJobsForWorkflowRun() {},
           listWorkflowRunArtifacts() {},
         },
-        pulls: { get: async () => ({ data: {
-          state: "open", base: { ref: "main", repo: { id: 13 } },
-          head: { sha: stale ? "b".repeat(40) : sha, repo: { id: 13 } },
-        } }) },
+        pulls: {get: async () => ({data: {
+          state: "open", base: {ref: "main", repo: {id: 13}},
+          head: {sha: stale ? "b".repeat(40) : sha, repo: {id: 13}},
+        }})},
       },
     };
-    await run(github, { repo: { owner: "example", repo: "adg" } },
-      { notice() {}, setOutput(key: string, value: string | number) { outputs[key] = value; } },
-      { env: { SOURCE_RUN_ID: "11" } });
-    assert.deepEqual(outputs, stale ? {} : { number: 198, head: sha, artifact: 7, attempt: 2 });
+    const resolve = () => run(github, {repo: {owner: "example", repo: "adg"}},
+      {notice() {}, setOutput(key: string, value: string | number) { outputs[key] = value; }},
+      {env: {SOURCE_RUN_ID: "11"}});
+    if (error) await assert.rejects(resolve, error);
+    else {
+      await resolve();
+      assert.deepEqual(outputs, expected);
+    }
   }
 });
 

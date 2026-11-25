@@ -176,6 +176,23 @@ function seal(preview, baseline = '1.0.2', sealedVersion = version) {
   return 'sha512-' + createHash('sha512').update(archive).digest('base64');
 }
 
+test('the selected upload attempt must match the downloaded preview receipt', t => {
+  const preview = fixture(t);
+  seal(preview);
+  const sha256 = readFileSync(join(preview.cwd, 'SHA256SUMS'), 'utf8').split(' ', 1)[0];
+  writeFileSync(join(preview.cwd, 'receipt.json'), JSON.stringify({
+    pr: '200', head, runId: '11', attempt: '1', name: '@rbbtsn0w/adg', version, sha256,
+  }));
+  const verify = step(publish.jobs.publish, 'verify');
+  const expected = {SOURCE_RUN_ID: '11', SOURCE_ATTEMPT: '1'};
+  const mismatched = preview.run(verify, {...expected, SOURCE_ATTEMPT: '2'});
+  assert.notEqual(mismatched.status, 0);
+  assert.match(mismatched.stderr, /Preview receipt does not match the selected archive/);
+  assert.deepEqual(preview.calls(), []);
+  const matched = preview.run(verify, expected);
+  assert.equal(matched.status, 0, matched.stderr);
+});
+
 test('the actual publish workflow refuses an artifact without a build baseline', t => {
   const preview = fixture(t);
   seal(preview, '');

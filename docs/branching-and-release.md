@@ -27,8 +27,9 @@ with zero gets a leading `g` so the version remains valid SemVer. Match the full
 SHA against the PR's current head before testing.
 When the registry baseline is unavailable, CI provides an artifact-only build
 using the manifest version. Rerun PR CI to obtain a publishable archive.
-Artifacts expire after 14 days. A CI rerun creates a new artifact for that run
-attempt.
+Artifacts expire after 14 days. Rerunning the packaging job uploads a new
+artifact for that attempt. After a comment-only rerun, the publisher selects the
+latest unexpired artifact with a successful matching packaging attempt.
 
 To publish an open same-repository PR's verified archive to npm and GitHub
 Packages under the `next` dist-tag, manually run **Publish PR dev preview** on
