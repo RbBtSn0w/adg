@@ -13,7 +13,7 @@ import {
 } from "../src/self-update.ts";
 import { checkForUpdate, formatUpdateNotice } from "../src/update-check.ts";
 import { ui } from "../src/render/ui.ts";
-import { TARGET_ALIASES, TOP_USAGE, fail } from "../src/cli/index.ts";
+import { PLUGIN_ALIASES, PLUGIN_COMMANDS, TARGET_ALIASES, TOP_USAGE, fail, wantsHelp } from "../src/cli/index.ts";
 import { ADAPTER_TARGETS } from "../src/adapters/index.ts";
 import { runPlugins } from "../src/cli/handlers.ts";
 import { getTracer, shutdownTelemetry, sanitizeArgs } from "../src/telemetry.ts";
@@ -56,6 +56,40 @@ export function telemetryCommandTarget(target: string | undefined): string {
   return canonical !== undefined && (ADAPTER_TARGETS as readonly string[]).includes(canonical)
     ? canonical
     : "none";
+}
+
+// The skills subcommands are dispatched in the vendored CLI subprocess.
+const SKILLS_OPERATIONS = new Set([
+  "find", "search", "f", "s", "init", "experimental_install", "i", "install", "a", "add", "use",
+  "remove", "rm", "r", "sync", "experimental_sync", "list", "ls", "check", "update", "upgrade",
+]);
+
+export function telemetryCountsAsOperation([domain, verb, ...rest]: string[]): boolean {
+  const args = verb === undefined ? rest : [verb, ...rest];
+  if (wantsHelp(args)) return false;
+
+  switch (domain) {
+    case "plugins":
+    case "plugin": {
+      if (!verb) return false;
+      const command = PLUGIN_ALIASES[verb] ?? verb;
+      const subcommand = rest[0] ?? "";
+      if (command === "marketplace") return ["list", "upgrade", "remove", "rm", "sync"].includes(subcommand);
+      if (command === "cache") return ["status", "prune", "clean", "restore"].includes(subcommand);
+      return Object.hasOwn(PLUGIN_COMMANDS, command);
+    }
+    case "skills":
+    case "skill":
+      return verb !== undefined && SKILLS_OPERATIONS.has(verb);
+    case "update":
+      try {
+        return !parseSelfUpdateArgs(args).dryRun;
+      } catch {
+        return false;
+      }
+    default:
+      return false;
+  }
 }
 
 function runSkills(verb: string | undefined, rest: string[]): CommandOutcome {
@@ -166,6 +200,7 @@ async function main(argv: string[]): Promise<number | void> {
       span.setAttribute("process.executable.name", "adg");
       span.setAttribute("process.pid", process.pid);
       span.setAttribute("process.command_args", sanitizeArgs(["adg", ...argv]));
+      span.setAttribute("adg.command.is_operation", telemetryCountsAsOperation(argv));
       const scope = rest.includes("--global") && rest.includes("--project")
         ? "both"
         : rest.includes("--global")
