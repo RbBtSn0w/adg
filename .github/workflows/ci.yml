@@ -231,6 +231,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: adg-preview-card-${{ github.event.pull_request.number }}
+      queue: max
     permissions:
       pull-requests: write
     steps:

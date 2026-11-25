@@ -111,6 +111,19 @@ test("PR previews package the exact head after CI and expose only a verification
   assert.match(panel, /GITHUB_STEP_SUMMARY/);
 });
 
+test("both preview card writers queue in the same per-PR group without replacing pending jobs", () => {
+  const ci = YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8"));
+  const publisher = YAML.parse(readFileSync(".github/workflows/pr-preview-publish.yml", "utf8"));
+  assert.deepEqual(ci.jobs["pr-preview-comment"].concurrency, {
+    group: "adg-preview-card-${{ github.event.pull_request.number }}",
+    queue: "max",
+  });
+  assert.deepEqual(publisher.jobs.announce.concurrency, {
+    group: "adg-preview-card-${{ needs.publish.outputs.number }}",
+    queue: "max",
+  });
+});
+
 test("PR preview announcements update one bot comment for the current head", async () => {
   const workflow = YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8"));
   const announcement = workflow.jobs["pr-preview-comment"];

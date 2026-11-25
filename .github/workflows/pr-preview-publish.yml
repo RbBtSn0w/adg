@@ -260,6 +260,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: adg-preview-card-${{ needs.publish.outputs.number }}
+      queue: max
     permissions:
       pull-requests: write
     steps:
