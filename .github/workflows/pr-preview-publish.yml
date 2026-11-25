@@ -117,7 +117,7 @@ jobs:
         if: steps.source.outputs.artifact != ''
         working-directory: preview-tools
         run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: steps.source.outputs.artifact != ''
         with:
           artifact-ids: ${{ steps.source.outputs.artifact }}
