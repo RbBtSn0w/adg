@@ -18,19 +18,28 @@ can use the panel from the PR's checks.
 The panel links the zip download and shows its version and PR head commit.
 After extraction, run it with `npm exec` or install it with `npm install -g`.
 The expandable GitHub CLI section includes the exact head SHA and archive
-checksum. Builds use
-`<base>-dev.pr<number>.<7-character-sha>`. A seven-character prefix consisting
-of digits and starting with zero gets a leading `g` so the version remains
-valid SemVer. Match the full SHA against the PR's current head before testing.
+checksum. Builds use `<base>-dev.pr<number>.<7-character-sha>`, where the base
+is the higher of the PR manifest's core version and the next patch after the
+stable npmjs `latest` version. The build records that stable version in the
+archive and panel. A seven-character prefix consisting of digits and starting
+with zero gets a leading `g` so the version remains valid SemVer. Match the full
+SHA against the PR's current head before testing.
+When the registry baseline is unavailable, CI provides an artifact-only build
+using the manifest version. Rerun PR CI to obtain a publishable archive.
 Artifacts expire after 14 days. A CI rerun creates a new artifact for that run
 attempt.
 
 To publish an open same-repository PR's verified archive to npm and GitHub
 Packages under the `next` dist-tag, manually run **Publish PR dev preview** on
 `main` with the successful CI run ID and `RELEASE_ENABLED=true`. The workflow
-checks that the run and artifact belong to the PR's current head. PR CI builds
-and verifies the artifact independently of this switch. The bot lists each
-registry that confirms the archive's integrity. When npm confirms the version,
+checks that the run and artifact belong to the PR's current head and that the
+archive records a valid build baseline. It rereads npmjs `latest` before each
+registry publication and requires that the preview be strictly newer. If the
+stable version has caught up or the registry lookup fails, rebuild with the
+current PR CI workflow before publishing. PR CI builds and verifies the
+artifact independently of the release switch. The bot lists each registry
+that confirms the archive's integrity.
+When npm confirms the version,
 the Conversation panel includes
 `npx @rbbtsn0w/adg@<version>`,
 `adg update --tag <version>`, and `npm install -g @rbbtsn0w/adg@<version>`.

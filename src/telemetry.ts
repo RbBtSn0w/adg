@@ -97,9 +97,13 @@ export function withoutAmbientOtlpHeaders<T>(operation: () => T): T {
 }
 
 export function defaultTelemetryConfig(env: NodeJS.ProcessEnv, version: string = serviceVersion()): TelemetryConfig {
+  return telemetryConfigForChannel(env, releaseChannel(version));
+}
+
+function telemetryConfigForChannel(env: NodeJS.ProcessEnv, channel: ReturnType<typeof releaseChannel>): TelemetryConfig {
   const explicitTraceEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
   const explicitBaseEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT;
-  const defaultEndpoint = releaseChannel(version) === "development" ? DEVELOPMENT_TRACE_ENDPOINT : DEFAULT_TRACE_ENDPOINT;
+  const defaultEndpoint = channel === "development" ? DEVELOPMENT_TRACE_ENDPOINT : DEFAULT_TRACE_ENDPOINT;
   const traceEndpoint =
     explicitTraceEndpoint ??
     (explicitBaseEndpoint ? normalizeTraceEndpoint(explicitBaseEndpoint) : defaultEndpoint);
@@ -122,10 +126,6 @@ export function defaultTelemetryConfig(env: NodeJS.ProcessEnv, version: string =
   };
 }
 
-function isEnabled(): boolean {
-  return defaultTelemetryConfig(process.env).enabled;
-}
-
 let provider: NodeTracerProvider | null = null;
 let activeTracer: Tracer | null = null;
 
@@ -139,13 +139,13 @@ function serviceVersion(): string {
   }
 }
 
-export function getTracer(): Tracer {
-  if (!isEnabled()) {
+export function getTracer(channel = releaseChannel(serviceVersion())): Tracer {
+  const config = telemetryConfigForChannel(process.env, channel);
+  if (!config.enabled) {
     return opentelemetry.trace.getTracer("adg-noop");
   }
 
   if (!activeTracer) {
-    const config = defaultTelemetryConfig(process.env);
     const createExporter = () => new OTLPTraceExporter({
       url: config.traceEndpoint,
       headers: config.headers,

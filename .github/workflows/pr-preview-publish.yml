@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      contents: read
       pull-requests: read
       packages: write
       id-token: write
@@ -80,6 +81,16 @@ jobs:
             core.setOutput('number', number);
             core.setOutput('head', run.head_sha);
             core.setOutput('artifact', matches[0].id);
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.source.outputs.artifact != ''
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: preview-tools
+          sparse-checkout: |
+            .github/pr-preview
+            .github/release-train
+            src
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.source.outputs.artifact != ''
         with:
@@ -91,6 +102,10 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
           echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Install preview tooling dependencies
+        if: steps.source.outputs.artifact != ''
+        working-directory: preview-tools
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         if: steps.source.outputs.artifact != ''
         with:
@@ -120,6 +135,8 @@ jobs:
               throw new Error("Unexpected npm preview package identity or publish configuration");
             }
           ' "$version"
+          node "$GITHUB_WORKSPACE/preview-tools/.github/pr-preview/version.mjs" \
+            guard "$version" stable-baseline.txt
 
           expected="sha512-$(openssl dgst -sha512 -binary adg-pr-preview.tgz | openssl base64 -A)"
           printf 'version=%s\nintegrity=%s\n' "$version" "$expected" >> "$GITHUB_OUTPUT"
@@ -158,6 +175,8 @@ jobs:
               echo "::notice::The PR head changed before publication."
               exit 0
             fi
+            node "$GITHUB_WORKSPACE/preview-tools/.github/pr-preview/version.mjs" \
+              guard "$PREVIEW_VERSION" stable-baseline.txt
             publish_status=0
             npm publish ./adg-pr-preview.tgz --ignore-scripts --access public --tag next --registry "$registry" || publish_status=$?
             for attempt in 1 2 3 4 5; do
