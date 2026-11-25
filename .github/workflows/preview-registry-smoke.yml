@@ -1,0 +1,97 @@
+name: Registry preview acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  install:
+    name: Install both next tags
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for the manual preview publication
+        if: github.run_attempt == 1
+        run: echo 'Rerun this job after Publish PR dev preview completes.'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: github.run_attempt > 1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: github.run_attempt > 1
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+      - name: Check tags and run each installed CLI
+        if: github.run_attempt > 1
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          DISABLE_TELEMETRY: '1'
+        run: |
+          set -euo pipefail
+          repo="$PWD"
+          work="$(mktemp -d)"
+          package='@rbbtsn0w/adg'
+          short="${PR_HEAD:0:7}"
+          if [[ "$short" =~ ^0[0-9]{6}$ ]]; then short="g$short"; fi
+          suffix="-dev.pr${PR_NUMBER}.${short}"
+
+          verify() (
+            local name="$1" registry="$2" config="$work/$1/npmrc"
+            local directory="$work/$name"
+            mkdir -p "$directory/install"
+            cd "$directory"
+            touch "$config"
+            export NPM_CONFIG_USERCONFIG="$config"
+            export npm_config_cache="$directory/cache"
+            if [[ "$name" == github ]]; then
+              # shellcheck disable=SC2016
+              printf '%s\n' '@rbbtsn0w:registry=https://npm.pkg.github.com' \
+                '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$config"
+            else
+              unset NODE_AUTH_TOKEN
+            fi
+
+            npm view "$package" dist-tags --json --prefer-online --registry "$registry" > tags.json
+            latest="$(jq -er 'if type == "array" and length == 1 then .[0] else . end | .latest' tags.json)"
+            next="$(jq -er 'if type == "array" and length == 1 then .[0] else . end | .next' tags.json)"
+            [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$next" == *"$suffix" ]]
+            node --experimental-strip-types --input-type=module - "$repo" "$next" "$latest" <<'JS'
+          import {pathToFileURL} from 'node:url';
+          const [repo, next, latest] = process.argv.slice(2);
+          const {compareVersions} = await import(pathToFileURL(repo + '/src/semver.ts'));
+          if (compareVersions(next, latest) <= 0) throw Error(`${next} is not above ${latest}`);
+          JS
+
+            # Only the GitHub-scoped package uses the mirror; dependencies use public npm.
+            npm install --prefix "$directory/install" "$package@next" \
+              --ignore-scripts --no-audit --no-fund --prefer-online --registry https://registry.npmjs.org
+            record="$(jq -ce --arg name "node_modules/$package" '.packages[$name]' install/package-lock.json)"
+            installed="$(XDG_STATE_HOME="$directory/state" XDG_CACHE_HOME="$directory/adg-cache" \
+              node "install/node_modules/$package/dist/bin/adg.js" --version)"
+            test "$installed" = "$next"
+            test "$(jq -r .version <<< "$record")" = "$next"
+            resolved="$(jq -er .resolved <<< "$record")"
+            [[ "$resolved" == "$registry/"* ]]
+            integrity="$(jq -er '.integrity | select(startswith("sha512-"))' <<< "$record")"
+            printf '%s\n' "$integrity" > integrity.txt
+            printf '%s\n' "$installed" > version.txt
+            # shellcheck disable=SC2016
+            printf '| %s | `%s` | `%s` | `%s` |\n' "$registry" "$latest" "$next" "$installed" |
+              tee -a "$GITHUB_STEP_SUMMARY"
+            printf '%s sha512 integrity %s\n' "$name" "$integrity"
+          )
+
+          printf '## PR preview registry acceptance\n\n| Registry | latest | next | adg --version |\n| --- | --- | --- | --- |\n' >> "$GITHUB_STEP_SUMMARY"
+          verify npm https://registry.npmjs.org
+          verify github https://npm.pkg.github.com
+          cmp "$work/npm/version.txt" "$work/github/version.txt"
+          cmp "$work/npm/integrity.txt" "$work/github/integrity.txt"
