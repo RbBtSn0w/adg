@@ -12,8 +12,9 @@ commit SHA exemptions are permitted.
 After the CI test matrix passes for a PR targeting `main`, the **PR dev
 preview** job adds a panel to the CI run summary. For same-repository PRs, the
 **Announce PR dev preview** job also posts or updates the panel in the PR's
-Conversation after checking that the preview matches the current head. Fork PRs
-can use the panel from the PR's checks.
+Conversation after checking that the preview matches the current head. A CI
+rerun for that head preserves an existing verified registry card. Fork PRs can
+use the panel from the PR's checks.
 
 The panel links the zip download and shows its version and PR head commit.
 After extraction, run it with `npm exec` or install it with `npm install -g`.
@@ -37,21 +38,24 @@ archive records a valid build baseline. It rereads npmjs `latest` before each
 registry publication and requires that the preview be strictly newer. If the
 stable version has caught up or the registry lookup fails, rebuild with the
 current PR CI workflow before publishing. PR CI builds and verifies the
-artifact independently of the release switch. The bot lists each registry
-that confirms the archive's integrity.
+artifact independently of the release switch. Publication records upload
+acceptance separately from package and tag read-back. The bot lists each registry
+that confirms the archive's integrity, and the card shows whether its shared
+`next` tag pointed to that version when checked.
 When npm confirms the version,
 the Conversation panel includes
 `npx @rbbtsn0w/adg@<version>`,
 `adg update --tag <version>`, and `npm install -g @rbbtsn0w/adg@<version>`.
 Use `adg update --dev` to follow the moving `next` tag and an exact version to
-test a particular PR revision. A GitHub Packages-only preview instead includes
-authenticated mirror commands.
+test a particular PR revision. For a GitHub Packages-only preview, the
+card's temporary npm config routes the `@rbbtsn0w` scope to GitHub Packages.
+Dependencies outside that scope use npmjs.
 
 On npmjs.com, add `pr-preview-publish.yml` as a GitHub Actions trusted publisher
 for `RbBtSn0w/adg` and allow direct `npm publish`. Keep the existing
 `release.yml` publisher for stable releases. The GitHub Packages mirror uses
 the workflow's `GITHUB_TOKEN` and needs write access to the package. After the
-preview workflow lands on `main), use a successful CI run for an open
+preview workflow lands on `main`, use a successful CI run for an open
 same-repository PR to verify both publishers through a manual dispatch.
 The Actions artifact and its verification commands remain available while the
 registry build is pending or if npm rejects publication.
