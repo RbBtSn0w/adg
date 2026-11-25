@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { skillsChildArgv, telemetryCommandTarget } from "../bin/adg.ts";
+import { skillsChildArgv, telemetryCommandTarget, telemetryCountsAsOperation } from "../bin/adg.ts";
 import { selfCliArgv } from "../vendor/skills/src/self-cli.ts";
 import { resolveSelfCliEntry } from "../vendor/skills/src/update.ts";
 
@@ -36,6 +36,33 @@ test("telemetryCommandTarget canonicalizes supported aliases", () => {
   assert.equal(telemetryCommandTarget("all"), "all");
   assert.equal(telemetryCommandTarget("unknown"), "none");
   assert.equal(telemetryCommandTarget(undefined), "none");
+});
+
+test("product activity counts actual commands, excluding help and previews", () => {
+  const operations = [
+    ["plugins", "list"],
+    ["plugin", "rm", "example"],
+    ["plugins", "marketplace", "list"],
+    ["plugins", "cache", "status"],
+    ["skills", "ls"],
+    ["skill", "use", "example"],
+    ["update", "--dev"],
+  ];
+  const nonOperations = [
+    ["plugins"],
+    ["plugins", "list", "--help"],
+    ["plugins", "unknown"],
+    ["plugins", "marketplace"],
+    ["plugins", "cache", "status", "-h"],
+    ["skills", "--version"],
+    ["skills", "update", "--help"],
+    ["skills", "unknown"],
+    ["update", "--dry-run"],
+    ["update", "--help"],
+    ["update", "--tag"],
+  ];
+  for (const args of operations) assert.equal(telemetryCountsAsOperation(args), true, args.join(" "));
+  for (const args of nonOperations) assert.equal(telemetryCountsAsOperation(args), false, args.join(" "));
 });
 
 test("selfCliArgv: forwards execArgv for the global-update invocation", () => {
