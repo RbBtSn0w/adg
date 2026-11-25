@@ -1,7 +1,9 @@
-import {spawnSync} from 'node:child_process';
 import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {SpanKind, SpanStatusCode} from '@opentelemetry/api';
+import {runSubprocessSync} from '../../src/subprocess.ts';
+import {getTracer, recordTelemetryEvent, shutdownTelemetry} from '../../src/telemetry.ts';
 import {parseNpmView} from '../release-train/npm-view.mjs';
 
 function stableVersion(value) {
@@ -23,7 +25,7 @@ function readStableLatest() {
   const directory = mkdtempSync(join(tmpdir(), 'adg-preview-latest-'));
   let result;
   try {
-    result = spawnSync('npm', [
+    result = runSubprocessSync('npm', [
       'view', '@rbbtsn0w/adg', 'dist-tags', '--json',
       '--registry', 'https://registry.npmjs.org', '--prefer-online',
       '--fetch-retries=1', '--fetch-timeout=8000',
@@ -34,11 +36,15 @@ function readStableLatest() {
   } finally {
     rmSync(directory, {recursive: true, force: true});
   }
-  if (result.error || result.status !== 0) throw new Error('Could not read npm latest');
+  if (result.error || result.status !== 0) {
+    recordTelemetryEvent('adg.pr_preview.baseline_lookup_failed', {'error.type': 'NpmLookupFailed'});
+    throw new Error('Could not read npm latest');
+  }
   try {
     const latest = parseNpmView(result.stdout)?.latest;
     return {latest, core: stableVersion(latest)};
   } catch (cause) {
+    recordTelemetryEvent('adg.pr_preview.baseline_lookup_failed', {'error.type': 'InvalidNpmLatest'});
     throw new Error('npm latest is missing or has an invalid version', {cause});
   }
 }
@@ -81,12 +87,26 @@ function guard(version, baselinePath) {
 }
 
 const [command, ...args] = process.argv.slice(2);
-try {
-  if (command === 'prepare' && args.length === 4) prepare(...args);
-  else if (command === 'guard' && args.length === 2) guard(...args);
-  else throw new Error('Invalid PR preview version command');
-} catch (error) {
-  const recovery = command === 'guard' ? '. Rerun PR CI with the current workflow to build a publishable preview.' : '';
-  console.error(`${error.message}${recovery}`);
-  process.exitCode = 1;
-}
+const executableName = 'adg-pr-preview-version';
+await getTracer('development').startActiveSpan(executableName, {
+  kind: SpanKind.INTERNAL,
+  attributes: {'process.executable.name': executableName, 'process.pid': process.pid},
+}, async span => {
+  let exitCode = 0;
+  try {
+    if (command === 'prepare' && args.length === 4) prepare(...args);
+    else if (command === 'guard' && args.length === 2) guard(...args);
+    else throw new Error('Invalid PR preview version command');
+  } catch (error) {
+    const recovery = command === 'guard' ? '. Rerun PR CI with the current workflow to build a publishable preview.' : '';
+    console.error(`${error.message}${recovery}`);
+    exitCode = 1;
+    process.exitCode = exitCode;
+    span.setAttribute('error.type', 'PreviewVersionError');
+    span.setStatus({code: SpanStatusCode.ERROR});
+  } finally {
+    span.setAttribute('process.exit.code', exitCode);
+    span.end();
+    await shutdownTelemetry();
+  }
+});

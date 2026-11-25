@@ -5,6 +5,7 @@ import {existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, w
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import test from 'node:test';
+import {SpanKind, SpanStatusCode} from '@opentelemetry/api';
 import {parse} from 'yaml';
 
 const ci = parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
@@ -96,6 +97,66 @@ for (const [label, env] of [
 }
 
 const version = '1.0.3-dev.pr200.c6ce45e';
+
+test('the preview CLI records privacy-safe npm caller spans for prepare and guard', t => {
+  const preview = fixture(t);
+  const bootstrap = join(preview.cwd, 'capture-spans.cjs');
+  const report = join(preview.cwd, 'spans.json');
+  writeFileSync(bootstrap, `
+const requireFromRepo = require('node:module').createRequire(${JSON.stringify(resolve('package.json'))});
+const {NodeTracerProvider} = requireFromRepo('@opentelemetry/sdk-trace-node');
+const {InMemorySpanExporter, SimpleSpanProcessor} = requireFromRepo('@opentelemetry/sdk-trace-base');
+const exporter = new InMemorySpanExporter();
+new NodeTracerProvider({spanProcessors: [new SimpleSpanProcessor(exporter)]}).register();
+process.once('beforeExit', () => {
+  const spans = exporter.getFinishedSpans().map(({name, kind, attributes, status, events}) =>
+    ({name, kind, attributes, status, events}));
+  require('node:fs').writeFileSync(${JSON.stringify(report)}, JSON.stringify(spans));
+});
+`);
+  const helper = resolve('.github/pr-preview/version.mjs');
+  const run = (args, env) => spawnSync(process.execPath, ['--require', bootstrap, helper, ...args], {
+    cwd: preview.cwd, env: {...preview.env, OTEL_SDK_DISABLED: 'true', ...env}, encoding: 'utf8',
+  });
+
+  const prepared = run(['prepare', '0.11.1', '200', head, preview.cwd]);
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const prepareSpans = JSON.parse(readFileSync(report, 'utf8'));
+  const success = prepareSpans.find(span => span.name === 'npm');
+  assert.ok(success, 'prepare must record an npm caller span');
+  assert.equal(success.kind, SpanKind.CLIENT);
+  assert.equal(success.attributes['process.executable.name'], 'npm');
+  assert.equal(success.attributes['process.exit.code'], 0);
+  assert.ok(success.attributes['process.pid'] > 0);
+
+  const args = ['guard', version, join(preview.cwd, 'stable-baseline.txt')];
+  const rejected = run(args, {NPM_LATEST_STATUS: '7'});
+  assert.equal(rejected.status, 1, rejected.stderr);
+  assert.match(rejected.stderr, /Could not read npm latest/);
+  const guardSpans = JSON.parse(readFileSync(report, 'utf8'));
+  const failure = guardSpans.find(span => span.name === 'npm');
+  assert.ok(failure, 'guard must record an npm caller span before failing');
+  assert.equal(failure.kind, SpanKind.CLIENT);
+  assert.equal(failure.attributes['process.exit.code'], 7);
+  assert.equal(failure.attributes['error.type'], 'EXIT_CODE_7');
+  assert.equal(failure.status.code, SpanStatusCode.ERROR);
+  assert.equal(guardSpans.find(span => span.kind === SpanKind.INTERNAL)?.attributes['process.exit.code'], 1);
+
+  const artifactOnly = join(preview.cwd, 'artifact-only');
+  mkdirSync(artifactOnly);
+  const fallback = run(['prepare', '0.11.1', '200', head, artifactOnly], {NPM_LATEST_JSON: '{}'});
+  assert.equal(fallback.status, 0, fallback.stderr);
+  assert.match(fallback.stderr, /available as an artifact only/);
+  const fallbackSpans = JSON.parse(readFileSync(report, 'utf8'));
+  const fallbackSpan = fallbackSpans.find(span => span.kind === SpanKind.INTERNAL);
+  assert.equal(fallbackSpan?.attributes['process.exit.code'], 0);
+  assert.equal(fallbackSpan?.events.find(event => event.name === 'adg.pr_preview.baseline_lookup_failed')?.attributes['error.type'], 'InvalidNpmLatest');
+
+  for (const spans of [prepareSpans, guardSpans, fallbackSpans]) {
+    assert.doesNotMatch(JSON.stringify(spans), /process\.executable\.path|adg-preview-latest-|stable-baseline\.txt|registry\.npmjs\.org/);
+  }
+});
+
 function seal(preview, baseline = '1.0.2', sealedVersion = version) {
   mkdirSync(join(preview.cwd, 'package'));
   writeFileSync(join(preview.cwd, 'package', 'package.json'), JSON.stringify({
