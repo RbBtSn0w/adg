@@ -256,34 +256,46 @@ jobs:
             const spec = '@rbbtsn0w/adg@' + VERSION;
             const root = 'https://github.com/' + owner + '/' + repo;
             const artifact = root + '/actions/runs/' + SOURCE_RUN_ID + '/artifacts/' + ARTIFACT_ID;
+            const npmAvailable = NPM_AVAILABLE === 'true';
             const rows = [];
-            if (NPM_AVAILABLE === 'true') rows.push('| **npm** | `' + spec + '` | `next` |');
+            if (npmAvailable) rows.push('| **npm** | `' + spec + '` | `next` |');
             if (MIRROR_AVAILABLE === 'true') rows.push('| **GitHub Packages** | `' + spec + '` | `next` |');
             if (rows.length === 0) return;
+
+            const tryCommand = npmAvailable
+              ? 'npx ' + spec + ' --version'
+              : 'npm exec --registry=https://npm.pkg.github.com --package=' + spec + ' -- adg --version';
+            const switchCommand = npmAvailable
+              ? 'adg update --tag ' + VERSION
+              : 'npm install -g --registry=https://npm.pkg.github.com ' + spec;
             const lines = [
               marker, '### 🚀 PR Dev Preview Released', '',
-              '| Registry | Package / Version | Dist-tag |', '| --- | --- | --- |',
-              ...rows, '',
-              'PR head commit [`' + PR_HEAD.slice(0, 7) + '`](' + root + '/commit/' + PR_HEAD + ')', '',
-              '#### Quick Verification Options', '',
+              '#### Try this PR', '',
             ];
-            if (NPM_AVAILABLE === 'true') {
+            if (!npmAvailable) {
               lines.push(
-                '**1. Run directly with npx**', '', '```bash', 'npx ' + spec + ' --version', '```', '',
-                '**2. Self-update via ADG CLI**', '', '```bash', 'adg update --tag ' + VERSION, '```', '',
-                'Use `adg update --dev` to follow the moving `next` channel.', '',
-                '**3. Global install with npm**', '', '```bash', 'npm install -g ' + spec, '```', '',
-              );
-            } else {
-              lines.push(
-                'Use a GitHub token with `read:packages` to [authenticate to the npm registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#authenticating-to-github-packages).', '',
-                '**Run without installing**', '', '```bash',
-                'npm exec --registry=https://npm.pkg.github.com --package=' + spec + ' -- adg --version', '```', '',
-                '**Install globally**', '', '```bash',
-                'npm install -g --registry=https://npm.pkg.github.com ' + spec, '```', '',
+                'GitHub Packages requires a token with `read:packages`. [Authenticate npm to GitHub Packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#authenticating-to-github-packages).', '',
               );
             }
-            lines.push('[Download the verified build archive](' + artifact + ') (available for 14 days).');
+            lines.push(
+              '```bash', tryCommand, '```', '',
+              '#### Switch your global ADG to this PR', '',
+              '```bash', switchCommand, '```', '',
+            );
+            if (npmAvailable) {
+              lines.push(
+                '<details>', '<summary>Install this version directly with npm</summary>', '',
+                '```bash', 'npm install -g ' + spec, '```', '', '</details>', '',
+              );
+            }
+            lines.push(
+              '#### Follow the repository preview channel', '',
+              '`adg update --dev` follows the shared `next` tag on your configured registry. A preview published from any PR can move that tag.', '',
+              '| Registry | Package / Version | Published tag |', '| --- | --- | --- |',
+              ...rows, '',
+              'PR head commit [`' + PR_HEAD.slice(0, 7) + '`](' + root + '/commit/' + PR_HEAD + ')', '',
+              '[Download the verified build archive](' + artifact + ') (available for 14 days).',
+            );
             const body = lines.join('\n');
             if (existing) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });

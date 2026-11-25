@@ -259,14 +259,34 @@ test("the released preview card lists and gives commands for available registrie
     assert.equal(cards.length, (npm || mirror) && !stale ? 1 : 0);
     if (cards.length === 0) continue;
     const card = cards[0]!;
-    assert.match(card, /PR Dev Preview Released/);
+    assert.ok(card.startsWith("<!-- adg-pr-dev-preview -->\n### 🚀 PR Dev Preview Released\n\n#### Try this PR\n"),
+      "the exact-version trial should be the first section");
+    const switchHeading = "#### Switch your global ADG to this PR";
+    const channelHeading = "#### Follow the repository preview channel";
+    const switchAt = card.indexOf(switchHeading);
+    const channelAt = card.indexOf(channelHeading);
+    const detailsAt = card.indexOf("| Registry |");
+    assert.ok(switchAt > 0 && channelAt > switchAt && detailsAt > channelAt,
+      "the switch and channel guidance should precede registry details");
+    const spec = `@rbbtsn0w/adg@${version}`;
+    const trial = npm
+      ? `npx ${spec} --version`
+      : `npm exec --registry=https://npm.pkg.github.com --package=${spec} -- adg --version`;
+    const switchCommand = npm
+      ? `adg update --tag ${version}`
+      : `npm install -g --registry=https://npm.pkg.github.com ${spec}`;
+    assert.ok(card.slice(0, switchAt).includes(trial));
+    assert.ok(card.slice(switchAt, channelAt).includes(switchCommand));
+    assert.doesNotMatch(card.slice(0, channelAt), /adg update --dev|@rbbtsn0w\/adg@next/);
+    assert.match(card.slice(channelAt, detailsAt), /`adg update --dev` follows the shared `next` tag/);
+    assert.match(card.slice(channelAt, detailsAt), /any PR/);
     assert.ok(card.includes("/commit/" + head));
     assert.ok(card.includes("/actions/runs/11/artifacts/7"));
     assert.equal(card.includes("| **npm** |"), npm);
     assert.equal(card.includes("| **GitHub Packages** |"), mirror);
     assert.equal(card.includes(`npx @rbbtsn0w/adg@${version} --version`), npm);
     assert.equal(card.includes(`adg update --tag ${version}`), npm);
-    assert.equal(card.includes("adg update --dev"), npm);
+    assert.equal(card.includes("`read:packages`"), !npm && mirror);
     assert.equal(card.includes(`npm install -g @rbbtsn0w/adg@${version}`), npm);
     assert.equal(card.includes(`npm install -g --registry=https://npm.pkg.github.com @rbbtsn0w/adg@${version}`), !npm && mirror);
   }
