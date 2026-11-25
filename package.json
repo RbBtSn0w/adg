@@ -70,7 +70,7 @@
     "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/node": "^26.6.5",
     "conventional-changelog-conventionalcommits": "^9.3.1",
-    "semantic-release": "^25.0.5",
+    "semantic-release": "^26.0.1",
     "typescript": "^7.0.2",
     "@commitlint/lint": "21.2.4",
     "@commitlint/config-conventional": "21.2.4",
