@@ -6,6 +6,8 @@ on:
   pull_request:
     types: [ opened, synchronize, reopened ]
     branches: [ main ]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -15,6 +17,23 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  release-toolchain:
+    name: Release toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/release-toolchain
+      - name: Verify locked launcher and release decisions
+        run: |
+          node scripts/check-release-toolchain.mjs
+          node --test test/release-toolchain.test.mjs
+          node scripts/smoke-release-toolchain.mjs
+
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}

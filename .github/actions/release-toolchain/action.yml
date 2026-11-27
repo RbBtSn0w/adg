@@ -1,0 +1,23 @@
+name: Install locked release toolchain
+description: Share the publisher Node, npm and frozen install with read-only CI.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .github/actions/release-toolchain/node-version
+        package-manager-cache: false
+    - name: Install exact release npm and frozen dependencies
+      shell: bash
+      run: |
+        node_version="$(cat .github/actions/release-toolchain/node-version)"
+        npm_version="$(cat .github/actions/release-toolchain/npm-version)"
+        [[ "$node_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+        [[ "$npm_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+        test "$(node --version)" = "v$node_version"
+        npm_prefix="$(mktemp -d "$RUNNER_TEMP/release-npm.XXXXXX")"
+        npm install --prefix "$npm_prefix" --ignore-scripts --no-audit --no-fund "npm@$npm_version"
+        export PATH="$npm_prefix/node_modules/.bin:$PATH"
+        test "$(npm --version)" = "$npm_version"
+        npm ci --include=dev --ignore-scripts --no-audit --no-fund
+        echo "$npm_prefix/node_modules/.bin" >> "$GITHUB_PATH"

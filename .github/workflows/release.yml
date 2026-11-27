@@ -66,19 +66,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up release-compatible Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '24'
-
-      - name: Use trusted-publishing npm
-        shell: bash
-        run: |
-          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
-          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
-
-      - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund --ignore-scripts
+      - uses: ./.github/actions/release-toolchain
+      - name: Verify locked release launcher
+        run: node scripts/check-release-toolchain.mjs
 
       - name: Check synchronized release implementation
         run: node .github/release-train/sync.mjs check --consumer .
@@ -186,19 +176,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up release-compatible Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '24'
-
-      - name: Use trusted-publishing npm
-        shell: bash
-        run: |
-          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
-          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
-
-      - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund --ignore-scripts
+      - uses: ./.github/actions/release-toolchain
 
       - name: Download this run's verified package
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -366,17 +344,7 @@ jobs:
         run: |
           test "$RELEASE_REF" = refs/heads/main
           test -n "$ORIGINAL_RUN" && test -n "$ORIGINAL_ARTIFACT" || { echo '::error::Copy both original IDs from Release outcome.'; exit 1; }
-      - name: Set up trusted publishing runtime
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '24'
-      - name: Use trusted-publishing npm
-        shell: bash
-        run: |
-          npm install --prefix "$RUNNER_TEMP/release-npm" --ignore-scripts --no-audit --no-fund npm@12.2.2
-          echo "$RUNNER_TEMP/release-npm/node_modules/.bin" >> "$GITHUB_PATH"
-      - name: Install recovery tooling without lifecycle scripts
-        run: npm ci --no-audit --no-fund --ignore-scripts
+      - uses: ./.github/actions/release-toolchain
       - name: Check synchronized release implementation
         run: node .github/release-train/sync.mjs check --consumer .
       - name: Prepare original sealed recovery once
