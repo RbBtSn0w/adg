@@ -33,9 +33,10 @@ export function annotateSubprocess(
   executableName: string,
   args: string[],
   result: SubprocessResult,
+  captureArgs = true,
 ): void {
   span.setAttribute("process.executable.name", executableName);
-  span.setAttribute("process.command_args", sanitizeArgs([executableName, ...args]));
+  if (captureArgs) span.setAttribute("process.command_args", sanitizeArgs([executableName, ...args]));
   if (result.pid !== undefined) span.setAttribute("process.pid", result.pid);
 
   if (result.status !== null) {
@@ -68,16 +69,19 @@ export function runSubprocessSync(
   command: string,
   args: string[],
   options: SpawnSyncOptionsWithStringEncoding,
+  telemetry?: { captureArgs?: boolean },
 ): SpawnSyncReturns<string>;
 export function runSubprocessSync(
   command: string,
   args: string[],
   options?: SpawnSyncOptions,
+  telemetry?: { captureArgs?: boolean },
 ): SpawnSyncReturns<Buffer>;
 export function runSubprocessSync(
   command: string,
   args: string[],
   options: SpawnSyncOptions | SpawnSyncOptionsWithStringEncoding = {},
+  telemetry: { captureArgs?: boolean } = {},
 ): SpawnSyncReturns<string> | SpawnSyncReturns<Buffer> {
   const executableName = basename(command);
   return getTracer().startActiveSpan(executableName, { kind: SpanKind.CLIENT }, (span) => {
@@ -85,7 +89,7 @@ export function runSubprocessSync(
       const result = (options.encoding
         ? spawnSync(command, args, options as SpawnSyncOptionsWithStringEncoding)
         : spawnSync(command, args, options as SpawnSyncOptions)) as SpawnSyncReturns<string> | SpawnSyncReturns<Buffer>;
-      annotateSubprocess(span, executableName, args, result);
+      annotateSubprocess(span, executableName, args, result, telemetry.captureArgs);
       return result;
     } finally {
       span.end();
