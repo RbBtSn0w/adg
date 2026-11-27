@@ -402,3 +402,23 @@ test matrices remain independent; the contract environment selects npm 12 explic
 No publishing credentials, OIDC grant or private upstream checkout is needed.
 A green check is evidence only when its log shows the applicable commands and
 release tests ran; source/CI success does not prove channel delivery.
+
+### Release toolchain compatibility
+
+The exact publisher Node and npm pins are in `.github/actions/release-toolchain/`.
+The read-only `Release toolchain` PR check and scheduled verify/publish/recovery
+jobs use the same composite action and root lock. Product Node support is
+independent. Dependabot updates that need a newer publisher runtime must include
+the matching pin adjustment.
+
+After the frozen install, run the same read-only checks locally:
+
+```sh
+node scripts/check-release-toolchain.mjs
+node --test test/release-toolchain.test.mjs
+node scripts/smoke-release-toolchain.mjs
+```
+
+The smoke test allows only Git file transport in a disposable repository with
+release-analysis plugins. It checks no-op and patch decisions without production
+credentials or refs. Verify the check on a real PR before marking it required.
